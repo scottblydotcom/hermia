@@ -12,7 +12,7 @@ from textual.widgets import Button, Checkbox, Footer, Header, Label, ProgressBar
 
 from hermia.metrics import MetricsSampler
 from hermia.preflight import run_preflight
-from hermia.results import save_results
+from hermia.results import append_result, load_jsonl, open_run
 from hermia.runner import (
     get_model_size_gb,
     load_tests,
@@ -186,6 +186,10 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
             append_log("Disk space critical — results may not save.", "fail")
         append_log("", "")
 
+        jsonl_path, csv_path = open_run(RESULTS_DIR)
+        append_log(f"Writing results to {jsonl_path.name} (appended after each test)", "info")
+        append_log("", "")
+
         load_stats: dict[str, dict[str, float]] = {}
 
         for model in runnable:
@@ -221,6 +225,7 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
             for test in tests:
                 result = run_test(model, test, sampler)
                 self.all_results.append(result)
+                append_result(result, jsonl_path, csv_path)
 
                 tps = result["tokens_per_sec"]
                 jv = result["json_valid"]
@@ -242,8 +247,6 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
                     style,
                 )
                 self.app.call_from_thread(self.query_one(ProgressBar).advance, 1)  # type: ignore[attr-defined]
-
-        json_out, csv_out = save_results(self.all_results, RESULTS_DIR)
 
         by_model: dict[str, list[dict[str, Any]]] = {}
         for r in self.all_results:
@@ -279,7 +282,7 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
             )
 
         lines.append(f"\nBest: [bold]{scored[0][0]}[/bold] ({scored[0][3]*100:.0f}/100)")
-        lines.append(f"Saved: {json_out.name}  |  {csv_out.name}")
+        lines.append(f"Saved: {jsonl_path.name}  |  {csv_path.name}")
 
         self.app.call_from_thread(  # type: ignore[attr-defined]
             self.query_one("#summary-content", Static).update, "\n".join(lines)

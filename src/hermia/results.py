@@ -7,21 +7,26 @@ from pathlib import Path
 from typing import Any
 
 
-def save_results(
-    results: list[dict[str, Any]], results_dir: Path
-) -> tuple[Path, Path]:
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+def open_run(results_dir: Path) -> tuple[Path, Path]:
+    """Create timestamped output files for a new run, return (jsonl_path, csv_path)."""
     results_dir.mkdir(parents=True, exist_ok=True)
-    json_out = results_dir / f"eval_{ts}.json"
-    csv_out = results_dir / f"eval_{ts}.csv"
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return results_dir / f"eval_{ts}.jsonl", results_dir / f"eval_{ts}.csv"
 
-    with open(json_out, "w") as f:
-        json.dump(results, f, indent=2)
 
-    if results:
-        with open(csv_out, "w", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=results[0].keys())
+def append_result(result: dict[str, Any], jsonl_path: Path, csv_path: Path) -> None:
+    """Append a single test result immediately after it completes."""
+    with open(jsonl_path, "a") as f:
+        f.write(json.dumps(result) + "\n")
+
+    write_header = not csv_path.exists()
+    with open(csv_path, "a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=result.keys())
+        if write_header:
             writer.writeheader()
-            writer.writerows(results)
+        writer.writerow(result)
 
-    return json_out, csv_out
+
+def load_jsonl(jsonl_path: Path) -> list[dict[str, Any]]:
+    """Read all results from a JSONL file."""
+    return [json.loads(line) for line in jsonl_path.read_text().splitlines() if line.strip()]

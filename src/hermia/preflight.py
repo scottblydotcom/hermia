@@ -47,7 +47,9 @@ class PreflightReport:
     def warnings(self) -> list[str]:
         out: list[str] = []
         if not self.disk_ok:
-            out.append(f"Low disk space: {self.disk_free_gb:.1f} GB free (need {MIN_DISK_FREE_GB} GB)")
+            out.append(
+                f"Low disk space: {self.disk_free_gb:.1f} GB free (need {MIN_DISK_FREE_GB} GB)"
+            )
         for m in self.models:
             if m.skip:
                 out.append(f"SKIP {m.name}: {m.reason}")

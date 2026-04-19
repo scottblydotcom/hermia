@@ -40,12 +40,12 @@ def unload_model(model_name: str) -> None:
             json={"model": model_name, "prompt": "", "stream": False, "keep_alive": 0},
             timeout=10,
         )
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass
 
 
 def prewarm_timed(model_name: str) -> tuple[float, float, float]:
-    """Unload cached model then time a cold load. Returns (load_time_sec, vram_before_gb, vram_after_gb)."""
+    """Unload cached model, then time a cold load. Returns (load_time_sec, vram_before_gb, vram_after_gb)."""
     _, vram_before, _ = get_gpu_stats()
     t0 = time.time()
     try:
@@ -59,7 +59,7 @@ def prewarm_timed(model_name: str) -> tuple[float, float, float]:
             },
             timeout=LOAD_TIMEOUT,
         )
-    except Exception:
+    except Exception:  # noqa: BLE001
         pass
     load_time = time.time() - t0
     _, vram_after, _ = get_gpu_stats()

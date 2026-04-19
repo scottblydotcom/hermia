@@ -36,7 +36,7 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "S"]
-ignore = ["S603", "S607"]  # subprocess — intentional in metrics.py
+ignore = ["S603", "S607", "S110", "BLE001"]  # subprocess in metrics.py; bare except in fire-and-forget Ollama calls
 
 [tool.mypy]
 python_version = "3.11"
