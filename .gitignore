@@ -1,5 +1,9 @@
 .venv/
+venv/
 __pycache__/
+._*
+.coverage
+uv.lock
 *.pyc
 *.pyo
 .mypy_cache/
