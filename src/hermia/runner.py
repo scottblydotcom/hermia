@@ -84,42 +84,44 @@ def run_test(
         "options": {"temperature": 0.1},
     }
     sampler.start()
+    error_type: str = ""
     try:
         t0 = time.time()
         resp = requests.post(OLLAMA_URL, json=payload, timeout=TEST_TIMEOUT)
         elapsed = time.time() - t0
         data = resp.json()
+        ollama_error = data.get("error", "")
         output: str = data.get("response", "")
         tokens: int = data.get("eval_count", 0)
+        if ollama_error:
+            error_type = f"OLLAMA_ERROR: {ollama_error}"
+    except requests.exceptions.Timeout:
+        elapsed = TEST_TIMEOUT
+        output = ""
+        tokens = 0
+        error_type = f"TIMEOUT: no response in {TEST_TIMEOUT}s"
     except Exception as e:
-        sampler.stop()
-        peak = sampler.peak()
-        return {
-            "model": model,
-            "test_id": test["id"],
-            "json_valid": False,
-            "schema_compliant": False,
-            "tokens_per_sec": 0,
-            "elapsed_sec": 0,
-            "tokens": 0,
-            "output_preview": f"ERROR: {e}",
-            **{f"peak_{k}": v for k, v in peak.items()},
-        }
+        elapsed = time.time() - t0  # type: ignore[possibly-undefined]
+        output = ""
+        tokens = 0
+        error_type = f"ERROR: {e}"
     sampler.stop()
     peak = sampler.peak()
 
     json_valid = False
     schema_ok = False
-    try:
-        parsed = json.loads(output.strip())
-        json_valid = True
-        checker = SCHEMA_CHECKS.get(test["id"])
-        if checker:
-            schema_ok = bool(checker(parsed))
-    except Exception:
-        pass
+    if output and not error_type:
+        try:
+            parsed = json.loads(output.strip())
+            json_valid = True
+            checker = SCHEMA_CHECKS.get(test["id"])
+            if checker:
+                schema_ok = bool(checker(parsed))
+        except Exception:
+            pass
 
     tps = tokens / elapsed if elapsed > 0 and tokens > 0 else 0
+    preview = error_type if error_type else output[:120].replace("\n", " ")
     return {
         "model": model,
         "test_id": test["id"],
@@ -128,7 +130,7 @@ def run_test(
         "tokens": tokens,
         "elapsed_sec": round(elapsed, 2),
         "tokens_per_sec": round(tps, 1),
-        "output_preview": output[:120].replace("\n", " "),
+        "output_preview": preview,
         "peak_cpu_pct": round(peak.get("cpu_pct", 0), 1),
         "peak_ram_used_gb": round(peak.get("ram_used_gb", 0), 2),
         "peak_gpu_pct": round(peak.get("gpu_pct", 0), 1),

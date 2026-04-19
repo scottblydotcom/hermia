@@ -1,5 +1,6 @@
-"""System and GPU metrics sampling (CPU, RAM, AMD GPU via rocm-smi)."""
+"""System and GPU metrics sampling (CPU, RAM, AMD GPU via rocm-smi or sysfs)."""
 
+import glob
 import json
 import subprocess
 import threading
@@ -7,8 +8,30 @@ import time
 from typing import Any
 
 
+def _gpu_stats_sysfs() -> tuple[float, float, float]:
+    """Read AMD GPU stats from amdgpu kernel sysfs — works without ROCm/Vulkan."""
+    try:
+        busy_files = glob.glob("/sys/class/drm/card*/device/gpu_busy_percent")
+        if not busy_files:
+            return 0.0, 0.0, 8.0
+        dev = busy_files[0].rsplit("/", 1)[0]
+        with open(busy_files[0]) as f:
+            gpu_pct = float(f.read().strip())
+        with open(f"{dev}/mem_info_vram_used") as f:
+            vram_used = float(f.read().strip()) / (1024**3)
+        with open(f"{dev}/mem_info_vram_total") as f:
+            vram_total = float(f.read().strip()) / (1024**3)
+        return gpu_pct, vram_used, vram_total
+    except Exception:
+        return 0.0, 0.0, 8.0
+
+
 def get_gpu_stats() -> tuple[float, float, float]:
-    """Return (gpu_pct, vram_used_gb, vram_total_gb) via rocm-smi."""
+    """Return (gpu_pct, vram_used_gb, vram_total_gb).
+
+    Tries rocm-smi first; falls back to amdgpu sysfs so Vulkan workloads
+    (which rocm-smi reports as zero) are still measured correctly.
+    """
     try:
         result = subprocess.run(  # noqa: S603
             ["rocm-smi", "--showuse", "--showmemuse", "--showmeminfo", "vram", "--json"],  # noqa: S607
@@ -21,9 +44,12 @@ def get_gpu_stats() -> tuple[float, float, float]:
         gpu_pct = float(card.get("GPU use (%)", 0))
         vram_used = float(card.get("VRAM Used Memory (B)", 0)) / (1024**3)
         vram_total = float(card.get("VRAM Total Memory (B)", 1)) / (1024**3)
+        # rocm-smi silently returns zeros for Vulkan workloads — fall back to sysfs
+        if gpu_pct == 0.0 and vram_used == 0.0:
+            return _gpu_stats_sysfs()
         return gpu_pct, vram_used, vram_total
     except Exception:
-        return 0.0, 0.0, 8.0
+        return _gpu_stats_sysfs()
 
 
 def get_system_metrics() -> dict[str, float]:

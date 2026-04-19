@@ -241,11 +241,15 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
                 else:
                     icon, style = "❌", "fail"
 
-                append_log(
+                main_line = (
                     f"  {icon} {test['id']:<35} {tps:5.1f} t/s  "
-                    f"GPU {gpu:.0f}%  VRAM {vram:.1f}GB  CPU {cpu:.0f}%",
-                    style,
+                    f"GPU {gpu:.0f}%  VRAM {vram:.1f}GB  CPU {cpu:.0f}%"
                 )
+                append_log(main_line, style)
+                if style == "fail":
+                    preview = result.get("output_preview", "")
+                    if preview:
+                        append_log(f"       {preview[:80]}", "warn")
                 self.app.call_from_thread(self.query_one(ProgressBar).advance, 1)  # type: ignore[attr-defined]
 
         by_model: dict[str, list[dict[str, Any]]] = {}
