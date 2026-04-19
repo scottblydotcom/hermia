@@ -1,0 +1,10 @@
+#!/usr/bin/env python3
+"""CLI shim — prefer the installed `hermia` entry point from pyproject.toml."""
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
+
+from hermia.app import main
+
+main()

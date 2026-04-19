@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hermia"
+version = "0.1.0"
+description = "Interactive LLM agentic evaluation TUI for local and cloud models"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "textual>=0.80.0",
+    "requests>=2.32.0",
+    "psutil>=6.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.4.0",
+    "mypy>=1.10.0",
+    "pytest>=8.2.0",
+    "pytest-cov>=5.0.0",
+    "types-requests>=2.32.0",
+    "types-psutil>=6.0.0",
+]
+
+[project.scripts]
+hermia = "hermia.app:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hermia"]
+
+[tool.ruff]
+src = ["src"]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "S"]
+ignore = ["S603", "S607"]  # subprocess — intentional in metrics.py
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=hermia --cov-report=term-missing"
