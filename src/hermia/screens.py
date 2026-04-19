@@ -11,6 +11,7 @@ from textual.screen import Screen
 from textual.widgets import Button, Checkbox, Footer, Header, Label, ProgressBar, Static
 
 from hermia.metrics import MetricsSampler
+from hermia.preflight import run_preflight
 from hermia.results import save_results
 from hermia.runner import (
     get_model_size_gb,
@@ -160,9 +161,34 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
             )
             self.app.call_from_thread(self.query_one("#log-content", Static).update, content)  # type: ignore[attr-defined]
 
+        # ── Preflight ────────────────────────────────────────────────────────
+        pf = run_preflight(self.models, self.app.model_list, RESULTS_DIR)  # type: ignore[attr-defined]
+        append_log(
+            f"Preflight  VRAM {pf.vram_used_gb:.1f}/{pf.vram_total_gb:.1f} GB used  "
+            f"RAM {pf.ram_available_gb:.1f}/{pf.ram_total_gb:.1f} GB free  "
+            f"Disk {pf.disk_free_gb:.1f} GB free",
+            "info",
+        )
+        for w in pf.warnings:
+            style = "fail" if w.startswith("SKIP") or w.startswith("Low disk") else "warn"
+            append_log(f"  {w}", style)
+
+        runnable = pf.runnable_models
+        if not runnable:
+            append_log("No models can run — aborting. Check VRAM and RAM.", "fail")
+            return
+        if pf.skipped_models:
+            append_log(
+                f"Skipping: {', '.join(pf.skipped_models)}  |  Running: {', '.join(runnable)}",
+                "warn",
+            )
+        if not pf.disk_ok:
+            append_log("Disk space critical — results may not save.", "fail")
+        append_log("", "")
+
         load_stats: dict[str, dict[str, float]] = {}
 
-        for model in self.models:
+        for model in runnable:
             model_size_gb = get_model_size_gb(model, self.app.model_list)  # type: ignore[attr-defined]
             append_log(f"\n── {model}  ({model_size_gb:.1f} GB) ──────────────────────", "info")
 
@@ -243,7 +269,7 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
         lines.append("\n[bold]LOAD BENCHMARKS[/bold]\n")
         lines.append(f"{'Model':<28} {'Size':>6} {'Load':>7} {'GB/s':>6} {'VRAM Δ':>8}")
         lines.append("─" * 62)
-        for model in self.models:
+        for model in runnable:
             ls = load_stats.get(model, {})
             lines.append(
                 f"{model:<28} {ls.get('size_gb', 0):5.1f}G  "

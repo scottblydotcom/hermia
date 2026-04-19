@@ -13,6 +13,9 @@ from hermia.schemas import SCHEMA_CHECKS
 OLLAMA_URL = "http://localhost:11434/api/generate"
 PROJECT_ROOT = Path(__file__).parents[2]
 
+TEST_TIMEOUT = 90    # seconds per individual test request
+LOAD_TIMEOUT = 120   # seconds for cold model load
+
 
 def get_available_models() -> list[dict[str, Any]]:
     try:
@@ -54,7 +57,7 @@ def prewarm_timed(model_name: str) -> tuple[float, float, float]:
                 "stream": False,
                 "options": {"temperature": 0.1, "num_predict": 1},
             },
-            timeout=120,
+            timeout=LOAD_TIMEOUT,
         )
     except Exception:
         pass
@@ -83,7 +86,7 @@ def run_test(
     sampler.start()
     try:
         t0 = time.time()
-        resp = requests.post(OLLAMA_URL, json=payload, timeout=120)
+        resp = requests.post(OLLAMA_URL, json=payload, timeout=TEST_TIMEOUT)
         elapsed = time.time() - t0
         data = resp.json()
         output: str = data.get("response", "")
