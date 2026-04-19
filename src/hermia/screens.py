@@ -37,6 +37,7 @@ class SelectionScreen(Screen):  # type: ignore[type-arg]
     #buttons { height: 3; align: center middle; margin-top: 1; }
     Button { margin: 0 1; }
     #status { height: 1; content-align: center middle; color: $warning; }
+    #gpu-info { height: 1; content-align: center middle; color: $accent; }
     """
 
     def compose(self) -> ComposeResult:
@@ -57,6 +58,12 @@ class SelectionScreen(Screen):  # type: ignore[type-arg]
             yield Button("Select All Models", id="all_models")
             yield Button("Select All Tests", id="all_tests")
             yield Button("Run Selected", id="run_btn", variant="primary")
+        gpu = self.app.gpu_info  # type: ignore[attr-defined]
+        if gpu["found"]:
+            gpu_label = f"GPU: {gpu['card']}  ({gpu['vram_total_gb']:.1f} GB VRAM)"
+        else:
+            gpu_label = "GPU: no AMD GPU detected — VRAM metrics unavailable"
+        yield Label(gpu_label, id="gpu-info")
         yield Label("", id="status")
         yield Footer()
 
@@ -164,7 +171,7 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
         # ── Preflight ────────────────────────────────────────────────────────
         pf = run_preflight(self.models, self.app.model_list, RESULTS_DIR)  # type: ignore[attr-defined]
         append_log(
-            f"Preflight  VRAM {pf.vram_used_gb:.1f}/{pf.vram_total_gb:.1f} GB used  "
+            f"Preflight  VRAM {pf.vram_available_gb:.1f}/{pf.vram_total_gb:.1f} GB free  "
             f"RAM {pf.ram_available_gb:.1f}/{pf.ram_total_gb:.1f} GB free  "
             f"Disk {pf.disk_free_gb:.1f} GB free",
             "info",

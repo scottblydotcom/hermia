@@ -7,15 +7,68 @@ import threading
 import time
 from typing import Any
 
+# Resolved once per run via detect_gpu(); updated by detect_gpu() on each run start.
+_AMD_DEV: str | None = None
+
+
+def _find_amdgpu_dev() -> str | None:
+    """Scan DRM devices and return the sysfs device path for the best AMD GPU.
+
+    Validates via uevent DRIVER=amdgpu — ignores Intel/Nvidia cards regardless
+    of card number. When multiple AMD GPUs are present, picks the one with the
+    most VRAM.
+    """
+    candidates: list[tuple[int, str]] = []
+    for uevent_path in glob.glob("/sys/class/drm/card*/device/uevent"):
+        try:
+            with open(uevent_path) as f:
+                if "DRIVER=amdgpu" not in f.read():
+                    continue
+            dev = uevent_path.rsplit("/", 1)[0]
+            vram_path = f"{dev}/mem_info_vram_total"
+            try:
+                with open(vram_path) as f:
+                    vram = int(f.read().strip())
+            except OSError:
+                vram = 0
+            candidates.append((vram, dev))
+        except OSError:
+            continue
+    if not candidates:
+        return None
+    candidates.sort(reverse=True)
+    return candidates[0][1]
+
+
+def detect_gpu() -> dict[str, Any]:
+    """Detect AMD GPU hardware at run start. Updates the module-level cache.
+
+    Returns a dict with keys: found (bool), card (str), dev_path (str),
+    vram_total_gb (float). Call this once at the start of each eval run so
+    hardware changes (e.g. new GPU installed) are caught without restarting.
+    """
+    global _AMD_DEV
+    _AMD_DEV = _find_amdgpu_dev()
+    if _AMD_DEV is None:
+        return {"found": False, "card": "", "dev_path": "", "vram_total_gb": 0.0}
+    card = _AMD_DEV.split("/sys/class/drm/")[-1].split("/")[0]
+    try:
+        with open(f"{_AMD_DEV}/mem_info_vram_total") as f:
+            vram_total_gb = int(f.read().strip()) / (1024**3)
+    except OSError:
+        vram_total_gb = 0.0
+    return {"found": True, "card": card, "dev_path": _AMD_DEV, "vram_total_gb": vram_total_gb}
+
 
 def _gpu_stats_sysfs() -> tuple[float, float, float]:
     """Read AMD GPU stats from amdgpu kernel sysfs — works without ROCm/Vulkan."""
+    dev = _AMD_DEV
+    if dev is None:
+        dev = _find_amdgpu_dev()
+    if dev is None:
+        return 0.0, 0.0, 0.0
     try:
-        busy_files = glob.glob("/sys/class/drm/card*/device/gpu_busy_percent")
-        if not busy_files:
-            return 0.0, 0.0, 8.0
-        dev = busy_files[0].rsplit("/", 1)[0]
-        with open(busy_files[0]) as f:
+        with open(f"{dev}/gpu_busy_percent") as f:
             gpu_pct = float(f.read().strip())
         with open(f"{dev}/mem_info_vram_used") as f:
             vram_used = float(f.read().strip()) / (1024**3)
@@ -23,7 +76,7 @@ def _gpu_stats_sysfs() -> tuple[float, float, float]:
             vram_total = float(f.read().strip()) / (1024**3)
         return gpu_pct, vram_used, vram_total
     except Exception:
-        return 0.0, 0.0, 8.0
+        return 0.0, 0.0, 0.0
 
 
 def get_gpu_stats() -> tuple[float, float, float]:
