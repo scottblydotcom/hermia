@@ -55,11 +55,22 @@ def test_oversized_model_cpu_fallback_not_skipped(tmp_path: Path):
 
 
 def test_tight_vram_warns(tmp_path: Path):
-    with _mock_gpu(total=8.0, used=3.0), _mock_ram(), _mock_disk():
-        report = run_preflight(["gemma2:9b"], MODEL_LIST, tmp_path)
+    """Use llama3:8b (not blocklisted) to test the tight-VRAM warning path."""
+    with _mock_gpu(total=8.0, used=4.0), _mock_ram(), _mock_disk():
+        report = run_preflight(["llama3:8b"], MODEL_LIST, tmp_path)
     check = report.models[0]
     assert not check.fits_current_vram
     assert any("WARN" in w for w in report.warnings)
+
+
+def test_blocklisted_model_skipped(tmp_path: Path):
+    """gemma2:9b is on the Vulkan/gfx900 blocklist and must always be skipped."""
+    with _mock_gpu(total=8.0, used=0.0), _mock_ram(available_gb=32.0), _mock_disk():
+        report = run_preflight(["gemma2:9b"], MODEL_LIST, tmp_path)
+    check = report.models[0]
+    assert check.skip
+    assert "gemma2:9b" in report.skipped_models
+    assert any("Vulkan" in w for w in report.warnings)
 
 
 def test_low_disk_flagged(tmp_path: Path):

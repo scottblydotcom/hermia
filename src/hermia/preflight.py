@@ -12,6 +12,12 @@ VRAM_OVERHEAD_GB = 0.75  # headroom reserved for Ollama runtime
 RAM_LOAD_MULTIPLIER = 1.5  # approximate RAM needed for CPU-only inference
 MIN_DISK_FREE_GB = 0.5
 
+# Models confirmed incompatible with Ollama's Vulkan backend on gfx900 (Vega 64).
+# gemma2:9b falls back to CPU silently, produces garbled output, and fails all tests.
+VULKAN_GFX900_BLOCKLIST: dict[str, str] = {
+    "gemma2:9b": "Vulkan/gfx900 incompatible — CPU fallback produces garbled output",
+}
+
 
 @dataclass
 class ModelCheck:
@@ -85,8 +91,20 @@ def run_preflight(
         fits_total_vram = size_gb <= vram_total
         fits_current_vram = size_gb <= vram_available
         fits_ram = (size_gb * RAM_LOAD_MULTIPLIER) <= ram_available_gb
-        skip = not fits_total_vram and not fits_ram
 
+        if name in VULKAN_GFX900_BLOCKLIST:
+            checks.append(ModelCheck(
+                name=name,
+                size_gb=size_gb,
+                fits_total_vram=fits_total_vram,
+                fits_current_vram=fits_current_vram,
+                fits_ram=fits_ram,
+                skip=True,
+                reason=VULKAN_GFX900_BLOCKLIST[name],
+            ))
+            continue
+
+        skip = not fits_total_vram and not fits_ram
         reason = ""
         if not fits_total_vram and not fits_ram:
             reason = (
