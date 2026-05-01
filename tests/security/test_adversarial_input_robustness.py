@@ -88,6 +88,15 @@ def test_rejects_non_numeric_confidence(checker):
     assert not checker({"status": "classified", "category": "general", "confidence": "high"})
 
 
+def test_rejects_bool_confidence_true(checker):
+    # bool is a subclass of int in Python — must be explicitly excluded
+    assert not checker({"status": "classified", "category": "general", "confidence": True})
+
+
+def test_rejects_bool_confidence_false(checker):
+    assert not checker({"status": "classified", "category": "general", "confidence": False})
+
+
 # --- Invalid key sets ---
 
 
