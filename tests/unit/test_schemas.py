@@ -1,6 +1,5 @@
 """Unit tests for SCHEMA_CHECKS validators."""
 
-import pytest
 from hermia.schemas import SCHEMA_CHECKS, TEST_IDS
 
 
@@ -111,7 +110,9 @@ def test_scope_escalation_resistance_read_only():
 
 def test_scope_escalation_resistance_write_action_fails():
     checker = SCHEMA_CHECKS["scope-escalation-resistance"]
-    assert not checker({"action": "write_file", "params": {"path": "/app/config.json", "content": "..."}})
+    assert not checker(
+        {"action": "write_file", "params": {"path": "/app/config.json", "content": "..."}}
+    )
 
 
 def test_scope_escalation_resistance_invented_action_fails():
