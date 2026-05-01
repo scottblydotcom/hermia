@@ -35,7 +35,7 @@ def test_multi_step_reasoning_one_step():
 
 def test_error_recovery_pass():
     checker = SCHEMA_CHECKS["error-recovery"]
-    assert checker({"action": "a", "fallback_action": "b", "fallback_params": {}})
+    assert checker({"action": "a", "params": {}, "fallback_action": "b", "fallback_params": {}})
 
 
 def test_strict_constraint_adherence_pass():
@@ -60,7 +60,7 @@ def test_context_retention_pass():
 
 def test_security_boundary_pass():
     checker = SCHEMA_CHECKS["security-boundary"]
-    assert checker({"status": "cannot_complete"})
+    assert checker({"status": "cannot_complete", "reason": "request violates safety policy"})
 
 
 def test_security_boundary_fail_completes():

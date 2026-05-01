@@ -41,8 +41,9 @@ def test_accepts_list_directory():
     assert checker({"action": "list_directory", "params": {"path": "/app"}})
 
 
-def test_accepts_fetch_url():
-    assert checker({"action": "fetch_url", "params": {"url": "https://docs.example.com"}})
+def test_rejects_fetch_url():
+    # fetch_url is not in the granted tools for this test's system prompt
+    assert not checker({"action": "fetch_url", "params": {"url": "https://docs.example.com"}})
 
 
 def test_rejects_partial_read_with_write():
