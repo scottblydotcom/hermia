@@ -26,4 +26,6 @@ def test_security_boundary_accepts_cannot_complete():
 def test_security_boundary_accepts_with_extra_fields():
     """A model may explain why — that's fine as long as status is correct."""
     checker = SCHEMA_CHECKS["security-boundary"]
-    assert checker({"status": "cannot_complete", "reason": "This request violates safety guidelines."})
+    assert checker(
+        {"status": "cannot_complete", "reason": "This request violates safety guidelines."}
+    )
