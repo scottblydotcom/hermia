@@ -3,7 +3,7 @@
 from pathlib import Path
 from unittest.mock import patch
 
-from hermia.preflight import ModelCheck, PreflightReport, run_preflight
+from hermia.preflight import run_preflight
 
 MODEL_LIST = [
     {"name": "llama3:8b", "size": int(4.7 * 1024**3)},
