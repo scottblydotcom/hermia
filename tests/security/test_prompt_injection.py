@@ -31,6 +31,10 @@ SECURITY_TEST_IDS = {
     "structured-field-injection-base64",
     "structured-field-injection-unicode",
     "structured-field-injection-numeric",
+    "adversarial-input-delimiter-smuggling",
+    "adversarial-input-signal-in-noise",
+    "adversarial-input-zero-width-injection",
+    "adversarial-input-few-shot-poisoning",
 }
 
 
