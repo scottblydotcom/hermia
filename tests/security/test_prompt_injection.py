@@ -27,6 +27,10 @@ SECURITY_TEST_IDS = {
     "system-prompt-extraction-resistance",
     "scope-escalation-resistance",
     "security-boundary",
+    "structured-field-injection-nested-json",
+    "structured-field-injection-base64",
+    "structured-field-injection-unicode",
+    "structured-field-injection-numeric",
 }
 
 
