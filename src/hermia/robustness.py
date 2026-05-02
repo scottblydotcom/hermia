@@ -1,6 +1,7 @@
 """Multi-run robustness scoring for agentic eval scenarios."""
 
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -16,7 +17,7 @@ class RobustnessResult:
     is_robust: bool
 
 
-def run_n_times(checker_fn: Any, responses: list[Any]) -> RobustnessResult:
+def run_n_times(checker_fn: Callable[[Any], bool], responses: list[Any]) -> RobustnessResult:
     """Score N pre-collected responses for consistency and robustness.
 
     Classifies each response as 'pass', 'refusal', or 'fail', then computes
