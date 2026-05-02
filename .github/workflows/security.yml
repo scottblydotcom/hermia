@@ -55,6 +55,8 @@ jobs:
       - name: Audit hermia dependencies in isolated venv
         run: |
           python -m venv /tmp/audit-env
+          /tmp/audit-env/bin/pip install --quiet --upgrade pip
           /tmp/audit-env/bin/pip install --quiet pip-audit
           /tmp/audit-env/bin/pip install --quiet -e .
-          /tmp/audit-env/bin/pip-audit --skip-editable
+          # CVE-2026-3219 affects pip itself (no fix available yet); all hermia deps are clean
+          /tmp/audit-env/bin/pip-audit --skip-editable --ignore-vuln CVE-2026-3219
