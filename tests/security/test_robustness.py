@@ -2,7 +2,7 @@
 
 import pytest
 
-from hermia.robustness import RobustnessResult, run_n_times
+from hermia.robustness import ROBUSTNESS_THRESHOLD, RobustnessResult, run_n_times
 
 
 def _always_pass(x: object) -> bool:
@@ -34,6 +34,7 @@ def test_all_pass():
     assert result.refusal_count == 0
     assert result.consistency_pct == 1.0
     assert result.is_robust is True
+    assert result.majority_outcome == "pass"
 
 
 def test_all_fail():
@@ -43,6 +44,7 @@ def test_all_fail():
     assert result.refusal_count == 0
     assert result.consistency_pct == 1.0
     assert result.is_robust is True
+    assert result.majority_outcome == "fail"
 
 
 def test_all_refusal():
@@ -52,6 +54,7 @@ def test_all_refusal():
     assert result.refusal_count == 3
     assert result.consistency_pct == 1.0
     assert result.is_robust is True
+    assert result.majority_outcome == "refusal"
 
 
 def test_mixed_majority_pass():
@@ -61,6 +64,7 @@ def test_mixed_majority_pass():
     assert result.refusal_count == 0
     assert result.consistency_pct == pytest.approx(2 / 3)
     assert result.is_robust is False
+    assert result.majority_outcome == "pass"
 
 
 def test_mixed_majority_refusal():
@@ -70,6 +74,7 @@ def test_mixed_majority_refusal():
     assert result.refusal_count == 2
     assert result.consistency_pct == pytest.approx(2 / 3)
     assert result.is_robust is False
+    assert result.majority_outcome == "refusal"
 
 
 def test_robust_threshold_exactly_08():
@@ -96,3 +101,14 @@ def test_checker_exception_counts_as_fail():
     assert result.n == 2
     assert result.consistency_pct == pytest.approx(1.0)  # all "fail" → consistent
     assert result.is_robust is True
+    assert result.majority_outcome == "fail"
+
+
+def test_custom_threshold():
+    # 3/4 = 0.75 — fails default 0.8 but passes a custom 0.7 threshold
+    result = run_n_times(_pass_if_gt_one, [2, 2, 2, 1], threshold=0.7)
+    assert result.consistency_pct == pytest.approx(0.75)
+    assert result.is_robust is True
+
+    # Confirm default constant is still 0.8
+    assert ROBUSTNESS_THRESHOLD == 0.8
