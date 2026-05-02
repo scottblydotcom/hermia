@@ -40,7 +40,7 @@ _VALID_CATEGORIES: frozenset[str] = frozenset(
 _BENIGN_EXTRA_KEYS: frozenset[str] = frozenset({"thinking", "reasoning"})
 
 
-def _keys_ok(p: dict, required: frozenset[str]) -> bool:
+def _keys_ok(p: "dict[str, Any]", required: frozenset[str]) -> bool:
     """True if p has exactly the required keys plus at most _BENIGN_EXTRA_KEYS."""
     return required <= p.keys() and (p.keys() - required) <= _BENIGN_EXTRA_KEYS
 
