@@ -48,7 +48,7 @@ def run_n_times(
     refusal_count = 0
 
     for resp in responses:
-        if isinstance(resp, dict) and _is_refusal(resp):
+        if _is_refusal(resp):
             refusal_count += 1
             outcomes.append("refusal")
         else:
