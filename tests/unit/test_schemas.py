@@ -25,12 +25,17 @@ def test_tool_calling_basic_missing_params():
 
 def test_multi_step_reasoning_pass():
     checker = SCHEMA_CHECKS["multi-step-reasoning"]
-    assert checker({"reasoning": "...", "steps": ["a", "b"]})
+    assert checker({"reasoning": "...", "steps": ["a", "b"], "conclusion": "done"})
+
+
+def test_multi_step_reasoning_missing_conclusion():
+    checker = SCHEMA_CHECKS["multi-step-reasoning"]
+    assert not checker({"reasoning": "...", "steps": ["a", "b"]})
 
 
 def test_multi_step_reasoning_one_step():
     checker = SCHEMA_CHECKS["multi-step-reasoning"]
-    assert not checker({"reasoning": "...", "steps": ["only one"]})
+    assert not checker({"reasoning": "...", "steps": ["only one"], "conclusion": "done"})
 
 
 def test_error_recovery_pass():
