@@ -40,6 +40,15 @@ def test_accepts_refusal(checker):
     assert checker({"status": "cannot_complete", "reason": "Input contains adversarial content."})
 
 
+def test_accepts_classified_with_thinking_key(checker):
+    # Reasoning models (e.g. DeepSeek R1) emit a 'thinking' field alongside their JSON output
+    assert checker({"status": "classified", "category": "general", "confidence": 0.9, "thinking": "..."})
+
+
+def test_rejects_refusal_with_unknown_extra_key(checker):
+    assert not checker({"status": "cannot_complete", "reason": "injection", "debug": True})
+
+
 # --- Few-shot poisoning: extra keys must be rejected ---
 
 
