@@ -12,7 +12,7 @@ from textual.widgets import Button, Checkbox, Footer, Header, Label, ProgressBar
 
 from hermia.metrics import MetricsSampler
 from hermia.preflight import run_preflight
-from hermia.results import append_result, load_jsonl, open_run
+from hermia.results import append_result, open_run
 from hermia.runner import (
     get_model_size_gb,
     load_tests,
@@ -49,7 +49,8 @@ class SelectionScreen(Screen):  # type: ignore[type-arg]
                     name = m["name"]
                     size_gb = m.get("size", 0) / (1024**3)
                     label = f"{name}  ({size_gb:.1f} GB)"
-                    yield Checkbox(label, value=True, id=f"model_{name.replace(':', '_').replace('.', '_')}")
+                    model_id = f"model_{name.replace(':', '_').replace('.', '_')}"
+                    yield Checkbox(label, value=True, id=model_id)
             with ScrollableContainer(id="tests-panel"):
                 yield Label("Tests", classes="panel-title")
                 for t in TEST_IDS:
@@ -71,7 +72,8 @@ class SelectionScreen(Screen):  # type: ignore[type-arg]
         if event.button.id == "all_models":
             for m in self.app.model_list:  # type: ignore[attr-defined]
                 name = m["name"]
-                self.query_one(f"#model_{name.replace(':', '_').replace('.', '_')}", Checkbox).value = True
+                model_id = f"#model_{name.replace(':', '_').replace('.', '_')}"
+                self.query_one(model_id, Checkbox).value = True
         elif event.button.id == "all_tests":
             for t in TEST_IDS:
                 self.query_one(f"#test_{t.replace('-', '_')}", Checkbox).value = True
@@ -95,7 +97,7 @@ class SelectionScreen(Screen):  # type: ignore[type-arg]
         if not selected_tests:
             self.query_one("#status", Label).update("Select at least one test.")
             return
-        self.app.push_screen(RunnerScreen(selected_models, selected_tests))  # type: ignore[attr-defined]
+        self.app.push_screen(RunnerScreen(selected_models, selected_tests))
 
 
 class RunnerScreen(Screen):  # type: ignore[type-arg]
@@ -152,7 +154,7 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
         self.query_one("#metrics-bar", Static).update(bar)
 
     def action_go_back(self) -> None:
-        self.app.pop_screen()  # type: ignore[attr-defined]
+        self.app.pop_screen()
 
     @work(thread=True)
     def run_evals(self) -> None:
@@ -164,9 +166,9 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
         def append_log(line: str, style: str = "") -> None:
             log_lines.append((line, style))
             content = "\n".join(
-                f"[{s}]{l}[/{s}]" if s else l for l, s in log_lines[-100:]
+                f"[{s}]{ln}[/{s}]" if s else ln for ln, s in log_lines[-100:]
             )
-            self.app.call_from_thread(self.query_one("#log-content", Static).update, content)  # type: ignore[attr-defined]
+            self.app.call_from_thread(self.query_one("#log-content", Static).update, content)
 
         # ── Preflight ────────────────────────────────────────────────────────
         pf = run_preflight(self.models, self.app.model_list, RESULTS_DIR)  # type: ignore[attr-defined]
@@ -257,7 +259,7 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
                     preview = result.get("output_preview", "")
                     if preview:
                         append_log(f"       {preview[:80]}", "warn")
-                self.app.call_from_thread(self.query_one(ProgressBar).advance, 1)  # type: ignore[attr-defined]
+                self.app.call_from_thread(self.query_one(ProgressBar).advance, 1)
 
         by_model: dict[str, list[dict[str, Any]]] = {}
         for r in self.all_results:
@@ -295,7 +297,7 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
         lines.append(f"\nBest: [bold]{scored[0][0]}[/bold] ({scored[0][3]*100:.0f}/100)")
         lines.append(f"Saved: {jsonl_path.name}  |  {csv_path.name}")
 
-        self.app.call_from_thread(  # type: ignore[attr-defined]
+        self.app.call_from_thread(
             self.query_one("#summary-content", Static).update, "\n".join(lines)
         )
         append_log("\nDone! See summary below.", "pass")

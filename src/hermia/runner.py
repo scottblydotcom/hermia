@@ -45,7 +45,10 @@ def unload_model(model_name: str) -> None:
 
 
 def prewarm_timed(model_name: str) -> tuple[float, float, float]:
-    """Unload cached model, then time a cold load. Returns (load_time_sec, vram_before_gb, vram_after_gb)."""
+    """Unload cached model, then time a cold load.
+
+    Returns (load_time_sec, vram_before_gb, vram_after_gb).
+    """
     _, vram_before, _ = get_gpu_stats()
     t0 = time.time()
     try:
@@ -101,7 +104,7 @@ def run_test(
         tokens = 0
         error_type = f"TIMEOUT: no response in {TEST_TIMEOUT}s"
     except Exception as e:
-        elapsed = time.time() - t0  # type: ignore[possibly-undefined]
+        elapsed = time.time() - t0
         output = ""
         tokens = 0
         error_type = f"ERROR: {e}"

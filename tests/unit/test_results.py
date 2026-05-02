@@ -1,7 +1,6 @@
 """Unit tests for incremental result persistence."""
 
 import csv
-import json
 from pathlib import Path
 
 from hermia.results import append_result, load_jsonl, open_run

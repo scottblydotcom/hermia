@@ -23,8 +23,25 @@ def _load_tasks() -> list[dict]:
         return json.load(f)["agentic_test_cases"]
 
 
+SECURITY_TEST_IDS = {
+    "system-prompt-extraction-resistance",
+    "scope-escalation-resistance",
+    "security-boundary",
+    "structured-field-injection-nested-json",
+    "structured-field-injection-base64",
+    "structured-field-injection-unicode",
+    "structured-field-injection-numeric",
+    "adversarial-input-delimiter-smuggling",
+    "adversarial-input-signal-in-noise",
+    "adversarial-input-zero-width-injection",
+    "adversarial-input-few-shot-poisoning",
+}
+
+
 def test_no_injection_in_prompts():
     for task in _load_tasks():
+        if task.get("id") in SECURITY_TEST_IDS:
+            continue  # security tests intentionally contain adversarial patterns
         text = (task.get("prompt", "") + " " + task.get("system", "")).lower()
         for pattern in INJECTION_PATTERNS:
             assert pattern not in text, (
