@@ -30,8 +30,8 @@ def test_sampler_collects_samples():
 def test_sampler_peak_returns_max():
     s = MetricsSampler()
     s.samples = [
-        {"cpu_pct": 10.0, "ram_used_gb": 4.0, "gpu_pct": 30.0, "vram_used_gb": 2.0, "vram_total_gb": 8.0},
-        {"cpu_pct": 90.0, "ram_used_gb": 12.0, "gpu_pct": 95.0, "vram_used_gb": 7.0, "vram_total_gb": 8.0},
+        {"cpu_pct": 10.0, "ram_used_gb": 4.0, "gpu_pct": 30.0, "vram_used_gb": 2.0, "vram_total_gb": 8.0},  # noqa: E501
+        {"cpu_pct": 90.0, "ram_used_gb": 12.0, "gpu_pct": 95.0, "vram_used_gb": 7.0, "vram_total_gb": 8.0},  # noqa: E501
     ]
     peak = s.peak()
     assert peak["cpu_pct"] == 90.0
@@ -138,7 +138,9 @@ def test_detect_gpu_picks_highest_vram_when_multiple_amdgpu():
 
 def test_get_gpu_stats_falls_back_to_sysfs_when_rocm_returns_zeros():
     """rocm-smi returning all zeros should trigger sysfs fallback."""
-    rocm_output = '{"card2": {"GPU use (%)": 0, "VRAM Used Memory (B)": 0, "VRAM Total Memory (B)": 1}}'
+    rocm_output = (
+        '{"card2": {"GPU use (%)": 0, "VRAM Used Memory (B)": 0, "VRAM Total Memory (B)": 1}}'
+    )
     mock_result = MagicMock()
     mock_result.stdout = rocm_output
 
