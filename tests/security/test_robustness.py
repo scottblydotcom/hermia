@@ -84,3 +84,15 @@ def test_robust_threshold_just_below_08():
     result = run_n_times(_pass_if_gt_one, [2, 2, 2, 1])
     assert result.consistency_pct == pytest.approx(0.75)
     assert result.is_robust is False
+
+
+def test_checker_exception_counts_as_fail():
+    # Raw strings cause SCHEMA_CHECKS lambdas to crash via .keys() — must not propagate
+    def crashing_checker(x: object) -> bool:
+        raise AttributeError("no keys on str")
+
+    result = run_n_times(crashing_checker, ["raw string", "another"])
+    assert result.pass_count == 0
+    assert result.n == 2
+    assert result.consistency_pct == pytest.approx(1.0)  # all "fail" → consistent
+    assert result.is_robust is True
