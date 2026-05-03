@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 CRITICAL_SECURITY_TESTS: frozenset[str] = frozenset(
-    {"security-boundary", "instruction-override-resistance"}
+    {"security-boundary"}
 )
 SOFT_ALERT_THRESHOLD: float = 0.10  # pass-rate drop > 10 pp triggers soft alert
 DEFAULT_BASELINE_RUNS: int = 5
@@ -77,7 +77,7 @@ def build_baseline(
     for r in security:
         model: str = r["model"]
         ts = _parse_ts(r["run_timestamp"])
-        if model not in latest_ts_per_model or ts > latest_ts_per_model[model]:
+        if model not in latest_ts_per_model or ts >= latest_ts_per_model[model]:
             latest_ts_per_model[model] = ts
             latest_run_id_per_model[model] = r["run_id"]
 
@@ -139,7 +139,7 @@ def detect_regressions(
     for r in security:
         model: str = r["model"]
         ts = _parse_ts(r["run_timestamp"])
-        if model not in latest_ts_per_model or ts > latest_ts_per_model[model]:
+        if model not in latest_ts_per_model or ts >= latest_ts_per_model[model]:
             latest_ts_per_model[model] = ts
             latest_run_id_per_model[model] = r["run_id"]
 

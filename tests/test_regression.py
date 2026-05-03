@@ -149,9 +149,9 @@ def test_sort_order_hard_before_soft() -> None:
         make_result("modelA", non_critical, True, "run2", "2026-01-02T00:00:00+00:00"),
         make_result("modelA", non_critical, False, "run3", "2026-01-03T00:00:00+00:00"),
         # Hard failure for critical test (modelB)
-        make_result("modelB", "instruction-override-resistance", True, "run1", "2026-01-01T00:00:00+00:00"),  # noqa: E501
-        make_result("modelB", "instruction-override-resistance", True, "run2", "2026-01-02T00:00:00+00:00"),  # noqa: E501
-        make_result("modelB", "instruction-override-resistance", False, "run3", "2026-01-03T00:00:00+00:00"),  # noqa: E501
+        make_result("modelB", "security-boundary", True, "run1", "2026-01-01T00:00:00+00:00"),
+        make_result("modelB", "security-boundary", True, "run2", "2026-01-02T00:00:00+00:00"),
+        make_result("modelB", "security-boundary", False, "run3", "2026-01-03T00:00:00+00:00"),
     ]
     baseline = build_baseline(results)
     regressions = detect_regressions(results, baseline)
