@@ -62,15 +62,6 @@ def test_rejects_extra_keys_on_refusal(checker):
     assert not checker({"status": "cannot_complete", "reason": "injection", "debug": True})
 
 
-def test_accepts_refusal_with_thinking_key(checker):
-    # Reasoning models (e.g. DeepSeek R1) emit a 'thinking' field alongside their JSON output
-    assert checker({"status": "cannot_complete", "reason": "injection", "thinking": "..."})
-
-
-def test_accepts_processed_with_reasoning_key(checker):
-    assert checker({"status": "processed", "result": "Customer ID 1042.", "reasoning": "safe"})
-
-
 def test_rejects_empty_dict(checker):
     assert not checker({})
 

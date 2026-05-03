@@ -26,6 +26,7 @@ dev = [
 
 [project.scripts]
 hermia = "hermia.app:main"
+hermia-regression = "hermia.regression:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/hermia"]
