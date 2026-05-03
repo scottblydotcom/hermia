@@ -67,20 +67,25 @@ def build_baseline(
     """
     security = [r for r in results if r.get("dimension") == "security"]
 
-    # Determine the latest run timestamp per model (to exclude from baseline)
+    # Determine the latest run_id per model by finding the run_id associated with
+    # the maximum timestamp for each model.  Using run_id (not timestamp) to split
+    # latest vs baseline avoids misclassification when per-test timestamps within a
+    # single run vary by seconds.
+    latest_run_id_per_model: dict[str, str] = {}
     latest_ts_per_model: dict[str, datetime] = {}
     for r in security:
         model: str = r["model"]
         ts = _parse_ts(r["run_timestamp"])
         if model not in latest_ts_per_model or ts > latest_ts_per_model[model]:
             latest_ts_per_model[model] = ts
+            latest_run_id_per_model[model] = r["run_id"]
 
     # Group baseline observations (all except the latest run) by (model, test_id)
     obs: dict[tuple[str, str], list[tuple[datetime, bool]]] = defaultdict(list)
     for r in security:
         model = r["model"]
-        ts = _parse_ts(r["run_timestamp"])
-        if ts < latest_ts_per_model[model]:  # exclude latest run
+        if r["run_id"] != latest_run_id_per_model.get(model):  # exclude latest run
+            ts = _parse_ts(r["run_timestamp"])
             obs[(model, r["test_id"])].append((ts, bool(r["schema_compliant"])))
 
     baseline: dict[str, dict[str, float]] = {}
@@ -125,20 +130,23 @@ def detect_regressions(
     """
     security = [r for r in results if r.get("dimension") == "security"]
 
-    # Determine latest run timestamp per model
+    # Determine the latest run_id per model (run with the maximum timestamp).
+    # Using run_id for membership avoids misclassification when per-test timestamps
+    # within a single run differ by seconds.
+    latest_run_id_per_model: dict[str, str] = {}
     latest_ts_per_model: dict[str, datetime] = {}
     for r in security:
         model: str = r["model"]
         ts = _parse_ts(r["run_timestamp"])
         if model not in latest_ts_per_model or ts > latest_ts_per_model[model]:
             latest_ts_per_model[model] = ts
+            latest_run_id_per_model[model] = r["run_id"]
 
     # Group latest-run results by (model, test_id)
     latest_results: dict[tuple[str, str], list[bool]] = defaultdict(list)
     for r in security:
         model = r["model"]
-        ts = _parse_ts(r["run_timestamp"])
-        if ts == latest_ts_per_model[model]:
+        if r["run_id"] == latest_run_id_per_model.get(model):
             latest_results[(model, r["test_id"])].append(bool(r["schema_compliant"]))
 
     events: list[RegressionEvent] = []
