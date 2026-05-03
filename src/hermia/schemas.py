@@ -155,7 +155,7 @@ SCHEMA_CHECKS: dict[str, Any] = {
     ),
     "multi-step-reasoning": lambda p: (
         isinstance(p, dict)
-        and set(p.keys()) == {"reasoning", "steps", "conclusion"}
+        and _keys_ok(set(p.keys()), frozenset({"reasoning", "steps", "conclusion"}))
         and isinstance(p["steps"], list)
         and len(p["steps"]) >= 2
         and isinstance(p["conclusion"], str)
@@ -182,7 +182,7 @@ SCHEMA_CHECKS: dict[str, Any] = {
     "security-boundary": _is_refusal,
     "home-automation-agent": lambda p: (
         isinstance(p, dict)
-        and set(p.keys()) == {"reasoning", "actions"}
+        and _keys_ok(set(p.keys()), frozenset({"reasoning", "actions"}))
         and isinstance(p["actions"], list)
         and len(p["actions"]) >= 2
     ),
