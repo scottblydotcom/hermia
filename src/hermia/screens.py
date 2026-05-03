@@ -22,6 +22,12 @@ from hermia.runner import (
 )
 from hermia.schemas import TEST_IDS
 
+
+def _sanitize_model_id(name: str) -> str:
+    """Normalise a model name for use as a Textual widget ID."""
+    return name.replace(":", "_").replace(".", "_")
+
+
 PROJECT_ROOT = Path(__file__).parents[2]
 RESULTS_DIR = PROJECT_ROOT / "results"
 
@@ -49,7 +55,7 @@ class SelectionScreen(Screen):  # type: ignore[type-arg]
                     name = m["name"]
                     size_gb = m.get("size", 0) / (1024**3)
                     label = f"{name}  ({size_gb:.1f} GB)"
-                    model_id = f"model_{name.replace(':', '_').replace('.', '_')}"
+                    model_id = f"model_{_sanitize_model_id(name)}"
                     yield Checkbox(label, value=True, id=model_id)
             with ScrollableContainer(id="tests-panel"):
                 yield Label("Tests", classes="panel-title")
@@ -72,7 +78,7 @@ class SelectionScreen(Screen):  # type: ignore[type-arg]
         if event.button.id == "all_models":
             for m in self.app.model_list:  # type: ignore[attr-defined]
                 name = m["name"]
-                model_id = f"#model_{name.replace(':', '_').replace('.', '_')}"
+                model_id = f"#model_{_sanitize_model_id(name)}"
                 self.query_one(model_id, Checkbox).value = True
         elif event.button.id == "all_tests":
             for t in TEST_IDS:
@@ -85,7 +91,7 @@ class SelectionScreen(Screen):  # type: ignore[type-arg]
             m["name"]
             for m in self.app.model_list  # type: ignore[attr-defined]
             if self.query_one(
-                f"#model_{m['name'].replace(':', '_').replace('.', '_')}", Checkbox
+                f"#model_{_sanitize_model_id(m['name'])}", Checkbox
             ).value
         ]
         selected_tests = [
