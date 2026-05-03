@@ -6,6 +6,7 @@ emits RegressionEvent items for CI integration (NIST ME 3.1, P2).
 
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from collections import defaultdict
@@ -234,7 +235,7 @@ def format_report(regressions: list[RegressionEvent]) -> str:
 
 
 def main(
-    results_path: str | Path = "all-results.json",
+    results_path: str | Path | None = None,
     exit_nonzero_on_regression: bool = True,
 ) -> int:
     """CLI entry point for CI regression detection.
@@ -244,6 +245,16 @@ def main(
         1  — one or more regressions found
         2  — error loading/parsing results file
     """
+    if results_path is None:
+        parser = argparse.ArgumentParser(prog="hermia-regression")
+        parser.add_argument(
+            "results_path",
+            nargs="?",
+            default="all-results.json",
+            help="Path to all-results.json (default: ./all-results.json)",
+        )
+        results_path = parser.parse_args().results_path
+
     try:
         results = load_all_results(results_path)
     except (FileNotFoundError, ValueError) as exc:
