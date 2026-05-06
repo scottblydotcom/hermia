@@ -15,3 +15,4 @@ results/
 .env
 .env.*
 !.env.template
+session-notes/
