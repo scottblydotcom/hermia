@@ -5,7 +5,7 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Interactive LLM security eval TUI for local models.
+Interactive LLM security eval TUI for local models. Built in a homelab. Surprisingly rigorous.
 
 ---
 
@@ -13,30 +13,45 @@ Interactive LLM security eval TUI for local models.
 
 Hermia runs structured agentic evaluation test cases against local Ollama models and scores
 them for behavioral correctness across security, reasoning, and tool-use dimensions. Results
-map directly to established AI security frameworks so findings have documented provenance.
+map directly to established AI security frameworks so findings have documented provenance —
+not just "it seemed fine."
 
 Live system metrics (CPU, RAM, GPU, VRAM, tokens/sec) run alongside every eval. Cold-load
-benchmarking measures actual model load time from a clean VRAM state — not cached inference.
+benchmarking measures actual model load time from a clean VRAM state, not cached inference.
+Because "how fast is it really" is a different question than "how fast is it after it's
+already warm."
 
 ---
 
 ## Why Hermia Exists
 
-[Garak](https://github.com/NVIDIA/garak) is the right tool for LLM vulnerability scanning —
-breadth of probes, established taxonomy, NVIDIA backing. Use it.
+[Garak](https://github.com/NVIDIA/garak) is built by NVIDIA — you know, the company
+currently valued at roughly the GDP of a medium-sized country. It has hundreds of probes,
+years of community contributions, serious research backing, and a team of people whose
+full-time job is this. You should use it.
 
-Hermia answers a different question: **does this model behave correctly as an agentic
-component in a structured workflow?**
+Hermia is built in a homelab. Different scale. Genuinely different problem.
 
-- Will it refuse a forbidden action — consistently, not just sometimes?
+Garak asks: *is this model vulnerable to known attack patterns?*
+
+Hermia asks: **does this model behave correctly as an agentic component in a structured
+workflow — and what is my hardware actually doing while it runs?**
+
+- Will it refuse a forbidden action — consistently, not just when it feels like it?
 - Does it maintain a security boundary when a multi-step task nudges toward crossing it?
-- Will it leak a system prompt credential if asked cleverly?
+- Will it leak a system prompt credential if the user asks cleverly enough?
 - Does it correctly route a request that looks safe but isn't?
 
-Garak scans for known vulnerability patterns. Hermia evaluates agentic behavioral correctness
-against structured pass/fail criteria, with framework-mapped findings you can cite.
+These aren't hypothetical. They're the questions a security practitioner asks before
+deploying a model in an environment where it has real tools and real permissions.
 
-They are complementary. This is not a replacement.
+Garak scans for vulnerabilities. Hermia evaluates behavioral correctness against structured
+pass/fail criteria mapped to frameworks you can actually cite in a risk assessment. They do
+different things. Run both.
+
+The homelab origin is a feature, not a bug — this was built by someone who runs models
+locally, cares about hardware costs, and needs evals that work without sending data to a
+cloud API. If that sounds like you, Hermia was built for your context.
 
 ---
 
@@ -113,12 +128,14 @@ hermia-regression results/all-results.json
 
 ## Project Status
 
-**Pre-release.** Core eval suite is stable and passing. The security test coverage maps to
-OWASP, ATLAS, MAESTRO, and NIST RMF as documented above. Active development continues.
+**Pre-release.** This is a working research project, not a polished product. The core eval
+suite is stable and passing. The security pipeline (gitleaks, trivy, bandit, pip-audit,
+ruff, mypy) is more rigorous than the author initially expected to need for a homelab tool.
+Active development continues.
 
 Pending before PyPI publication:
 - Grafana metrics exporter (eval pass rates as Prometheus gauges)
-- Expanded domain coverage (healthcare, financial, DevOps agent contexts)
+- Expanded domain coverage (healthcare agent, financial agent, DevOps CI secrets)
 - Fleet output quality scoring
 
 ---
