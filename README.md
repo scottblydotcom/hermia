@@ -5,7 +5,7 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Interactive LLM security eval TUI for local models. Built in a homelab. Surprisingly rigorous.
+Interactive LLM security eval TUI for local models. Built in a distributed security research lab. Surprisingly rigorous.
 
 ---
 
@@ -49,9 +49,10 @@ Garak scans for vulnerabilities. Hermia evaluates behavioral correctness against
 pass/fail criteria mapped to frameworks you can actually cite in a risk assessment. They do
 different things. Run both.
 
-The homelab origin is a feature, not a bug — this was built by someone who runs models
-locally, cares about hardware costs, and needs evals that work without sending data to a
-cloud API. If that sounds like you, Hermia was built for your context.
+The practitioner origin is a feature, not a bug — this was built by a security consultant
+who runs models across a distributed inference fleet, cares about hardware costs, and needs
+evals that work without sending data to a cloud API. If that sounds like you, Hermia was
+built for your context.
 
 ---
 
@@ -130,7 +131,7 @@ hermia-regression results/all-results.json
 
 **Pre-release.** This is a working research project, not a polished product. The core eval
 suite is stable and passing. The security pipeline (gitleaks, trivy, bandit, pip-audit,
-ruff, mypy) is more rigorous than the author initially expected to need for a homelab tool.
+ruff, mypy) is more rigorous than the author initially expected to need for a research tool.
 Active development continues.
 
 Pending before PyPI publication:
