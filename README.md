@@ -155,7 +155,7 @@ The tool steals answers from the Oracle and tells you which one to trust.
 Contributions welcome. Please read [AGENTS.md](AGENTS.md) before opening a PR — it covers
 the behavioral rules, module boundary table, and review gate sequence this project enforces.
 
-[CONTRIBUTING.md](CONTRIBUTING.md) is in progress.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for full details on how to get involved.
 
 ---
 
