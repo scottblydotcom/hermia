@@ -60,3 +60,13 @@ jobs:
           /tmp/audit-env/bin/pip install --quiet -e .
           # CVE-2026-3219 affects pip itself (no fix available yet); all hermia deps are clean
           /tmp/audit-env/bin/pip-audit --skip-editable --ignore-vuln CVE-2026-3219
+
+  guarddog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: GuardDog — detect typosquatted / hallucinated packages
+        uses: DataDog/guarddog-action@v1
+        with:
+          rules: pkg-too-new,typosquatting,potentially-compromised-email-domain,obfuscated-code
+          requirements_files: pyproject.toml
