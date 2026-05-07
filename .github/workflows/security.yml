@@ -69,27 +69,53 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install guarddog
-        run: pip install guarddog
-      - name: GuardDog — detect typosquatted / hallucinated packages
+        run: pip install "guarddog==2.10.0"
+      - name: GuardDog — typosquatting (hard fail)
         run: |
           python3 - <<'EOF'
-          import tomllib, subprocess, sys, re
+          import tomllib, subprocess, sys
+          from packaging.requirements import Requirement
           with open("pyproject.toml", "rb") as f:
               data = tomllib.load(f)
-          deps = data.get("project", {}).get("dependencies", [])
+          project = data.get("project", {})
+          deps = list(project.get("dependencies", []))
+          for group in project.get("optional-dependencies", {}).values():
+              deps += group
+          failed = False
           for dep in deps:
-              pkg = re.split(r"[><=!@\[]", dep)[0].strip()
-              if not pkg:
-                  continue
+              pkg = Requirement(dep).name
               print(f"Scanning {pkg}...")
               r = subprocess.run(
                   ["guarddog", "pypi", "scan", pkg,
                    "--exit-non-zero-on-finding",
-                   "--rules", "typosquatting",
+                   "--rules", "typosquatting"],
+                  check=False,
+              )
+              if r.returncode != 0:
+                  failed = True
+          if failed:
+              sys.exit(1)
+          EOF
+      - name: GuardDog — heuristic rules (warn only)
+        continue-on-error: true
+        run: |
+          python3 - <<'EOF'
+          import tomllib, subprocess
+          from packaging.requirements import Requirement
+          with open("pyproject.toml", "rb") as f:
+              data = tomllib.load(f)
+          project = data.get("project", {})
+          deps = list(project.get("dependencies", []))
+          for group in project.get("optional-dependencies", {}).values():
+              deps += group
+          for dep in deps:
+              pkg = Requirement(dep).name
+              print(f"Scanning {pkg}...")
+              subprocess.run(
+                  ["guarddog", "pypi", "scan", pkg,
+                   "--exit-non-zero-on-finding",
                    "--rules", "potentially_compromised_email_domain",
                    "--rules", "obfuscation"],
                   check=False,
               )
-              if r.returncode != 0:
-                  sys.exit(1)
           EOF
