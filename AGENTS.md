@@ -18,7 +18,7 @@ These are grounded in actual git history. Violations have caused real rework.
    run a web search against a reputable source (PyPI, official docs, GitHub) to confirm:
    (a) the package name is spelled correctly, (b) it is a real, maintained library,
    (c) it is not a hallucinated name or a typo-squatted variant of a legitimate package.
-   Document the validation result before proceeding. This rule exists because AI-assisted
+   Document the validation result in the session notes or PR description before proceeding. This rule exists because AI-assisted
    coding is a known vector for slopsquatting attacks — a plausible-sounding package name
    that resolves to a malicious or nonexistent package.
 
@@ -102,7 +102,7 @@ requires explicit user approval before any code is written.
 
 | Task Type                   | Permitted Files                                               | Off-Limits Without Approval          |
 |-----------------------------|---------------------------------------------------------------|--------------------------------------|
-| New eval test               | `test-datasets/agentic-tasks.json`, `src/hermia/schemas.py`  | `runner.py`, `app.py`, `screens.py`  |
+| New eval test               | `test-datasets/agentic-tasks.json`, `src/hermia/schemas.py`  | Everything else                      |
 | Schema checker fix          | `src/hermia/schemas.py`, `tests/unit/test_schemas.py`        | Everything else                      |
 | Regression module           | `src/hermia/regression.py`, `tests/test_regression.py`       | Everything else                      |
 | UI/TUI changes              | `src/hermia/screens.py`, `src/hermia/app.py`                 | Core eval logic                      |
