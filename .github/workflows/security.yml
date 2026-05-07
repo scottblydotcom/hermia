@@ -65,8 +65,31 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: GuardDog — detect typosquatted / hallucinated packages
-        uses: DataDog/guarddog-action@v1
+      - uses: actions/setup-python@v5
         with:
-          rules: pkg-too-new,typosquatting,potentially-compromised-email-domain,obfuscated-code
-          requirements_files: pyproject.toml
+          python-version: "3.11"
+      - name: Install guarddog
+        run: pip install guarddog
+      - name: GuardDog — detect typosquatted / hallucinated packages
+        run: |
+          python3 - <<'EOF'
+          import tomllib, subprocess, sys, re
+          with open("pyproject.toml", "rb") as f:
+              data = tomllib.load(f)
+          deps = data.get("project", {}).get("dependencies", [])
+          for dep in deps:
+              pkg = re.split(r"[><=!@\[]", dep)[0].strip()
+              if not pkg:
+                  continue
+              print(f"Scanning {pkg}...")
+              r = subprocess.run(
+                  ["guarddog", "pypi", "scan", pkg,
+                   "--exit-non-zero-on-finding",
+                   "--rules", "typosquatting",
+                   "--rules", "potentially_compromised_email_domain",
+                   "--rules", "obfuscation"],
+                  check=False,
+              )
+              if r.returncode != 0:
+                  sys.exit(1)
+          EOF
