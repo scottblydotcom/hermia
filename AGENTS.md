@@ -13,41 +13,50 @@ Session Start and Close protocols live in `CLAUDE.md` and are auto-read by Claud
 
 These are grounded in actual git history. Violations have caused real rework.
 
-1. **Never use exact-match key sets in schema validators.**
+1. **Never import a new library without validating it first.**
+   Before writing any code that imports a package not already in `pyproject.toml`,
+   run a web search against a reputable source (PyPI, official docs, GitHub) to confirm:
+   (a) the package name is spelled correctly, (b) it is a real, maintained library,
+   (c) it is not a hallucinated name or a typo-squatted variant of a legitimate package.
+   Document the validation result before proceeding. This rule exists because AI-assisted
+   coding is a known vector for slopsquatting attacks — a plausible-sounding package name
+   that resolves to a malicious or nonexistent package.
+
+2. **Never use exact-match key sets in schema validators.**
    Always use the `_keys_ok()` helper already established in `schemas.py`.
    Reasoning models (o-series, QwQ, DeepSeek-R1) return extra keys like
    `thinking`, `reasoning_content`, or `scratchpad` that are benign. Strict
    matching fails all reasoning model responses.
    *(Commits: d2903fc, 4269d25, f5fc788)*
 
-2. **Never add a dependency without explicit user approval.**
+3. **Never add a dependency without explicit user approval.**
    `pyproject.toml` is the canonical dependency list. Propose the library and
    wait for approval before writing any code that uses it. stdlib-only solutions
    are always preferred.
 
-3. **Never claim a task is complete because CI is green.**
+4. **Never claim a task is complete because CI is green.**
    CI passing is necessary but not sufficient. The full review gate sequence
    must complete (see below).
 
-4. **Never test only the Python function when a CLI entrypoint exists.**
+5. **Never test only the Python function when a CLI entrypoint exists.**
    If a module has an entry in `[project.scripts]` in `pyproject.toml`, the CLI
    invocation path must be tested directly — not just the internal function.
    *(Commit: 006e621)*
 
-5. **Never touch files outside the task's permitted module scope in a single commit.**
+6. **Never touch files outside the task's permitted module scope in a single commit.**
    If a fix genuinely requires touching an unrelated module, stop, flag it, and
    get explicit approval before proceeding.
 
-6. **Never iterate blindly on a failing fix.**
+7. **Never iterate blindly on a failing fix.**
    If a fix requires more than one attempt, stop and re-spec before trying again.
    *(Evidence: fix/reasoning-model-extra-keys and fix/reasoning-model-extra-keys-v2
    both exist in history.)*
 
-7. **Never assume Gemini re-review auto-triggers after a push.**
+8. **Never assume Gemini re-review auto-triggers after a push.**
    It does not. After pushing fixes to an open PR, immediately post `/gemini review`
    as a PR comment. Do not proceed with other work until this is done.
 
-8. **Never write CI/workflow jobs with assumed permissions.**
+9. **Never write CI/workflow jobs with assumed permissions.**
    Each job's permissions must be explicitly and minimally scoped. Verify job
    output confirms correct behavior — not just that the workflow ran.
    *(Commit: b9f1ff0)*
