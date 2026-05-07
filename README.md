@@ -1,9 +1,164 @@
 # Hermia
 
-Interactive LLM agentic evaluation TUI for local and cloud models.
+[![CI](https://github.com/scottblydotcom/hermia/actions/workflows/ci.yml/badge.svg)](https://github.com/scottblydotcom/hermia/actions/workflows/ci.yml)
+[![Security](https://github.com/scottblydotcom/hermia/actions/workflows/security.yml/badge.svg)](https://github.com/scottblydotcom/hermia/actions/workflows/security.yml)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+Interactive LLM security eval TUI for local models. Built in a distributed security research lab. Surprisingly rigorous.
+
+---
+
+## What It Does
+
+Hermia runs structured agentic evaluation test cases against local Ollama models and scores
+them for behavioral correctness across security, reasoning, and tool-use dimensions. Results
+map directly to established AI security frameworks so findings have documented provenance —
+not just "it seemed fine."
+
+Live system metrics (CPU, RAM, GPU, VRAM, tokens/sec) run alongside every eval. Cold-load
+benchmarking measures actual model load time from a clean VRAM state, not cached inference.
+Because "how fast is it really" is a different question than "how fast is it after it's
+already warm."
+
+---
+
+## Why Hermia Exists
+
+[Garak](https://github.com/NVIDIA/garak) is built by NVIDIA — you know, the company
+currently valued at roughly the GDP of a medium-sized country. It has hundreds of probes,
+years of community contributions, serious research backing, and a team of people whose
+full-time job is this. You should use it.
+
+Hermia is built in a homelab. Different scale. Genuinely different problem.
+
+Garak asks: *is this model vulnerable to known attack patterns?*
+
+Hermia asks: **does this model behave correctly as an agentic component in a structured
+workflow — and what is my hardware actually doing while it runs?**
+
+- Will it refuse a forbidden action — consistently, not just when it feels like it?
+- Does it maintain a security boundary when a multi-step task nudges toward crossing it?
+- Will it leak a system prompt credential if the user asks cleverly enough?
+- Does it correctly route a request that looks safe but isn't?
+
+These aren't hypothetical. They're the questions a security practitioner asks before
+deploying a model in an environment where it has real tools and real permissions.
+
+Garak scans for vulnerabilities. Hermia evaluates behavioral correctness against structured
+pass/fail criteria mapped to frameworks you can actually cite in a risk assessment. They do
+different things. Run both.
+
+The practitioner origin is a feature, not a bug — this was built by a security consultant
+who runs models across a distributed inference fleet, cares about hardware costs, and needs
+evals that work without sending data to a cloud API. If that sounds like you, Hermia was
+built for your context.
+
+---
+
+## Framework Coverage
+
+| Framework | What Hermia Maps To |
+|---|---|
+| **OWASP LLM Top 10 (2025)** | LLM01 prompt injection (direct + indirect), LLM06 excessive agency / scope escalation |
+| **MITRE ATLAS v5.1** | AML.T0051 direct injection, AML.T0054 indirect injection, AML.T0099 tool data poisoning, AML.T0100 structured field injection |
+| **CSA MAESTRO** | L1 foundation model robustness, L3 agent framework routing and lane evasion |
+| **NIST AI RMF** | Measure function: ME 2.3 deployment-similar benchmarking, ME 2.4 production monitoring, ME 3.1 regression detection |
+
+---
+
+## Eval Dimensions
+
+| Dimension | What It Tests |
+|---|---|
+| `security` | Injection resistance, credential protection, scope escalation refusal, system prompt extraction resistance, structured field injection |
+| `tool-use` | Valid tool invocation, correct tool selection, dependency-aware multi-step chaining |
+| `reasoning` | Multi-step decomposition, error recovery and fallback planning, partial failure handling |
+| `constraint` | Exact schema compliance, numeric correctness, adversarial input robustness |
+| `routing` | Request classification, lane routing evasion detection |
+| `memory` | Cross-turn context retention |
+| `domain` | Home automation agent, structured data extraction |
+
+---
+
+## Requirements
+
+- Python 3.11+
+- [Ollama](https://ollama.ai) running locally (`ollama serve`)
+- At least one model pulled: `ollama pull llama3.2` or any compatible model
+
+No cloud API keys required. No data leaves your machine.
+
+---
+
+## Install
+
+From source (pre-PyPI):
+
+```bash
+git clone https://github.com/scottblydotcom/hermia
+cd hermia
+pip install -e .
+hermia
+```
+
+PyPI publication is on the roadmap. See [project status](#project-status).
+
+---
+
+## Quickstart
+
+```bash
+# Start Ollama if it isn't running
+ollama serve
+
+# Launch Hermia
+hermia
+```
+
+Hermia opens a TUI. Select a model from the list, choose which eval dimensions to run,
+and press **Run**. Results appear live alongside system metrics.
+
+To run the regression detection script against a saved results file:
+
+```bash
+hermia-regression results/all-results.json
+```
+
+---
+
+## Project Status
+
+**Pre-release.** This is a working research project, not a polished product. The core eval
+suite is stable and passing. The security pipeline (gitleaks, trivy, bandit, pip-audit,
+ruff, mypy) is more rigorous than the author initially expected to need for a research tool.
+Active development continues.
+
+Pending before PyPI publication:
+- Grafana metrics exporter (eval pass rates as Prometheus gauges)
+- Expanded domain coverage (healthcare agent, financial agent, DevOps CI secrets)
+- Fleet output quality scoring
+
+---
 
 ## Name
 
-**Hermia** = **Hermes** (Greek messenger god, thief of Apollo's cattle — patron of travelers and tricksters) + **Pythia** (the Oracle of Delphi, who spoke for Apollo).
+**Hermia** = **Hermes** (Greek messenger god, trickster, patron of travelers — thief of
+Apollo's cattle) + **Pythia** (the Oracle of Delphi, who spoke for Apollo).
 
-The name captures what the tool does: it steals answers from the Oracle and tells you which one to trust.
+The tool steals answers from the Oracle and tells you which one to trust.
+
+---
+
+## Contributing
+
+Contributions welcome. Please read [AGENTS.md](AGENTS.md) before opening a PR — it covers
+the behavioral rules, module boundary table, and review gate sequence this project enforces.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for full details on how to get involved.
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
