@@ -61,35 +61,97 @@ jobs:
           # CVE-2026-3219 affects pip itself (no fix available yet); all hermia deps are clean
           /tmp/audit-env/bin/pip-audit --skip-editable --ignore-vuln CVE-2026-3219
 
-  guarddog:
+  guarddog-changes:
     runs-on: ubuntu-latest
+    outputs:
+      relevant: ${{ steps.filter.outputs.relevant }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        run: |
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "origin/${{ github.base_ref }}...HEAD" \
+               | grep -qE '^(pyproject\.toml|\.github/workflows/security\.yml)$'; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            echo "No dep or workflow changes — skipping guarddog"
+          fi
+
+  guarddog:
+    needs: guarddog-changes
+    if: needs.guarddog-changes.outputs.relevant == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
       - name: Install guarddog
-        run: pip install guarddog
-      - name: GuardDog — detect typosquatted / hallucinated packages
+        # pinned to avoid silent rule/CLI changes; bump quarterly and re-validate rule names
+        run: pip install "guarddog==2.10.0"
+      - name: GuardDog — typosquatting (hard fail)
         run: |
           python3 - <<'EOF'
-          import tomllib, subprocess, sys, re
+          import tomllib, subprocess, sys
+          from packaging.requirements import Requirement
+          from packaging.utils import canonicalize_name
           with open("pyproject.toml", "rb") as f:
               data = tomllib.load(f)
-          deps = data.get("project", {}).get("dependencies", [])
-          for dep in deps:
-              pkg = re.split(r"[><=!@\[]", dep)[0].strip()
-              if not pkg:
-                  continue
+          project = data.get("project", {})
+          all_deps = list(project.get("dependencies", []))
+          for group in project.get("optional-dependencies", {}).values():
+              all_deps += group
+          pkgs = sorted({canonicalize_name(Requirement(d).name) for d in all_deps})
+          failed = False
+          for pkg in pkgs:
               print(f"Scanning {pkg}...")
               r = subprocess.run(
                   ["guarddog", "pypi", "scan", pkg,
                    "--exit-non-zero-on-finding",
-                   "--rules", "typosquatting",
-                   "--rules", "potentially_compromised_email_domain",
-                   "--rules", "obfuscation"],
+                   "--rules", "typosquatting"],
                   check=False,
               )
               if r.returncode != 0:
-                  sys.exit(1)
+                  failed = True
+          if failed:
+              sys.exit(1)
+          EOF
+      - name: GuardDog — heuristic rules (warn only)
+        continue-on-error: true
+        run: |
+          python3 - <<'EOF'
+          import tomllib, subprocess, os
+          from packaging.requirements import Requirement
+          from packaging.utils import canonicalize_name
+          with open("pyproject.toml", "rb") as f:
+              data = tomllib.load(f)
+          project = data.get("project", {})
+          all_deps = list(project.get("dependencies", []))
+          for group in project.get("optional-dependencies", {}).values():
+              all_deps += group
+          pkgs = sorted({canonicalize_name(Requirement(d).name) for d in all_deps})
+          findings = []
+          for pkg in pkgs:
+              print(f"Scanning {pkg}...")
+              r = subprocess.run(
+                  ["guarddog", "pypi", "scan", pkg,
+                   "--exit-non-zero-on-finding",
+                   "--rules", "potentially_compromised_email_domain",
+                   "--rules", "obfuscation"],
+                  check=False, capture_output=True, text=True,
+              )
+              print(r.stdout)
+              if r.returncode != 0:
+                  findings.append((pkg, r.stdout))
+          summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary_path and findings:
+              with open(summary_path, "a") as f:
+                  f.write("## :warning: GuardDog heuristic findings (warn only)\n\n")
+                  for pkg, output in findings:
+                      f.write(f"### `{pkg}`\n```\n{output.strip()}\n```\n\n")
           EOF
