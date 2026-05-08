@@ -61,8 +61,31 @@ jobs:
           # CVE-2026-3219 affects pip itself (no fix available yet); all hermia deps are clean
           /tmp/audit-env/bin/pip-audit --skip-editable --ignore-vuln CVE-2026-3219
 
-  guarddog:
+  guarddog-changes:
     runs-on: ubuntu-latest
+    outputs:
+      relevant: ${{ steps.filter.outputs.relevant }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: filter
+        run: |
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "origin/${{ github.base_ref }}...HEAD" \
+               | grep -qE '^(pyproject\.toml|\.github/workflows/security\.yml)$'; then
+            echo "relevant=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "relevant=false" >> "$GITHUB_OUTPUT"
+            echo "No dep or workflow changes — skipping guarddog"
+          fi
+
+  guarddog:
+    needs: guarddog-changes
+    if: needs.guarddog-changes.outputs.relevant == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -76,13 +99,14 @@ jobs:
           python3 - <<'EOF'
           import tomllib, subprocess, sys
           from packaging.requirements import Requirement
+          from packaging.utils import canonicalize_name
           with open("pyproject.toml", "rb") as f:
               data = tomllib.load(f)
           project = data.get("project", {})
           all_deps = list(project.get("dependencies", []))
           for group in project.get("optional-dependencies", {}).values():
               all_deps += group
-          pkgs = sorted({Requirement(d).name for d in all_deps})
+          pkgs = sorted({canonicalize_name(Requirement(d).name) for d in all_deps})
           failed = False
           for pkg in pkgs:
               print(f"Scanning {pkg}...")
@@ -103,13 +127,14 @@ jobs:
           python3 - <<'EOF'
           import tomllib, subprocess, os
           from packaging.requirements import Requirement
+          from packaging.utils import canonicalize_name
           with open("pyproject.toml", "rb") as f:
               data = tomllib.load(f)
           project = data.get("project", {})
           all_deps = list(project.get("dependencies", []))
           for group in project.get("optional-dependencies", {}).values():
               all_deps += group
-          pkgs = sorted({Requirement(d).name for d in all_deps})
+          pkgs = sorted({canonicalize_name(Requirement(d).name) for d in all_deps})
           findings = []
           for pkg in pkgs:
               print(f"Scanning {pkg}...")
