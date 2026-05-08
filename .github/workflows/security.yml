@@ -69,6 +69,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install guarddog
+        # pinned to avoid silent rule/CLI changes; bump quarterly and re-validate rule names
         run: pip install "guarddog==2.10.0"
       - name: GuardDog — typosquatting (hard fail)
         run: |
@@ -78,12 +79,12 @@ jobs:
           with open("pyproject.toml", "rb") as f:
               data = tomllib.load(f)
           project = data.get("project", {})
-          deps = list(project.get("dependencies", []))
+          all_deps = list(project.get("dependencies", []))
           for group in project.get("optional-dependencies", {}).values():
-              deps += group
+              all_deps += group
+          pkgs = sorted({Requirement(d).name for d in all_deps})
           failed = False
-          for dep in deps:
-              pkg = Requirement(dep).name
+          for pkg in pkgs:
               print(f"Scanning {pkg}...")
               r = subprocess.run(
                   ["guarddog", "pypi", "scan", pkg,
@@ -100,22 +101,32 @@ jobs:
         continue-on-error: true
         run: |
           python3 - <<'EOF'
-          import tomllib, subprocess
+          import tomllib, subprocess, os
           from packaging.requirements import Requirement
           with open("pyproject.toml", "rb") as f:
               data = tomllib.load(f)
           project = data.get("project", {})
-          deps = list(project.get("dependencies", []))
+          all_deps = list(project.get("dependencies", []))
           for group in project.get("optional-dependencies", {}).values():
-              deps += group
-          for dep in deps:
-              pkg = Requirement(dep).name
+              all_deps += group
+          pkgs = sorted({Requirement(d).name for d in all_deps})
+          findings = []
+          for pkg in pkgs:
               print(f"Scanning {pkg}...")
-              subprocess.run(
+              r = subprocess.run(
                   ["guarddog", "pypi", "scan", pkg,
                    "--exit-non-zero-on-finding",
                    "--rules", "potentially_compromised_email_domain",
                    "--rules", "obfuscation"],
-                  check=False,
+                  check=False, capture_output=True, text=True,
               )
+              print(r.stdout)
+              if r.returncode != 0:
+                  findings.append((pkg, r.stdout))
+          summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary_path and findings:
+              with open(summary_path, "a") as f:
+                  f.write("## :warning: GuardDog heuristic findings (warn only)\n\n")
+                  for pkg, output in findings:
+                      f.write(f"### `{pkg}`\n```\n{output.strip()}\n```\n\n")
           EOF
