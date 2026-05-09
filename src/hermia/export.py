@@ -113,6 +113,7 @@ def main(
     dsn: str | None = None,
     results_dir: Path | str | None = None,
     dry_run: bool | None = None,
+    exit_on_error: bool = True,
 ) -> int:
     """CLI entry point for hermia-push.
 
@@ -154,10 +155,18 @@ def main(
     results_dir = Path(results_dir)
 
     if not dry_run and not dsn:
-        sys.exit("--dsn or HERMIA_PG_DSN is required")
+        msg = "--dsn or HERMIA_PG_DSN is required"
+        if exit_on_error:
+            sys.exit(msg)
+        print(msg, file=sys.stderr)
+        return 2
 
     if not results_dir.is_dir():
-        sys.exit(f"Results directory not found: {results_dir}")
+        msg = f"Results directory not found: {results_dir}"
+        if exit_on_error:
+            sys.exit(msg)
+        print(msg, file=sys.stderr)
+        return 2
 
     rows = collect_results(results_dir)
     if not rows:

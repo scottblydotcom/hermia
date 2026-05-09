@@ -208,15 +208,18 @@ def test_main_dry_run_with_results(tmp_path: Path, capsys) -> None:
 
 
 def test_main_missing_results_dir(tmp_path: Path) -> None:
-    with pytest.raises(SystemExit):
-        main(dsn="postgresql://test", results_dir=tmp_path / "missing", dry_run=False)
+    rc = main(
+        dsn="postgresql://test",
+        results_dir=tmp_path / "missing",
+        dry_run=False,
+        exit_on_error=False,
+    )
+    assert rc == 2
 
 
-def test_main_missing_dsn_exits() -> None:
-    import tempfile
-    with tempfile.TemporaryDirectory() as d:
-        with pytest.raises(SystemExit):
-            main(dsn="", results_dir=Path(d), dry_run=False)
+def test_main_missing_dsn_exits(tmp_path: Path) -> None:
+    rc = main(dsn="", results_dir=tmp_path, dry_run=False, exit_on_error=False)
+    assert rc == 2
 
 
 def test_main_dsn_from_env(tmp_path: Path, monkeypatch) -> None:
