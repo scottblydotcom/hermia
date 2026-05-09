@@ -61,9 +61,9 @@ These are grounded in actual git history. Violations have caused real rework.
    output confirms correct behavior — not just that the workflow ran.
    *(Commit: b9f1ff0)*
 
-10. **Never open a feature or fix PR against `main` — always target `dev`.**
+10. **Never open a feature, fix, or chore PR against `main` — always target `dev`.**
     The only PR that should ever target `main` is the dev→main promotion PR.
-    All other work flows: `feature/* or fix/*` → PR → `dev` → PR → `main`.
+    All other work flows: `feature/*`, `fix/*`, or `chore/*` → PR → `dev` → PR → `main`.
     When using `gh pr create`, always pass `--base dev` explicitly; the default
     is the repo's default branch (`main`), which will bypass the dev gate and
     cause `main` to diverge ahead of `dev`, requiring rebase or merge judo to fix.
@@ -75,10 +75,10 @@ These are grounded in actual git history. Violations have caused real rework.
 
 ### Branch Workflow
 ```
-main ← dev ← feature/* or fix/*
+main ← dev ← feature/*, fix/*, or chore/*
 ```
-- All work branches from `dev`. Always `git checkout -b feature/name` from `dev`.
-- Feature/fix PR: `gh pr create --base dev`
+- All work branches from `dev`. Use the appropriate prefix (`feature/`, `fix/`, or `chore/`) when branching.
+- Feature/fix/chore PR: `gh pr create --base dev`
 - Promotion PR (only): `gh pr create --base main --head dev`
 - `main` must never get ahead of `dev`. If it does, something went wrong.
 
