@@ -30,6 +30,29 @@ def _sanitize_model_id(name: str) -> str:
     return name.replace(":", "_").replace(".", "_")
 
 
+def _compute_scores(
+    results: list[dict[str, Any]],
+) -> list[tuple[str, float, float, float, float]]:
+    """Aggregate per-model scores from a flat result list.
+
+    Returns list of (model, json_pass_rate, schema_pass_rate, agentic_score, avg_tps)
+    sorted descending by agentic_score.
+    """
+    by_model: dict[str, list[dict[str, Any]]] = {}
+    for r in results:
+        by_model.setdefault(r["model"], []).append(r)
+    scored = []
+    for model, rs in by_model.items():
+        n = len(rs)
+        jp = sum(r["json_valid"] for r in rs) / n
+        sp = sum(1 for r in rs if r["schema_compliant"]) / n
+        ag = (jp * 0.40) + (sp * 0.60)
+        tps = sum(r["tokens_per_sec"] for r in rs) / n
+        scored.append((model, jp, sp, ag, tps))
+    scored.sort(key=lambda x: x[3], reverse=True)
+    return scored
+
+
 PROJECT_ROOT = Path(__file__).parents[2]
 RESULTS_DIR = PROJECT_ROOT / "results"
 
@@ -274,20 +297,7 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
                         append_log(f"       {preview[:80]}", "warn")
                 self.app.call_from_thread(self.query_one(ProgressBar).advance, 1)
 
-        by_model: dict[str, list[dict[str, Any]]] = {}
-        for r in self.all_results:
-            by_model.setdefault(r["model"], []).append(r)
-
-        scored = []
-        for model, results in by_model.items():
-            n = len(results)
-            jp = sum(r["json_valid"] for r in results) / n
-            sp = sum(1 for r in results if r["schema_compliant"]) / n
-            ag = (jp * 0.40) + (sp * 0.60)
-            tps = sum(r["tokens_per_sec"] for r in results) / n
-            scored.append((model, jp, sp, ag, tps))
-
-        scored.sort(key=lambda x: x[3], reverse=True)
+        scored = _compute_scores(self.all_results)
 
         lines = ["[bold]EVAL SUMMARY[/bold]\n"]
         lines.append(f"{'Model':<28} {'JSON%':>6} {'Schema%':>8} {'Agentic':>8} {'t/s':>6}")
