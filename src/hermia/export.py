@@ -47,9 +47,14 @@ def collect_results(results_dir: Path) -> list[dict[str, object]]:
 
 
 def push(rows: list[dict[str, object]], dsn: str, dry_run: bool) -> None:
+    valid_rows = [r for r in rows if all(r.get(f) for f in _REQUIRED_FIELDS)]
+    skipped = len(rows) - len(valid_rows)
+    if skipped:
+        print(f"Skipped {skipped} row(s) missing mandatory fields (likely from older runs).")
+
     if dry_run:
-        print(f"[dry-run] Would insert {len(rows)} row(s)")
-        for r in rows:
+        print(f"[dry-run] Would process {len(valid_rows)} row(s)")
+        for r in valid_rows:
             print(
                 f"  run_id={r.get('run_id')}  host={r.get('host')}"
                 f"  model={r.get('model')}  test_id={r.get('test_id')}"
@@ -67,19 +72,13 @@ def push(rows: list[dict[str, object]], dsn: str, dry_run: bool) -> None:
     except Exception as e:
         sys.exit(f"Failed to connect to Postgres: {e}")
 
-    valid_rows = [r for r in rows if all(r.get(f) for f in _REQUIRED_FIELDS)]
-    skipped = len(rows) - len(valid_rows)
-    if skipped:
-        print(f"Skipped {skipped} row(s) missing mandatory fields (likely from older runs).")
-
     try:
         with conn:
             with conn.cursor() as cur:
                 records = [{c: row.get(c) for c in _PG_COLUMNS} for row in valid_rows]
                 if records:
                     execute_batch(cur, _INSERT_SQL, records)
-                inserted = cur.rowcount if records else 0
-        print(f"Inserted {inserted} new row(s) (skipped duplicates via ON CONFLICT)")
+        print(f"Processed {len(records)} row(s) (duplicates skipped via ON CONFLICT)")
     finally:
         conn.close()
 

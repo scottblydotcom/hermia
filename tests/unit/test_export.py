@@ -68,7 +68,7 @@ def test_push_dry_run_prints_without_db(capsys, tmp_path: Path) -> None:
     push([_ROW], dsn="", dry_run=True)
     out = capsys.readouterr().out
     assert "dry-run" in out
-    assert "Would insert 1" in out
+    assert "Would process 1" in out
 
 
 def test_push_connection_failure_exits() -> None:

@@ -315,7 +315,8 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
                 f"{ls.get('vram_delta_gb', 0):+.2f} GB"
             )
 
-        lines.append(f"\nBest: [bold]{scored[0][0]}[/bold] ({scored[0][3] * 100:.0f}/100)")
+        if scored:
+            lines.append(f"\nBest: [bold]{scored[0][0]}[/bold] ({scored[0][3] * 100:.0f}/100)")
         lines.append(f"Saved: {jsonl_path.name}  |  {csv_path.name}")
 
         self.app.call_from_thread(
