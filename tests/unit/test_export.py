@@ -6,7 +6,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from hermia.export import collect_results, load_jsonl, push
+from hermia.export import collect_results, push
+from hermia.results import load_jsonl
 
 _ROW = {
     "run_id": "20260509T120000Z",

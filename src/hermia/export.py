@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 from pathlib import Path
+
+from hermia.results import load_jsonl
 
 _PG_COLUMNS = (
     "run_id",
@@ -37,24 +38,11 @@ _INSERT_SQL = (
 )
 
 
-def load_jsonl(path: Path) -> list[dict[str, object]]:
-    rows = []
-    with path.open(encoding="utf-8") as f:
-        for line in f:
-            if stripped := line.strip():
-                try:
-                    data = json.loads(stripped)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(data, dict):
-                    rows.append(data)
-    return rows
-
-
 def collect_results(results_dir: Path) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for jsonl in sorted(results_dir.glob("eval_*.jsonl")):
-        rows.extend(load_jsonl(jsonl))
+        if jsonl.is_file():
+            rows.extend(load_jsonl(jsonl))
     return rows
 
 
