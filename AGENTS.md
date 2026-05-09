@@ -75,7 +75,7 @@ These are grounded in actual git history. Violations have caused real rework.
 
 ### Branch Workflow
 ```
-main ← dev ← feature/*, fix/*, or chore/*
+feature/*, fix/*, or chore/* → dev → main
 ```
 - All work branches from `dev`. Use the appropriate prefix (`feature/`, `fix/`, or `chore/`) when branching.
 - Feature/fix/chore PR: `gh pr create --base dev`
