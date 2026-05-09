@@ -52,13 +52,18 @@ def push(rows: list[dict[str, object]], dsn: str, dry_run: bool) -> None:
     if skipped:
         print(f"Skipped {skipped} row(s) missing mandatory fields (likely from older runs).")
 
+    records = [{c: row.get(c) for c in _PG_COLUMNS} for row in valid_rows]
+
     if dry_run:
-        print(f"[dry-run] Would process {len(valid_rows)} row(s)")
+        print(f"[dry-run] Would process {len(records)} row(s)")
         for r in valid_rows:
             print(
                 f"  run_id={r.get('run_id')}  host={r.get('host')}"
                 f"  model={r.get('model')}  test_id={r.get('test_id')}"
             )
+        return
+
+    if not records:
         return
 
     try:
@@ -75,9 +80,7 @@ def push(rows: list[dict[str, object]], dsn: str, dry_run: bool) -> None:
     try:
         with conn:
             with conn.cursor() as cur:
-                records = [{c: row.get(c) for c in _PG_COLUMNS} for row in valid_rows]
-                if records:
-                    execute_batch(cur, _INSERT_SQL, records)
+                execute_batch(cur, _INSERT_SQL, records)
         print(f"Processed {len(records)} row(s) (duplicates skipped via ON CONFLICT)")
     finally:
         conn.close()
