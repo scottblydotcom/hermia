@@ -56,6 +56,13 @@ These are grounded in actual git history. Violations have caused real rework.
    It does not. After pushing fixes to an open PR, immediately post `/gemini review`
    as a PR comment. Do not proceed with other work until this is done.
 
+8a. **Call diminishing returns on Gemini after the first substantive round.**
+    Fix all HIGH-priority comments every round. After the first round, if subsequent
+    rounds contain only MEDIUM or LOW items, use judgment: apply what's genuinely
+    worth it, skip pure style nits, and merge rather than chasing infinite feedback.
+    Gemini will loop forever on style. One or two rounds of MEDIUMs is fine; more
+    than that is diminishing returns — merge.
+
 9. **Never write CI/workflow jobs with assumed permissions.**
    Each job's permissions must be explicitly and minimally scoped. Verify job
    output confirms correct behavior — not just that the workflow ran.
