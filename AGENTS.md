@@ -61,9 +61,27 @@ These are grounded in actual git history. Violations have caused real rework.
    output confirms correct behavior — not just that the workflow ran.
    *(Commit: b9f1ff0)*
 
+10. **Never open a PR against `main` from a work branch — always target `dev`.**
+    The only PR that should ever target `main` is the dev→main promotion PR.
+    All other workflows: any work branch → PR → `dev` → PR → `main`.
+    When using `gh pr create`, always pass `--base dev` explicitly; the default
+    is the repo's default branch (`main`), which will bypass the dev gate and
+    cause `main` to diverge ahead of `dev`, requiring rebase or merge judo to fix.
+    *(Cause of PR #19 conflict, 2026-05-08)*
+
 ---
 
 ## ALWAYS DO (Required Behaviors)
+
+### Branch Workflow
+```
+work branches (feature/, fix/, chore/, docs/, refactor/, ci/, test/, etc.) → dev → main
+```
+- Create all work branches from `dev` (always `git checkout dev && git pull origin dev` first, then `git checkout -b <prefix><branch-name>`). Use the appropriate prefix from the workflow diagram above when branching.
+- Work branch PR: `gh pr create --base dev`
+- Promotion PR (only): `gh pr create --base main --head dev`
+- `main` must never get ahead of `dev`. If it does, sync: `git checkout dev && git pull origin dev && git pull origin main && git push origin dev` (resolve any conflicts before pushing).
+- If on a work branch when this happens, rebase afterward: `git checkout <branch> && git rebase dev && git push origin <branch> --force-with-lease`.
 
 ### Before Writing Code
 - Agree on the approach with the user before implementation. Produce a brief
