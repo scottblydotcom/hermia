@@ -39,10 +39,12 @@ _INSERT_SQL = (
 
 def load_jsonl(path: Path) -> list[dict[str, object]]:
     rows = []
-    for line in path.read_text().splitlines():
-        line = line.strip()
-        if line:
-            rows.append(json.loads(line))
+    with path.open(encoding="utf-8") as f:
+        for line in f:
+            if stripped := line.strip():
+                data = json.loads(stripped)
+                if isinstance(data, dict):
+                    rows.append(data)
     return rows
 
 
