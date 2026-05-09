@@ -25,7 +25,7 @@ Instead, report privately via one of the following:
 - **GitHub Private Vulnerability Reporting** — use the
   [Report a vulnerability](https://github.com/scottblydotcom/hermia/security/advisories/new)
   button in the Security tab of this repo
-- **Email** — contact the maintainer directly at scottbly1@gmail.com if you cannot use GitHub's reporting flow
+- **Email** — contact the maintainer directly at [scottbly1@gmail.com](mailto:scottbly1@gmail.com) if you cannot use GitHub's reporting flow
 
 ### What to Include
 
