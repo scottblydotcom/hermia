@@ -80,7 +80,8 @@ work branches (feature/, fix/, chore/, docs/, refactor/, ci/, test/, etc.) → d
 - Create all work branches from `dev` (always `git checkout dev && git pull origin dev` first, then `git checkout -b <prefix><branch-name>`). Use the appropriate prefix from the workflow diagram above when branching.
 - Work branch PR: `gh pr create --base dev`
 - Promotion PR (only): `gh pr create --base main --head dev`
-- `main` must never get ahead of `dev`. If it does, sync immediately: `git checkout dev && git pull origin dev && git pull origin main && git push origin dev` (resolve any conflicts before pushing). If you are currently on a work branch, rebase it afterward: `git checkout <branch> && git rebase dev && git push origin <branch> --force-with-lease`.
+- `main` must never get ahead of `dev`. If it does, sync: `git checkout dev && git pull origin dev && git pull origin main && git push origin dev` (resolve any conflicts before pushing).
+- If on a work branch when this happens, rebase afterward: `git checkout <branch> && git rebase dev && git push origin <branch> --force-with-lease`.
 
 ### Before Writing Code
 - Agree on the approach with the user before implementation. Produce a brief
