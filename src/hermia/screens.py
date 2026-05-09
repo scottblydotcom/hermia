@@ -1,6 +1,8 @@
 """Textual screens: SelectionScreen and RunnerScreen."""
 
+import socket
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -202,6 +204,8 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
         append_log("", "")
 
         jsonl_path, csv_path = open_run(RESULTS_DIR)
+        run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        run_host = socket.gethostname()
         append_log(f"Writing results to {jsonl_path.name} (appended after each test)", "info")
         append_log("", "")
 
@@ -239,6 +243,9 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
 
             for test in tests:
                 result = run_test(model, test, sampler)
+                result["run_id"] = run_id
+                result["run_timestamp"] = datetime.now(UTC).isoformat()
+                result["host"] = run_host
                 self.all_results.append(result)
                 append_result(result, jsonl_path, csv_path)
 
