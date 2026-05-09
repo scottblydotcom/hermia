@@ -30,12 +30,12 @@ _PG_COLUMNS = (
 )
 
 _INSERT_SQL = (
-    "INSERT INTO hermia_results ("
-    + ", ".join(_PG_COLUMNS)
-    + ") VALUES ("
-    + ", ".join(f"%({c})s" for c in _PG_COLUMNS)
-    + ") ON CONFLICT (run_id, host, model, test_id) DO NOTHING"
+    f"INSERT INTO hermia_results ({', '.join(_PG_COLUMNS)}) "
+    f"VALUES ({', '.join(f'%({c})s' for c in _PG_COLUMNS)}) "
+    "ON CONFLICT (run_id, host, model, test_id) DO NOTHING"
 )
+
+_REQUIRED_FIELDS = {"run_id", "host", "model", "test_id"}
 
 
 def collect_results(results_dir: Path) -> list[dict[str, object]]:
@@ -58,6 +58,7 @@ def push(rows: list[dict[str, object]], dsn: str, dry_run: bool) -> None:
 
     try:
         import psycopg2
+        from psycopg2.extras import execute_batch
     except ImportError:
         sys.exit("psycopg2-binary is required — install with: pip install 'hermia[grafana]'")
 
@@ -66,14 +67,18 @@ def push(rows: list[dict[str, object]], dsn: str, dry_run: bool) -> None:
     except Exception as e:
         sys.exit(f"Failed to connect to Postgres: {e}")
 
+    valid_rows = [r for r in rows if all(r.get(f) for f in _REQUIRED_FIELDS)]
+    skipped = len(rows) - len(valid_rows)
+    if skipped:
+        print(f"Skipped {skipped} row(s) missing mandatory fields (likely from older runs).")
+
     try:
         with conn:
             with conn.cursor() as cur:
-                inserted = 0
-                for row in rows:
-                    record = {c: row.get(c) for c in _PG_COLUMNS}
-                    cur.execute(_INSERT_SQL, record)
-                    inserted += cur.rowcount
+                records = [{c: row.get(c) for c in _PG_COLUMNS} for row in valid_rows]
+                if records:
+                    execute_batch(cur, _INSERT_SQL, records)
+                inserted = cur.rowcount if records else 0
         print(f"Inserted {inserted} new row(s) (skipped duplicates via ON CONFLICT)")
     finally:
         conn.close()

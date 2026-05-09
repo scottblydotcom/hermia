@@ -92,6 +92,7 @@ def test_push_inserts_rows() -> None:
     import sys
 
     mock_pg = MagicMock()
+    mock_extras = MagicMock()
     mock_conn = MagicMock()
     mock_cur = MagicMock()
     mock_cur.rowcount = 1
@@ -102,11 +103,35 @@ def test_push_inserts_rows() -> None:
     mock_conn.cursor.return_value = mock_cur
     mock_pg.connect.return_value = mock_conn
 
-    with patch.dict(sys.modules, {"psycopg2": mock_pg}):
+    with patch.dict(sys.modules, {"psycopg2": mock_pg, "psycopg2.extras": mock_extras}):
         push([_ROW], dsn="postgresql://test", dry_run=False)
 
     mock_pg.connect.assert_called_once_with("postgresql://test")
-    assert mock_cur.execute.call_count == 1
+    mock_extras.execute_batch.assert_called_once()
+
+
+def test_push_skips_rows_missing_mandatory_fields(capsys) -> None:
+    import sys
+
+    incomplete_row = {k: v for k, v in _ROW.items() if k != "run_id"}
+    mock_pg = MagicMock()
+    mock_extras = MagicMock()
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_cur.rowcount = 0
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_cur.__enter__ = MagicMock(return_value=mock_cur)
+    mock_cur.__exit__ = MagicMock(return_value=False)
+    mock_conn.cursor.return_value = mock_cur
+    mock_pg.connect.return_value = mock_conn
+
+    with patch.dict(sys.modules, {"psycopg2": mock_pg, "psycopg2.extras": mock_extras}):
+        push([incomplete_row], dsn="postgresql://test", dry_run=False)
+
+    out = capsys.readouterr().out
+    assert "Skipped 1" in out
+    mock_extras.execute_batch.assert_not_called()
 
 
 def test_push_missing_psycopg2_exits() -> None:
