@@ -70,12 +70,15 @@ def push(rows: list[dict[str, object]], dsn: str, dry_run: bool) -> None:
     if skipped:
         print(f"Skipped {skipped} row(s) missing mandatory fields (likely from older runs).")
 
-    enriched = [{**row, "score": compute_score(row)} for row in valid_rows]
-    records = [{c: row.get(c) for c in _PG_COLUMNS} for row in enriched]
+    records = []
+    for row in valid_rows:
+        rec = {c: row.get(c) for c in _PG_COLUMNS}
+        rec["score"] = compute_score(row)
+        records.append(rec)
 
     if dry_run:
         print(f"[dry-run] Would process {len(records)} row(s)")
-        for r in enriched:
+        for r in records:
             print(
                 f"  run_id={r.get('run_id')}  host={r.get('host')}"
                 f"  model={r.get('model')}  test_id={r.get('test_id')}"
