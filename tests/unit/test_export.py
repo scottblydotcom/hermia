@@ -151,13 +151,23 @@ def test_compute_score_invalid_json() -> None:
 
 
 def test_compute_score_error() -> None:
-    row = {**_ROW, "failure_reason": "TIMEOUT: no response in 90s", "json_valid": False, "schema_compliant": False}
+    row = {
+        **_ROW,
+        "failure_reason": "TIMEOUT: no response in 90s",
+        "json_valid": False,
+        "schema_compliant": False,
+    }
     assert compute_score(row) == 0
 
 
 def test_compute_score_error_overrides_valid_json() -> None:
     # failure_reason takes priority even if json_valid is somehow True
-    row = {**_ROW, "failure_reason": "OLLAMA_ERROR: model not found", "json_valid": True, "schema_compliant": True}
+    row = {
+        **_ROW,
+        "failure_reason": "OLLAMA_ERROR: model not found",
+        "json_valid": True,
+        "schema_compliant": True,
+    }
     assert compute_score(row) == 0
 
 
