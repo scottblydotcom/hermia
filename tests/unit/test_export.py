@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from hermia.export import collect_results, push
+from hermia.export import collect_results, compute_score, push
 from hermia.results import load_jsonl
 
 _ROW = {
@@ -133,6 +133,38 @@ def test_push_skips_rows_missing_mandatory_fields(capsys) -> None:
     out = capsys.readouterr().out
     assert "Skipped 1" in out
     mock_extras.execute_batch.assert_not_called()
+
+
+def test_compute_score_full_pass() -> None:
+    row = {**_ROW, "failure_reason": "", "json_valid": True, "schema_compliant": True}
+    assert compute_score(row) == 100
+
+
+def test_compute_score_schema_fail() -> None:
+    row = {**_ROW, "failure_reason": "", "json_valid": True, "schema_compliant": False}
+    assert compute_score(row) == 60
+
+
+def test_compute_score_invalid_json() -> None:
+    row = {**_ROW, "failure_reason": "", "json_valid": False, "schema_compliant": False}
+    assert compute_score(row) == 25
+
+
+def test_compute_score_error() -> None:
+    row = {**_ROW, "failure_reason": "TIMEOUT: no response in 90s", "json_valid": False, "schema_compliant": False}
+    assert compute_score(row) == 0
+
+
+def test_compute_score_error_overrides_valid_json() -> None:
+    # failure_reason takes priority even if json_valid is somehow True
+    row = {**_ROW, "failure_reason": "OLLAMA_ERROR: model not found", "json_valid": True, "schema_compliant": True}
+    assert compute_score(row) == 0
+
+
+def test_push_dry_run_includes_score(capsys) -> None:
+    push([_ROW], dsn="", dry_run=True)
+    out = capsys.readouterr().out
+    assert "score=100" in out
 
 
 def test_push_missing_psycopg2_exits() -> None:

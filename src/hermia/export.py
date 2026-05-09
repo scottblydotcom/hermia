@@ -27,6 +27,7 @@ _PG_COLUMNS = (
     "peak_ram_used_gb",
     "peak_gpu_pct",
     "peak_vram_used_gb",
+    "score",
 )
 
 _INSERT_SQL = (
@@ -36,6 +37,23 @@ _INSERT_SQL = (
 )
 
 _REQUIRED_FIELDS = {"run_id", "host", "model", "test_id"}
+
+
+def compute_score(row: dict[str, object]) -> int:
+    """Derive a 0–100 quality score from pass/fail fields.
+
+    100 = json valid + schema compliant
+     60 = json valid, schema failed
+     25 = response received but not valid JSON
+      0 = error / timeout / no response
+    """
+    if row.get("failure_reason"):
+        return 0
+    if not row.get("json_valid"):
+        return 25
+    if not row.get("schema_compliant"):
+        return 60
+    return 100
 
 
 def collect_results(results_dir: Path) -> list[dict[str, object]]:
@@ -52,14 +70,16 @@ def push(rows: list[dict[str, object]], dsn: str, dry_run: bool) -> None:
     if skipped:
         print(f"Skipped {skipped} row(s) missing mandatory fields (likely from older runs).")
 
-    records = [{c: row.get(c) for c in _PG_COLUMNS} for row in valid_rows]
+    enriched = [{**row, "score": compute_score(row)} for row in valid_rows]
+    records = [{c: row.get(c) for c in _PG_COLUMNS} for row in enriched]
 
     if dry_run:
         print(f"[dry-run] Would process {len(records)} row(s)")
-        for r in valid_rows:
+        for r in enriched:
             print(
                 f"  run_id={r.get('run_id')}  host={r.get('host')}"
                 f"  model={r.get('model')}  test_id={r.get('test_id')}"
+                f"  score={r.get('score')}"
             )
         return
 
