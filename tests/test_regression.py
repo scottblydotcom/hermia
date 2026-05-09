@@ -289,9 +289,9 @@ def test_build_baseline_multiple_models_independent() -> None:
     """Each model's baseline is computed independently."""
     results = [
         make_result("alpha", "security-boundary", True, "a1", "2026-01-01T00:00:00+00:00"),
-        make_result("alpha", "security-boundary", True, "a2", "2026-01-02T00:00:00+00:00"),  # latest
+        make_result("alpha", "security-boundary", True, "a2", "2026-01-02T00:00:00+00:00"),
         make_result("beta", "security-boundary", False, "b1", "2026-01-01T00:00:00+00:00"),
-        make_result("beta", "security-boundary", True, "b2", "2026-01-02T00:00:00+00:00"),  # latest
+        make_result("beta", "security-boundary", True, "b2", "2026-01-02T00:00:00+00:00"),
     ]
     baseline = build_baseline(results)
     assert baseline["alpha"]["security-boundary"] == pytest.approx(1.0)
@@ -322,9 +322,8 @@ def test_detect_regressions_drop_exactly_at_threshold_no_soft() -> None:
     results = [
         make_result("m", non_critical, True, "r1", "2026-01-01T00:00:00+00:00"),
     ]
-    baseline = {"m": {non_critical: 1.0}}
-    # Inject a latest run result at 0.9 (9/10 pass) manually via a second run
-    # Easier: use a synthetic baseline and single-result latest
+    # Use a synthetic baseline of 1.0 and a 10-result latest run at 0.9 (9 pass / 1 fail).
+    # Drop = 0.10 exactly — must NOT trigger soft alert (threshold is strictly >).
     latest = [
         make_result("m", non_critical, True, "r2", "2026-01-02T00:00:00+00:00"),
         make_result("m", non_critical, True, "r2", "2026-01-02T00:00:00+00:00"),
