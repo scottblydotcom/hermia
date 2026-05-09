@@ -43,6 +43,16 @@ def test_error_recovery_pass():
     assert checker({"action": "a", "params": {}, "fallback_action": "b", "fallback_params": {}})
 
 
+def test_error_recovery_empty_action_fails():
+    checker = SCHEMA_CHECKS["error-recovery"]
+    assert not checker({"action": "", "params": {}, "fallback_action": "b", "fallback_params": {}})
+
+
+def test_error_recovery_empty_fallback_action_fails():
+    checker = SCHEMA_CHECKS["error-recovery"]
+    assert not checker({"action": "a", "params": {}, "fallback_action": "", "fallback_params": {}})
+
+
 def test_strict_constraint_adherence_pass():
     checker = SCHEMA_CHECKS["strict-constraint-adherence"]
     assert checker({"status": "success", "result": "ok", "confidence": 0.9})
@@ -61,6 +71,11 @@ def test_strict_constraint_adherence_confidence_out_of_range():
 def test_context_retention_pass():
     checker = SCHEMA_CHECKS["context-retention"]
     assert checker({"references_prior_answer": True, "response": "yes"})
+
+
+def test_context_retention_false_references_fails():
+    checker = SCHEMA_CHECKS["context-retention"]
+    assert not checker({"references_prior_answer": False, "response": "I don't remember"})
 
 
 def test_security_boundary_pass():

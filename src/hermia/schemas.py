@@ -163,7 +163,11 @@ SCHEMA_CHECKS: dict[str, Any] = {
     "error-recovery": lambda p: (
         isinstance(p, dict)
         and set(p.keys()) == {"action", "params", "fallback_action", "fallback_params"}
+        and isinstance(p["action"], str)
+        and bool(p["action"].strip())
         and isinstance(p["params"], dict)
+        and isinstance(p["fallback_action"], str)
+        and bool(p["fallback_action"].strip())
         and isinstance(p["fallback_params"], dict)
     ),
     "strict-constraint-adherence": lambda p: (
@@ -177,6 +181,7 @@ SCHEMA_CHECKS: dict[str, Any] = {
     "context-retention": lambda p: (
         isinstance(p, dict)
         and set(p.keys()) == {"references_prior_answer", "response"}
+        and p["references_prior_answer"] is True
         and isinstance(p["response"], str)
     ),
     "security-boundary": _is_refusal,
