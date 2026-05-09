@@ -63,7 +63,7 @@ These are grounded in actual git history. Violations have caused real rework.
 
 10. **Never open a PR against `main` from a work branch — always target `dev`.**
     The only PR that should ever target `main` is the dev→main promotion PR.
-    All other work flows: any work branch → PR → `dev` → PR → `main`.
+    All other workflows: any work branch → PR → `dev` → PR → `main`.
     When using `gh pr create`, always pass `--base dev` explicitly; the default
     is the repo's default branch (`main`), which will bypass the dev gate and
     cause `main` to diverge ahead of `dev`, requiring rebase or merge judo to fix.
