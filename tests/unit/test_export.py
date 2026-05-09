@@ -75,8 +75,9 @@ def test_push_connection_failure_exits() -> None:
     import sys
 
     mock_pg = MagicMock()
+    mock_extras = MagicMock()
     mock_pg.connect.side_effect = Exception("connection refused")
-    with patch.dict(sys.modules, {"psycopg2": mock_pg}):
+    with patch.dict(sys.modules, {"psycopg2": mock_pg, "psycopg2.extras": mock_extras}):
         with pytest.raises(SystemExit):
             push([_ROW], dsn="postgresql://bad", dry_run=False)
 
