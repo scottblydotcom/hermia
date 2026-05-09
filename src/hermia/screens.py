@@ -1,6 +1,8 @@
 """Textual screens: SelectionScreen and RunnerScreen."""
 
+import socket
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +28,29 @@ from hermia.schemas import TEST_IDS
 def _sanitize_model_id(name: str) -> str:
     """Normalise a model name for use as a Textual widget ID."""
     return name.replace(":", "_").replace(".", "_")
+
+
+def _compute_scores(
+    results: list[dict[str, Any]],
+) -> list[tuple[str, float, float, float, float]]:
+    """Aggregate per-model scores from a flat result list.
+
+    Returns list of (model, json_pass_rate, schema_pass_rate, agentic_score, avg_tps)
+    sorted descending by agentic_score.
+    """
+    by_model: dict[str, list[dict[str, Any]]] = {}
+    for r in results:
+        by_model.setdefault(r["model"], []).append(r)
+    scored = []
+    for model, rs in by_model.items():
+        n = len(rs)
+        jp = sum(r["json_valid"] for r in rs) / n
+        sp = sum(r["schema_compliant"] for r in rs) / n
+        ag = (jp * 0.40) + (sp * 0.60)
+        tps = sum(r["tokens_per_sec"] for r in rs) / n
+        scored.append((model, jp, sp, ag, tps))
+    scored.sort(key=lambda x: x[3], reverse=True)
+    return scored
 
 
 PROJECT_ROOT = Path(__file__).parents[2]
@@ -90,9 +115,7 @@ class SelectionScreen(Screen):  # type: ignore[type-arg]
         selected_models = [
             m["name"]
             for m in self.app.model_list  # type: ignore[attr-defined]
-            if self.query_one(
-                f"#model_{_sanitize_model_id(m['name'])}", Checkbox
-            ).value
+            if self.query_one(f"#model_{_sanitize_model_id(m['name'])}", Checkbox).value
         ]
         selected_tests = [
             t for t in TEST_IDS if self.query_one(f"#test_{t.replace('-', '_')}", Checkbox).value
@@ -171,9 +194,7 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
 
         def append_log(line: str, style: str = "") -> None:
             log_lines.append((line, style))
-            content = "\n".join(
-                f"[{s}]{ln}[/{s}]" if s else ln for ln, s in log_lines[-100:]
-            )
+            content = "\n".join(f"[{s}]{ln}[/{s}]" if s else ln for ln, s in log_lines[-100:])
             self.app.call_from_thread(self.query_one("#log-content", Static).update, content)
 
         # ── Preflight ────────────────────────────────────────────────────────
@@ -202,6 +223,8 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
         append_log("", "")
 
         jsonl_path, csv_path = open_run(RESULTS_DIR)
+        run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        run_host = socket.gethostname()
         append_log(f"Writing results to {jsonl_path.name} (appended after each test)", "info")
         append_log("", "")
 
@@ -239,6 +262,9 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
 
             for test in tests:
                 result = run_test(model, test, sampler)
+                result["run_id"] = run_id
+                result["run_timestamp"] = datetime.now(UTC).isoformat()
+                result["host"] = run_host
                 self.all_results.append(result)
                 append_result(result, jsonl_path, csv_path)
 
@@ -267,26 +293,15 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
                         append_log(f"       {preview[:80]}", "warn")
                 self.app.call_from_thread(self.query_one(ProgressBar).advance, 1)
 
-        by_model: dict[str, list[dict[str, Any]]] = {}
-        for r in self.all_results:
-            by_model.setdefault(r["model"], []).append(r)
-
-        scored = []
-        for model, results in by_model.items():
-            n = len(results)
-            jp = sum(r["json_valid"] for r in results) / n
-            sp = sum(1 for r in results if r["schema_compliant"]) / n
-            ag = (jp * 0.40) + (sp * 0.60)
-            tps = sum(r["tokens_per_sec"] for r in results) / n
-            scored.append((model, jp, sp, ag, tps))
-
-        scored.sort(key=lambda x: x[3], reverse=True)
+        scored = _compute_scores(self.all_results)
 
         lines = ["[bold]EVAL SUMMARY[/bold]\n"]
         lines.append(f"{'Model':<28} {'JSON%':>6} {'Schema%':>8} {'Agentic':>8} {'t/s':>6}")
         lines.append("─" * 62)
         for model, jp, sp, ag, tps in scored:
-            lines.append(f"{model:<28} {jp*100:5.0f}%  {sp*100:6.0f}%  {ag*100:7.0f}%  {tps:5.1f}")
+            lines.append(
+                f"{model:<28} {jp * 100:5.0f}%  {sp * 100:6.0f}%  {ag * 100:7.0f}%  {tps:5.1f}"
+            )
 
         lines.append("\n[bold]LOAD BENCHMARKS[/bold]\n")
         lines.append(f"{'Model':<28} {'Size':>6} {'Load':>7} {'GB/s':>6} {'VRAM Δ':>8}")
@@ -300,7 +315,8 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
                 f"{ls.get('vram_delta_gb', 0):+.2f} GB"
             )
 
-        lines.append(f"\nBest: [bold]{scored[0][0]}[/bold] ({scored[0][3]*100:.0f}/100)")
+        if scored:
+            lines.append(f"\nBest: [bold]{scored[0][0]}[/bold] ({scored[0][3] * 100:.0f}/100)")
         lines.append(f"Saved: {jsonl_path.name}  |  {csv_path.name}")
 
         self.app.call_from_thread(
