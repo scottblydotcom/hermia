@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from hermia.export import collect_results, compute_score, push
+from hermia.export import collect_results, compute_score, main, push
 from hermia.results import load_jsonl
 
 _ROW = {
@@ -194,9 +194,6 @@ def test_push_missing_psycopg2_exits() -> None:
 # ---------------------------------------------------------------------------
 # main() — CLI paths
 # ---------------------------------------------------------------------------
-
-from hermia.export import main
-
 
 def test_main_dry_run_no_results(tmp_path: Path) -> None:
     rc = main(dsn="", results_dir=tmp_path, dry_run=True)
