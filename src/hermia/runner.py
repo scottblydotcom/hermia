@@ -128,6 +128,8 @@ def run_test(
     return {
         "model": model,
         "test_id": test["id"],
+        "dimension": test.get("dimension", ""),
+        "failure_reason": error_type,
         "json_valid": json_valid,
         "schema_compliant": schema_ok,
         "tokens": tokens,
