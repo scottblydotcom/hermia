@@ -75,12 +75,12 @@ These are grounded in actual git history. Violations have caused real rework.
 
 ### Branch Workflow
 ```
-work branches (feature/, fix/, chore/, docs/, refactor/, etc.) → dev → main
+work branches (feature/, fix/, chore/, docs/, refactor/, ci/, test/, etc.) → dev → main
 ```
-- Create all work branches from `dev` (always `git checkout dev && git pull origin dev` first). Use the appropriate prefix (`feature/`, `fix/`, `chore/`, `docs/`, `refactor/`, etc.) when branching.
+- Create all work branches from `dev` (always `git checkout dev && git pull origin dev` first). Use the appropriate prefix (`feature/`, `fix/`, `chore/`, `docs/`, `refactor/`, `ci/`, `test/`, etc.) when branching.
 - Work branch PR: `gh pr create --base dev`
 - Promotion PR (only): `gh pr create --base main --head dev`
-- `main` must never get ahead of `dev`. If it does, sync immediately: `git checkout dev && git pull origin main`.
+- `main` must never get ahead of `dev`. If it does, sync immediately: `git checkout dev && git pull origin main && git push origin dev`.
 
 ### Before Writing Code
 - Agree on the approach with the user before implementation. Produce a brief
