@@ -30,8 +30,8 @@ _PG_COLUMNS = (
     "score",
 )
 
-_INSERT_SQL = (  # nosec B608 — columns from hardcoded tuple; values use psycopg2 %(name)s params
-    f"INSERT INTO hermia_results ({', '.join(_PG_COLUMNS)}) "
+_INSERT_SQL = (
+    f"INSERT INTO hermia_results ({', '.join(_PG_COLUMNS)}) "  # nosec B608 — columns from hardcoded tuple; values use psycopg2 %(name)s params
     f"VALUES ({', '.join(f'%({c})s' for c in _PG_COLUMNS)}) "
     "ON CONFLICT (run_id, host, model, test_id) DO NOTHING"
 )
