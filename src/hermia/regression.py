@@ -26,10 +26,7 @@ def _parse_ts(ts_str: str) -> datetime:
     """Parse ISO-8601 timestamp; handle date-only strings by appending midnight UTC."""
     if "T" not in ts_str and " " not in ts_str:
         ts_str = ts_str + "T00:00:00+00:00"
-    try:
-        dt = datetime.fromisoformat(ts_str)
-    except ValueError:
-        dt = datetime.fromisoformat(ts_str + "+00:00")
+    dt = datetime.fromisoformat(ts_str)
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=UTC)
     return dt
