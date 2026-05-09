@@ -70,6 +70,23 @@ def test_push_dry_run_prints_without_db(capsys, tmp_path: Path) -> None:
     assert "Would insert 1" in out
 
 
+def test_push_connection_failure_exits() -> None:
+    import sys
+
+    mock_pg = MagicMock()
+    mock_pg.connect.side_effect = Exception("connection refused")
+    with patch.dict(sys.modules, {"psycopg2": mock_pg}):
+        with pytest.raises(SystemExit):
+            push([_ROW], dsn="postgresql://bad", dry_run=False)
+
+
+def test_load_jsonl_skips_malformed_lines(tmp_path: Path) -> None:
+    p = tmp_path / "eval_bad.jsonl"
+    p.write_text('{"valid": true}\nnot json\n{"also": "valid"}\n')
+    rows = load_jsonl(p)
+    assert len(rows) == 2
+
+
 def test_push_inserts_rows() -> None:
     import sys
 

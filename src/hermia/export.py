@@ -42,7 +42,10 @@ def load_jsonl(path: Path) -> list[dict[str, object]]:
     with path.open(encoding="utf-8") as f:
         for line in f:
             if stripped := line.strip():
-                data = json.loads(stripped)
+                try:
+                    data = json.loads(stripped)
+                except json.JSONDecodeError:
+                    continue
                 if isinstance(data, dict):
                     rows.append(data)
     return rows
@@ -70,7 +73,11 @@ def push(rows: list[dict[str, object]], dsn: str, dry_run: bool) -> None:
     except ImportError:
         sys.exit("psycopg2-binary is required — install with: pip install 'hermia[grafana]'")
 
-    conn = psycopg2.connect(dsn)
+    try:
+        conn = psycopg2.connect(dsn)
+    except Exception as e:
+        sys.exit(f"Failed to connect to Postgres: {e}")
+
     try:
         with conn:
             with conn.cursor() as cur:
