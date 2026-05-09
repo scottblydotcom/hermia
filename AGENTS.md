@@ -77,10 +77,10 @@ These are grounded in actual git history. Violations have caused real rework.
 ```
 work branches (feature/, fix/, chore/, docs/, refactor/, etc.) → dev → main
 ```
-- All work branches from `dev`. Use the appropriate prefix (`feature/`, `fix/`, `chore/`, `docs/`, `refactor/`, etc.) when branching.
+- All work branches from `dev` (always `git pull origin dev` first). Use the appropriate prefix (`feature/`, `fix/`, `chore/`, `docs/`, `refactor/`, etc.) when branching.
 - Work branch PR: `gh pr create --base dev`
 - Promotion PR (only): `gh pr create --base main --head dev`
-- `main` must never get ahead of `dev`. If it does, something went wrong.
+- `main` must never get ahead of `dev`. If it does, sync immediately: `git checkout dev && git merge main`.
 
 ### Before Writing Code
 - Agree on the approach with the user before implementation. Produce a brief
