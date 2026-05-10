@@ -186,6 +186,8 @@ def main(
     try:
         push(rows, dsn, dry_run)
     except SystemExit as e:
+        if e.code == 0 or e.code is None:
+            return 0
         if isinstance(e.code, str):
             print(e.code, file=sys.stderr)
         if exit_on_error:
