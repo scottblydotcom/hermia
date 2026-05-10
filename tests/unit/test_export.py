@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from hermia.export import collect_results, compute_score, push
+from hermia.export import collect_results, compute_score, main, push
 from hermia.results import load_jsonl
 
 _ROW = {
@@ -189,3 +189,100 @@ def test_push_missing_psycopg2_exits() -> None:
     with patch("builtins.__import__", side_effect=fake_import):
         with pytest.raises(SystemExit):
             push([_ROW], dsn="postgresql://test", dry_run=False)
+
+
+# ---------------------------------------------------------------------------
+# main() — CLI paths
+# ---------------------------------------------------------------------------
+
+def test_main_dry_run_no_results(tmp_path: Path) -> None:
+    rc = main(dsn="", results_dir=tmp_path, dry_run=True)
+    assert rc == 1
+
+
+def test_main_dry_run_with_results(tmp_path: Path, capsys) -> None:
+    _write_jsonl(tmp_path / "eval_20260509_120000.jsonl", [_ROW])
+    rc = main(dsn="", results_dir=tmp_path, dry_run=True)
+    assert rc == 0
+    assert "dry-run" in capsys.readouterr().out
+
+
+def test_main_missing_results_dir(tmp_path: Path) -> None:
+    rc = main(
+        dsn="postgresql://test",
+        results_dir=tmp_path / "missing",
+        dry_run=False,
+        exit_on_error=False,
+    )
+    assert rc == 2
+
+
+def test_main_missing_dsn_exits(tmp_path: Path) -> None:
+    rc = main(dsn="", results_dir=tmp_path, dry_run=False, exit_on_error=False)
+    assert rc == 2
+
+
+def test_main_push_failure_returns_3(tmp_path: Path) -> None:
+    """push() SystemExit must be caught and return 3 when exit_on_error=False."""
+    _write_jsonl(tmp_path / "eval_20260509_120000.jsonl", [_ROW])
+    with patch("hermia.export.push", side_effect=SystemExit("psycopg2 missing")):
+        rc = main(dsn="postgresql://test", results_dir=tmp_path, dry_run=False, exit_on_error=False)
+    assert rc == 3
+
+
+def test_main_push_failure_exits_3(tmp_path: Path) -> None:
+    """push() failure with exit_on_error=True must sys.exit(3), not sys.exit(1)."""
+    _write_jsonl(tmp_path / "eval_20260509_120000.jsonl", [_ROW])
+    with patch("hermia.export.push", side_effect=SystemExit("psycopg2 missing")):
+        with pytest.raises(SystemExit) as exc:
+            main(dsn="postgresql://test", results_dir=tmp_path, dry_run=False, exit_on_error=True)
+    assert exc.value.code == 3
+
+
+def test_main_db_exception_returns_3(tmp_path: Path) -> None:
+    """Exception from push (e.g. psycopg2.Error) must be caught and return 3."""
+    _write_jsonl(tmp_path / "eval_20260509_120000.jsonl", [_ROW])
+    with patch("hermia.export.push", side_effect=Exception("db error")):
+        rc = main(dsn="postgresql://test", results_dir=tmp_path, dry_run=False, exit_on_error=False)
+    assert rc == 3
+
+
+def test_main_explicit_dsn_not_overridden_by_argv(tmp_path: Path, monkeypatch) -> None:
+    """Explicit dsn arg must not be overwritten by sys.argv --dsn when argparse runs."""
+    import sys
+    monkeypatch.setattr(sys, "argv", ["hermia-push", "--dsn", "postgresql://from-argv"])
+    _write_jsonl(tmp_path / "eval_20260509_120000.jsonl", [_ROW])
+    mock_pg = MagicMock()
+    mock_extras = MagicMock()
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_cur.__enter__ = MagicMock(return_value=mock_cur)
+    mock_cur.__exit__ = MagicMock(return_value=False)
+    mock_conn.cursor.return_value = mock_cur
+    mock_pg.connect.return_value = mock_conn
+    with patch.dict(sys.modules, {"psycopg2": mock_pg, "psycopg2.extras": mock_extras}):
+        rc = main(dsn="postgresql://explicit", results_dir=tmp_path, dry_run=None)
+    assert rc == 0
+    mock_pg.connect.assert_called_once_with("postgresql://explicit")
+
+
+def test_main_dsn_from_env(tmp_path: Path, monkeypatch) -> None:
+    _write_jsonl(tmp_path / "eval_20260509_120000.jsonl", [_ROW])
+    monkeypatch.setenv("HERMIA_PG_DSN", "postgresql://envtest")
+    import sys
+    mock_pg = MagicMock()
+    mock_extras = MagicMock()
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_cur.__enter__ = MagicMock(return_value=mock_cur)
+    mock_cur.__exit__ = MagicMock(return_value=False)
+    mock_conn.cursor.return_value = mock_cur
+    mock_pg.connect.return_value = mock_conn
+    with patch.dict(sys.modules, {"psycopg2": mock_pg, "psycopg2.extras": mock_extras}):
+        rc = main(results_dir=tmp_path, dry_run=False)
+    assert rc == 0
+    mock_pg.connect.assert_called_once_with("postgresql://envtest")
