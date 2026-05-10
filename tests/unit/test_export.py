@@ -222,6 +222,22 @@ def test_main_missing_dsn_exits(tmp_path: Path) -> None:
     assert rc == 2
 
 
+def test_main_push_failure_returns_3(tmp_path: Path) -> None:
+    """push() SystemExit must be caught and return 3 when exit_on_error=False."""
+    _write_jsonl(tmp_path / "eval_20260509_120000.jsonl", [_ROW])
+    import builtins
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "psycopg2":
+            raise ImportError("no module")
+        return real_import(name, *args, **kwargs)
+
+    with patch("builtins.__import__", side_effect=fake_import):
+        rc = main(dsn="postgresql://test", results_dir=tmp_path, dry_run=False, exit_on_error=False)
+    assert rc == 3
+
+
 def test_main_dsn_from_env(tmp_path: Path, monkeypatch) -> None:
     _write_jsonl(tmp_path / "eval_20260509_120000.jsonl", [_ROW])
     monkeypatch.setenv("HERMIA_PG_DSN", "postgresql://envtest")
