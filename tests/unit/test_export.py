@@ -291,7 +291,7 @@ def test_main_explicit_dsn_not_overridden_by_argv(tmp_path: Path, monkeypatch) -
     mock_conn.cursor.return_value = mock_cur
     mock_pg.connect.return_value = mock_conn
     with patch.dict(sys.modules, {"psycopg2": mock_pg, "psycopg2.extras": mock_extras}):
-        rc = main(dsn="postgresql://explicit", results_dir=tmp_path, dry_run=False)
+        rc = main(dsn="postgresql://explicit", results_dir=tmp_path, dry_run=None)
     assert rc == 0
     mock_pg.connect.assert_called_once_with("postgresql://explicit")
 
