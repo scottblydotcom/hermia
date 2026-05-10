@@ -125,6 +125,7 @@ def main(
     """
     # Resolve env var before argparse so tests can inject results_dir+dry_run
     # and skip parse_args() entirely while still exercising env-var DSN logic.
+    dsn_explicit = dsn is not None
     if dsn is None:
         dsn = os.environ.get("HERMIA_PG_DSN", "")
 
@@ -149,8 +150,12 @@ def main(
             action="store_true",
             help="Print rows that would be inserted without writing to Postgres",
         )
-        args = parser.parse_args()
-        dsn = args.dsn
+        try:
+            args = parser.parse_args()
+        except argparse.ArgumentError:
+            return 2
+        if not dsn_explicit:
+            dsn = args.dsn
         if results_dir is None:
             results_dir = args.results_dir
         if dry_run is None:
@@ -179,8 +184,8 @@ def main(
 
     try:
         push(rows, dsn, dry_run)
-    except SystemExit:
+    except (SystemExit, Exception):
         if exit_on_error:
-            raise
+            sys.exit(3)
         return 3
     return 0
