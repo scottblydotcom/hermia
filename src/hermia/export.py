@@ -121,6 +121,7 @@ def main(
         0 — success
         1 — no results found
         2 — argument/path error
+        3 — push failure (missing psycopg2 or connection error)
     """
     # Resolve env var before argparse so tests can inject results_dir+dry_run
     # and skip parse_args() entirely while still exercising env-var DSN logic.
@@ -128,7 +129,10 @@ def main(
         dsn = os.environ.get("HERMIA_PG_DSN", "")
 
     if results_dir is None or dry_run is None:
-        parser = argparse.ArgumentParser(description="Push hermia eval results to Postgres")
+        parser = argparse.ArgumentParser(
+            description="Push hermia eval results to Postgres",
+            exit_on_error=exit_on_error,
+        )
         parser.add_argument(
             "--dsn",
             default=dsn,
@@ -156,16 +160,16 @@ def main(
 
     if not dry_run and not dsn:
         msg = "--dsn or HERMIA_PG_DSN is required"
-        if exit_on_error:
-            sys.exit(msg)
         print(msg, file=sys.stderr)
+        if exit_on_error:
+            sys.exit(2)
         return 2
 
     if not results_dir.is_dir():
         msg = f"Results directory not found: {results_dir}"
-        if exit_on_error:
-            sys.exit(msg)
         print(msg, file=sys.stderr)
+        if exit_on_error:
+            sys.exit(2)
         return 2
 
     rows = collect_results(results_dir)
@@ -173,5 +177,10 @@ def main(
         print("No results found.")
         return 1
 
-    push(rows, dsn, dry_run)
+    try:
+        push(rows, dsn, dry_run)
+    except SystemExit:
+        if exit_on_error:
+            raise
+        return 3
     return 0
