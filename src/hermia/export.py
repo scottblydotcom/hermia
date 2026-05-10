@@ -155,6 +155,10 @@ def main(
         except argparse.ArgumentError as e:
             print(f"Argument error: {e}", file=sys.stderr)
             return 2
+        except SystemExit as e:
+            if exit_on_error:
+                raise
+            return 0 if e.code == 0 or e.code is None else 2
         if not dsn_explicit:
             dsn = args.dsn
         if results_dir is None:
