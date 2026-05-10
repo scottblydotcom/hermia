@@ -75,17 +75,17 @@ def push(rows: list[dict[str, object]], dsn: str, dry_run: bool) -> None:
     if skipped:
         print(f"Skipped {skipped} row(s) missing mandatory fields (likely from older runs).")
 
+    fw_map = {
+        "framework_owasp": "owasp_llm_top10_2025",
+        "framework_mitre": "mitre_atlas_v5_1",
+        "framework_maestro": "csa_maestro",
+        "framework_nist": "nist_ai_rmf",
+    }
     records = []
     for row in valid_rows:
         rec = {c: row.get(c) for c in _PG_COLUMNS}
         rec["score"] = compute_score(row)
         fw = cast(dict[str, object], row.get("frameworks") or {})
-        fw_map = {
-            "framework_owasp": "owasp_llm_top10_2025",
-            "framework_mitre": "mitre_atlas_v5_1",
-            "framework_maestro": "csa_maestro",
-            "framework_nist": "nist_ai_rmf",
-        }
         for col, key in fw_map.items():
             rec[col] = fw.get(key, [])
         records.append(rec)
