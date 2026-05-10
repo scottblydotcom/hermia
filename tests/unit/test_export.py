@@ -286,3 +286,95 @@ def test_main_dsn_from_env(tmp_path: Path, monkeypatch) -> None:
         rc = main(results_dir=tmp_path, dry_run=False)
     assert rc == 0
     mock_pg.connect.assert_called_once_with("postgresql://envtest")
+
+
+# ---------------------------------------------------------------------------
+# hermia-36u: Framework field round-trips
+# ---------------------------------------------------------------------------
+
+_FW = {
+    "owasp_llm_top10_2025": ["LLM01:2025", "LLM07:2025"],
+    "mitre_atlas_v5_1": ["AML.T0100"],
+    "csa_maestro": [],
+    "nist_ai_rmf": [],
+}
+
+_ROW_WITH_FW = {**_ROW, "frameworks": _FW}
+
+
+def test_framework_field_survives_jsonl_round_trip(tmp_path: Path) -> None:
+    p = tmp_path / "eval_20260510_120000.jsonl"
+    _write_jsonl(p, [_ROW_WITH_FW])
+    rows = load_jsonl(p)
+    assert rows[0]["frameworks"] == _FW
+
+
+def test_push_dry_run_expands_framework_columns(capsys, tmp_path: Path) -> None:
+    push([_ROW_WITH_FW], dsn="", dry_run=True)
+    out = capsys.readouterr().out
+    assert "dry-run" in out
+    assert "Would process 1" in out
+
+
+def test_push_framework_columns_populated_from_nested_dict() -> None:
+    import sys
+
+    captured_records: list = []
+
+    mock_pg = MagicMock()
+    mock_extras = MagicMock()
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_cur.__enter__ = MagicMock(return_value=mock_cur)
+    mock_cur.__exit__ = MagicMock(return_value=False)
+    mock_conn.cursor.return_value = mock_cur
+    mock_pg.connect.return_value = mock_conn
+
+    def capture_batch(cur, sql, records):
+        captured_records.extend(records)
+
+    mock_extras.execute_batch.side_effect = capture_batch
+
+    with patch.dict(sys.modules, {"psycopg2": mock_pg, "psycopg2.extras": mock_extras}):
+        push([_ROW_WITH_FW], dsn="postgresql://test", dry_run=False)
+
+    assert len(captured_records) == 1
+    rec = captured_records[0]
+    assert rec["framework_owasp"] == ["LLM01:2025", "LLM07:2025"]
+    assert rec["framework_mitre"] == ["AML.T0100"]
+    assert rec["framework_maestro"] == []
+    assert rec["framework_nist"] == []
+
+
+def test_push_framework_columns_default_to_empty_for_old_rows() -> None:
+    import sys
+
+    captured_records: list = []
+
+    mock_pg = MagicMock()
+    mock_extras = MagicMock()
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_cur.__enter__ = MagicMock(return_value=mock_cur)
+    mock_cur.__exit__ = MagicMock(return_value=False)
+    mock_conn.cursor.return_value = mock_cur
+    mock_pg.connect.return_value = mock_conn
+
+    def capture_batch(cur, sql, records):
+        captured_records.extend(records)
+
+    mock_extras.execute_batch.side_effect = capture_batch
+
+    with patch.dict(sys.modules, {"psycopg2": mock_pg, "psycopg2.extras": mock_extras}):
+        push([_ROW], dsn="postgresql://test", dry_run=False)
+
+    assert len(captured_records) == 1
+    rec = captured_records[0]
+    assert rec["framework_owasp"] == []
+    assert rec["framework_mitre"] == []
+    assert rec["framework_maestro"] == []
+    assert rec["framework_nist"] == []

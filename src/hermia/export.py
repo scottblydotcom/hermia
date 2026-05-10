@@ -27,6 +27,10 @@ _PG_COLUMNS = (
     "peak_ram_used_gb",
     "peak_gpu_pct",
     "peak_vram_used_gb",
+    "framework_owasp",
+    "framework_mitre",
+    "framework_maestro",
+    "framework_nist",
     "score",
 )
 
@@ -74,6 +78,11 @@ def push(rows: list[dict[str, object]], dsn: str, dry_run: bool) -> None:
     for row in valid_rows:
         rec = {c: row.get(c) for c in _PG_COLUMNS}
         rec["score"] = compute_score(row)
+        fw = row.get("frameworks") or {}
+        rec["framework_owasp"] = fw.get("owasp_llm_top10_2025", [])
+        rec["framework_mitre"] = fw.get("mitre_atlas_v5_1", [])
+        rec["framework_maestro"] = fw.get("csa_maestro", [])
+        rec["framework_nist"] = fw.get("nist_ai_rmf", [])
         records.append(rec)
 
     if dry_run:
