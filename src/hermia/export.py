@@ -152,7 +152,8 @@ def main(
         )
         try:
             args = parser.parse_args()
-        except argparse.ArgumentError:
+        except argparse.ArgumentError as e:
+            print(str(e), file=sys.stderr)
             return 2
         if not dsn_explicit:
             dsn = args.dsn
@@ -184,7 +185,11 @@ def main(
 
     try:
         push(rows, dsn, dry_run)
-    except (SystemExit, Exception):
+    except (SystemExit, Exception) as e:
+        if isinstance(e, SystemExit) and isinstance(e.code, str):
+            print(e.code, file=sys.stderr)
+        elif not isinstance(e, SystemExit):
+            print(f"Error: {e}", file=sys.stderr)
         if exit_on_error:
             sys.exit(3)
         return 3
