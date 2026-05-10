@@ -251,7 +251,7 @@ Hermia is an **interactive, local-first, hardware-aware LLM evaluation harness**
 - **Interactive TUI** (Python/Textual): operators select models and test suites in real time, watch results stream live
 - **Live system telemetry**: CPU, RAM, GPU, VRAM during test execution — the only eval tool in this landscape that correlates test performance with hardware load (AMD GPU via sysfs; NVIDIA + Apple Silicon support shipping in v0.1)
 - **Cold-load benchmarking**: measures from a clean model-load state, not a warmed inference session — captures inference startup costs, VRAM allocation patterns, and first-token latency that warm benchmarks miss entirely
-- **MITRE-mapped security tests**: test cases are tagged with MITRE ATLAS references in test metadata; structured taxonomy fields and export shipping in v0.1
+- **MITRE-tagged security tests**: test cases are tagged with MITRE ATLAS references in test metadata; structured taxonomy fields and export shipping in v0.1
 - **Agentic scoring**: multi-step task evaluation including tool-use chains, constraint adherence, error recovery, and routing decisions
 - **Direct Ollama integration**: v0.1 tests run against a local Ollama endpoint (localhost:11434); LiteLLM gateway integration and fleet routing awareness ship in v0.2
 - **Postgres/Grafana export**: results feed into the existing fleet monitoring stack — evaluation is not a one-time report, it is a continuous dashboard signal
@@ -273,7 +273,7 @@ Hermia is not:
 | Hermia Strength | Why It Matters | Who Else Has It |
 |---|---|---|
 | Cold-load benchmarking | Captures true inference startup cost — critical for fleet provisioning decisions | Nobody (among open-source operational eval tools) |
-| Live GPU/VRAM telemetry correlated with test results (AMD v0.1; NVIDIA+ASi v0.1) | Lets operators know if a model fails a test because of capability or resource contention | Nobody (among open-source operational eval tools) |
+| Live GPU/VRAM telemetry correlated with test results (AMD v0.1; NVIDIA+ASi v0.1 deliverable) | Lets operators know if a model fails a test because of capability or resource contention | Nobody (among open-source operational eval tools) |
 | Fleet routing integration via LiteLLM (v0.2) | Tests will run against the actual routing layer, not a mocked endpoint — catches lane-level failures | Nobody (among open-source operational eval tools) |
 | MITRE-tagged security tests (structured taxonomy export v0.1) | Security team language alignment; audit-ready output | Partial (Garak partial, Mindgard yes but closed) |
 | Postgres/Grafana export | Eval as a continuous operational signal, not a one-time report | Nobody (among open-source operational eval tools) |
