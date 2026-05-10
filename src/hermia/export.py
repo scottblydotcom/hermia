@@ -109,35 +109,97 @@ def push(rows: list[dict[str, object]], dsn: str, dry_run: bool) -> None:
         conn.close()
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Push hermia eval results to Postgres")
-    parser.add_argument(
-        "--dsn",
-        default=os.environ.get("HERMIA_PG_DSN", ""),
-        help="Postgres DSN (or set HERMIA_PG_DSN env var)",
-    )
-    parser.add_argument(
-        "--results-dir",
-        type=Path,
-        default=Path("results"),
-        help="Directory containing eval_*.jsonl files (default: ./results)",
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Print rows that would be inserted without writing to Postgres",
-    )
-    args = parser.parse_args()
+def main(
+    dsn: str | None = None,
+    results_dir: Path | str | None = None,
+    dry_run: bool | None = None,
+    exit_on_error: bool = True,
+) -> int:
+    """CLI entry point for hermia-push.
 
-    if not args.dry_run and not args.dsn:
-        sys.exit("--dsn or HERMIA_PG_DSN is required")
+    Returns:
+        0 — success
+        1 — no results found
+        2 — argument/path error
+        3 — push failure (missing psycopg2 or connection error)
+    """
+    # Resolve env var before argparse so tests can inject results_dir+dry_run
+    # and skip parse_args() entirely while still exercising env-var DSN logic.
+    dsn_explicit = dsn is not None
+    if dsn is None:
+        dsn = os.environ.get("HERMIA_PG_DSN", "")
 
-    if not args.results_dir.is_dir():
-        sys.exit(f"Results directory not found: {args.results_dir}")
+    if results_dir is None or dry_run is None:
+        parser = argparse.ArgumentParser(
+            description="Push hermia eval results to Postgres",
+            exit_on_error=exit_on_error,
+        )
+        parser.add_argument(
+            "--dsn",
+            default=dsn,
+            help="Postgres DSN (or set HERMIA_PG_DSN env var)",
+        )
+        parser.add_argument(
+            "--results-dir",
+            type=Path,
+            default=Path("results"),
+            help="Directory containing eval_*.jsonl files (default: ./results)",
+        )
+        parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Print rows that would be inserted without writing to Postgres",
+        )
+        try:
+            args = parser.parse_args()
+        except argparse.ArgumentError as e:
+            print(f"Argument error: {e}", file=sys.stderr)
+            return 2
+        except SystemExit as e:
+            if exit_on_error:
+                raise
+            return 0 if e.code == 0 or e.code is None else 2
+        if not dsn_explicit:
+            dsn = args.dsn
+        if results_dir is None:
+            results_dir = args.results_dir
+        if dry_run is None:
+            dry_run = args.dry_run
 
-    rows = collect_results(args.results_dir)
+    results_dir = Path(results_dir)
+
+    if not dry_run and not dsn:
+        msg = "--dsn or HERMIA_PG_DSN is required"
+        print(msg, file=sys.stderr)
+        if exit_on_error:
+            sys.exit(2)
+        return 2
+
+    if not results_dir.is_dir():
+        msg = f"Results directory not found: {results_dir}"
+        print(msg, file=sys.stderr)
+        if exit_on_error:
+            sys.exit(2)
+        return 2
+
+    rows = collect_results(results_dir)
     if not rows:
         print("No results found.")
-        return
+        return 1
 
-    push(rows, args.dsn, args.dry_run)
+    try:
+        push(rows, dsn, dry_run)
+    except SystemExit as e:
+        if e.code == 0 or e.code is None:
+            return 0
+        if isinstance(e.code, str):
+            print(e.code, file=sys.stderr)
+        if exit_on_error:
+            sys.exit(3)
+        return 3
+    except Exception as e:
+        print(f"Push failed: {e}", file=sys.stderr)
+        if exit_on_error:
+            sys.exit(3)
+        return 3
+    return 0
