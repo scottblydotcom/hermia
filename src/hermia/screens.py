@@ -1,6 +1,7 @@
 """Textual screens: SelectionScreen and RunnerScreen."""
 
 import socket
+import statistics
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -12,9 +13,10 @@ from textual.containers import Horizontal, ScrollableContainer
 from textual.screen import Screen
 from textual.widgets import Button, Checkbox, Footer, Header, Label, ProgressBar, Static
 
+from hermia import robustness
 from hermia.metrics import MetricsSampler
 from hermia.preflight import run_preflight
-from hermia.results import append_result, open_run
+from hermia.results import append_result, open_run, patch_results
 from hermia.runner import (
     get_model_size_gb,
     load_tests,
@@ -53,6 +55,29 @@ def _compute_scores(
     return scored
 
 
+def _backfill_aggregates(run_results: list[dict[str, Any]]) -> None:
+    """Compute cold_warm_delta_tps and robustness fields; stamp onto each row in-place."""
+    if not run_results:
+        return
+    if len(run_results) == 1 or not run_results[0].get("is_cold"):
+        delta: float | None = None
+    else:
+        cold_tps = float(run_results[0].get("tokens_per_sec", 0.0))
+        warm_tps_list = [float(r.get("tokens_per_sec", 0.0)) for r in run_results[1:]]
+        if cold_tps == 0.0 and all(t == 0.0 for t in warm_tps_list):
+            delta = None
+        else:
+            delta = cold_tps - statistics.mean(warm_tps_list)
+
+    result = robustness.score_rows(run_results)
+
+    for row in run_results:
+        row["cold_warm_delta_tps"] = delta
+        row["consistency_pct"] = result.consistency_pct
+        row["pass_count"] = result.pass_count
+        row["robustness_n"] = result.n
+
+
 PROJECT_ROOT = Path(__file__).parents[2]
 RESULTS_DIR = PROJECT_ROOT / "results"
 
@@ -70,6 +95,10 @@ class SelectionScreen(Screen):  # type: ignore[type-arg]
     #status { height: 1; content-align: center middle; color: $warning; }
     #gpu-info { height: 1; content-align: center middle; color: $accent; }
     """
+
+    def __init__(self, repeat: int = 1) -> None:
+        super().__init__()
+        self.repeat = repeat
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -128,7 +157,7 @@ class SelectionScreen(Screen):  # type: ignore[type-arg]
         if not selected_tests:
             self.query_one("#status", Label).update("Select at least one test.")
             return
-        self.app.push_screen(RunnerScreen(selected_models, selected_tests))
+        self.app.push_screen(RunnerScreen(selected_models, selected_tests, repeat=self.repeat))
 
 
 class RunnerScreen(Screen):  # type: ignore[type-arg]
@@ -149,10 +178,11 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
 
     BINDINGS = [("b", "go_back", "Back to Selection")]
 
-    def __init__(self, models: list[str], test_ids: list[str]) -> None:
+    def __init__(self, models: list[str], test_ids: list[str], repeat: int = 1) -> None:
         super().__init__()
         self.models = models
         self.test_ids = test_ids
+        self.repeat = repeat
         self.all_results: list[dict[str, Any]] = []
         self._live_sampler = MetricsSampler()
 
@@ -160,7 +190,9 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
         yield Header()
         yield Static("Waiting to start...", id="metrics-bar")
         yield ProgressBar(
-            total=len(self.models) * len(self.test_ids), show_eta=True, id="progress-bar"
+            total=len(self.models) * len(self.test_ids) * self.repeat,
+            show_eta=True,
+            id="progress-bar",
         )
         with ScrollableContainer(id="log"):
             yield Static("", id="log-content")
@@ -265,14 +297,31 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
                 "info",
             )
 
+            model_first_call = True
             for test in tests:
-                result = run_test(model, test, sampler)
-                result["run_id"] = run_id
-                result["run_timestamp"] = datetime.now(UTC).isoformat()
-                result["host"] = run_host
-                self.all_results.append(result)
-                append_result(result, jsonl_path, csv_path)
+                run_results_for_test: list[dict[str, Any]] = []
+                for run_index in range(1, self.repeat + 1):
+                    result = run_test(model, test, sampler)
+                    result["run_id"] = run_id
+                    result["run_timestamp"] = datetime.now(UTC).isoformat()
+                    result["host"] = run_host
+                    result["run_index"] = run_index
+                    result["is_cold"] = model_first_call
+                    model_first_call = False
+                    self.all_results.append(result)
+                    append_result(result, jsonl_path, csv_path=None)
+                    run_results_for_test.append(result)
+                    self.app.call_from_thread(self.query_one(ProgressBar).advance, 1)
 
+                # Compute aggregates after all N runs, then patch the already-written
+                # rows in the JSONL. CSV written here so aggregate fields are included.
+                _backfill_aggregates(run_results_for_test)
+                patch_results(jsonl_path, run_results_for_test)
+                for result in run_results_for_test:
+                    append_result(result, jsonl_path=None, csv_path=csv_path)
+
+                # Log the last run's result for display
+                result = run_results_for_test[-1]
                 tps = result["tokens_per_sec"]
                 jv = result["json_valid"]
                 sc = result["schema_compliant"]
@@ -296,7 +345,6 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
                     preview = result.get("output_preview", "")
                     if preview:
                         append_log(f"       {preview[:80]}", "warn")
-                self.app.call_from_thread(self.query_one(ProgressBar).advance, 1)
 
         scored = _compute_scores(self.all_results)
 

@@ -32,12 +32,18 @@ _PG_COLUMNS = (
     "framework_maestro",
     "framework_nist",
     "score",
+    "run_index",
+    "is_cold",
+    "cold_warm_delta_tps",
+    "consistency_pct",
+    "pass_count",
+    "robustness_n",
 )
 
 _INSERT_SQL = (
     f"INSERT INTO hermia_results ({', '.join(_PG_COLUMNS)}) "  # nosec B608 — columns from hardcoded tuple; values use psycopg2 %(name)s params
     f"VALUES ({', '.join(f'%({c})s' for c in _PG_COLUMNS)}) "
-    "ON CONFLICT (run_id, host, model, test_id) DO NOTHING"
+    "ON CONFLICT (run_id, host, model, test_id, run_index) DO NOTHING"
 )
 
 _REQUIRED_FIELDS = {"run_id", "host", "model", "test_id"}
