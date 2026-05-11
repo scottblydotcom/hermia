@@ -173,7 +173,10 @@ def test_checker_never_raises(test_id: str, value: object) -> None:
 @settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow])
 def test_valid_with_benign_extra_passes(test_id: str, data: st.DataObject) -> None:
     base = data.draw(_VALID_STRATEGY[test_id])
-    extra_key = data.draw(st.sampled_from(sorted(_BENIGN_EXTRA_KEYS)))
+    # Exclude keys already in base (e.g. 'reasoning' in multi-step-reasoning) so
+    # the extra key is genuinely an addition rather than an overwrite.
+    candidates = sorted(_BENIGN_EXTRA_KEYS - set(base.keys()))
+    extra_key = data.draw(st.sampled_from(candidates))
     payload = {**base, extra_key: "some internal reasoning"}
     checker = SCHEMA_CHECKS[test_id]
     assert checker(payload), (
