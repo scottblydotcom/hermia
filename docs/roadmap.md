@@ -361,7 +361,7 @@ Description of the work and the strategic intent. Bead breakdown happens when th
 - Main JSONL rows never patched or re-read mid-run — O(1) per test completion regardless of run size
 - `collect_results()` joins main + sidecar rows before returning; `hermia-push` inserts the merged view
 - `patch_results()` removed; `results.py` reverts to append-only
-**Why:** `patch_results` re-reads and rewrites the entire JSONL on every (model, test_id) completion — O(n²) total I/O. Acceptable for v0.1 fleet sizes (10 models × 19 tests). At large fleet scale — think legacy GPU datacenters with hundreds of models and high repeat counts — this becomes a serious bottleneck. The sidecar pattern is O(1) per completion, never reads existing data, and keeps the main JSONL append-only. Motivated by a potential 27-datacenter engagement.
+**Why:** `patch_results` re-reads and rewrites the entire JSONL on every (model, test_id) completion — O(n²) total I/O. Acceptable for v0.1 fleet sizes (10 models × 19 tests). At large fleet scale — many nodes, high repeat counts, slow inference — this becomes a serious bottleneck. The sidecar pattern is O(1) per completion, never reads existing data, and keeps the main JSONL append-only.
 
 ---
 
