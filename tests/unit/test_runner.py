@@ -246,3 +246,21 @@ def test_load_tests_includes_frameworks_field() -> None:
     fw = results[0]["frameworks"]
     assert "LLM01:2025" in fw["owasp_llm_top10_2025"]
     assert "AML.T0100" in fw["mitre_atlas_v5_1"]
+
+
+# ---------------------------------------------------------------------------
+# hermia-0ws: repeat-field absence from run_test
+# ---------------------------------------------------------------------------
+
+def test_run_test_result_has_no_repeat_fields() -> None:
+    """run_test() must NOT stamp run_index, is_cold, or cold_warm_delta_tps.
+
+    Those fields are the responsibility of screens.py, not the runner.
+    """
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"response": "{}", "eval_count": 10, "error": ""}
+    with patch("hermia.runner.requests.post", return_value=mock_resp):
+        result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
+    assert "run_index" not in result
+    assert "is_cold" not in result
+    assert "cold_warm_delta_tps" not in result

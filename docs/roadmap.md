@@ -351,6 +351,18 @@ Description of the work and the strategic intent. Bead breakdown happens when th
 - Soft-fails with a comment listing out-of-scope files; doesn't block merge but makes the violation visible
 **Why:** Novel governance pattern. Possible blog post.
 
+### Sidecar aggregates file for fleet-scale repeat runs
+**Priority:** P2
+**Depends on:** Transport interface (fleet config)
+**Permitted scope:** `src/hermia/results.py`, `src/hermia/screens.py`, `src/hermia/export.py`, `tests/unit/test_results.py`
+**Acceptance (sketch):**
+- Replace `patch_results()` with a sidecar file `eval_TIMESTAMP_aggregates.jsonl` written alongside the main JSONL
+- After `_backfill_aggregates`, append one row to the sidecar keyed on `(run_id, model, test_id)` containing only the aggregate fields (`consistency_pct`, `pass_count`, `cold_warm_delta_tps`, `robustness_n`)
+- Main JSONL rows never patched or re-read mid-run — O(1) per test completion regardless of run size
+- `collect_results()` joins main + sidecar rows before returning; `hermia-push` inserts the merged view
+- `patch_results()` removed; `results.py` reverts to append-only
+**Why:** `patch_results` re-reads and rewrites the entire JSONL on every (model, test_id) completion — O(n²) total I/O. Acceptable for v0.1 fleet sizes (10 models × 19 tests). At large fleet scale — many nodes, high repeat counts, slow inference — this becomes a serious bottleneck. The sidecar pattern is O(1) per completion, never reads existing data, and keeps the main JSONL append-only.
+
 ---
 
 ## v0.3 — Eval Bus (target ~2026-08)

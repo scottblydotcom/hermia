@@ -14,17 +14,47 @@ def open_run(results_dir: Path) -> tuple[Path, Path]:
     return results_dir / f"eval_{ts}.jsonl", results_dir / f"eval_{ts}.csv"
 
 
-def append_result(result: dict[str, Any], jsonl_path: Path, csv_path: Path) -> None:
-    """Append a single test result immediately after it completes."""
-    with open(jsonl_path, "a") as f:
-        f.write(json.dumps(result) + "\n")
+def append_result(
+    result: dict[str, Any],
+    jsonl_path: Path | None,
+    csv_path: Path | None,
+) -> None:
+    """Append a single test result to JSONL and/or CSV. Pass None to skip either."""
+    if jsonl_path is not None:
+        with open(jsonl_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(result) + "\n")
 
-    write_header = not csv_path.exists()
-    with open(csv_path, "a", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=result.keys())
-        if write_header:
-            writer.writeheader()
-        writer.writerow(result)
+    if csv_path is not None:
+        write_header = not csv_path.exists()
+        with open(csv_path, "a", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(
+                f, fieldnames=result.keys(), extrasaction="ignore", restval=""
+            )
+            if write_header:
+                writer.writeheader()
+            writer.writerow(result)
+
+
+def patch_results(jsonl_path: Path, updated_rows: list[dict[str, Any]]) -> None:
+    """Re-write rows in a JSONL file matched by (run_id, model, test_id, run_index).
+
+    Reads the full file, replaces any row whose key fields match an entry in
+    updated_rows, then writes the file back atomically via a temp file.
+    Unmatched rows are left unchanged.
+    """
+    key = ("run_id", "host", "model", "test_id", "run_index")
+    index = {tuple(r[k] for k in key): r for r in updated_rows if all(k in r for k in key)}
+    if not index:
+        return
+
+    rows = load_jsonl(jsonl_path)
+    patched = [index.get(tuple(r.get(k) for k in key), r) for r in rows]
+
+    tmp = jsonl_path.with_suffix(".jsonl.tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        for row in patched:
+            f.write(json.dumps(row) + "\n")
+    tmp.replace(jsonl_path)
 
 
 def load_jsonl(jsonl_path: Path) -> list[dict[str, Any]]:

@@ -348,6 +348,47 @@ def test_push_framework_columns_populated_from_nested_dict() -> None:
     assert rec["framework_nist"] == []
 
 
+# ---------------------------------------------------------------------------
+# hermia-0ws: new repeat/aggregate column tests
+# ---------------------------------------------------------------------------
+
+from hermia.export import _INSERT_SQL, _PG_COLUMNS  # noqa: E402
+
+
+def test_pg_columns_includes_repeat_fields() -> None:
+    new_fields = {
+        "run_index",
+        "is_cold",
+        "cold_warm_delta_tps",
+        "consistency_pct",
+        "pass_count",
+        "robustness_n",
+    }
+    assert new_fields.issubset(set(_PG_COLUMNS)), (
+        f"Missing from _PG_COLUMNS: {new_fields - set(_PG_COLUMNS)}"
+    )
+
+
+def test_on_conflict_includes_run_index() -> None:
+    assert "run_index" in _INSERT_SQL, (
+        "ON CONFLICT clause must include run_index"
+    )
+
+
+def test_push_dry_run_new_fields() -> None:
+    """dry-run with rows containing new aggregate fields must not raise."""
+    row_with_new_fields = {
+        **_ROW,
+        "run_index": 1,
+        "is_cold": True,
+        "cold_warm_delta_tps": None,
+        "consistency_pct": 1.0,
+        "pass_count": 1,
+        "robustness_n": 1,
+    }
+    push([row_with_new_fields], dsn="", dry_run=True)  # must not raise
+
+
 def test_push_framework_columns_default_to_empty_for_old_rows() -> None:
     import sys
 
