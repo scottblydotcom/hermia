@@ -308,6 +308,10 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
                     run_results_for_test.append(result)
                     self.app.call_from_thread(self.query_one(ProgressBar).advance, 1)
 
+                # Aggregate fields require all N runs, so we write after the inner
+                # loop rather than immediately. Trade-off: a crash mid-repeat loses
+                # all runs for this (model, test_id) pair. Acceptable for --repeat
+                # values typical in v0.1; revisit if N grows large.
                 _backfill_aggregates(run_results_for_test)
 
                 for result in run_results_for_test:
