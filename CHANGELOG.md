@@ -48,7 +48,7 @@ integration test infrastructure, and a rigorous CI/security pipeline.
 - Property-based tests on all 19 schema checkers via `hypothesis` — total, required-keys-
   present, and required-keys-missing properties; 64 tests; `schemas.py` coverage 76% → 97%
   (hermia-xjj, PR #39)
-- CI pipeline — ruff, mypy, pytest (410 tests, 89% branch coverage) on all branches and PRs
+- CI pipeline — ruff, mypy, pytest (474 tests, 89% branch coverage) on all branches and PRs
 - Security CI pipeline — gitleaks, trivy, bandit, pip-audit on PRs to main + weekly
 - Gemini Code Assist wired for PR review
 - Branch protection active on `main`
