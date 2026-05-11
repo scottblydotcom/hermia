@@ -89,7 +89,6 @@ def _fake_run_test_result(model: str = "qwen2.5:7b") -> dict:
     }
 
 
-_FAKE_RUN_PATHS = (Path("a.jsonl"), Path("a.csv"))
 _FAKE_TESTS = [{"id": "tool-calling-basic", "prompt": "p", "system": "s"}]
 
 
@@ -328,11 +327,13 @@ def test_runner_screen_go_back() -> None:
     asyncio.run(_inner())
 
 
-def test_run_evals_happy_path() -> None:
+def test_run_evals_happy_path(tmp_path: Path) -> None:
+    run_paths = (tmp_path / "a.jsonl", tmp_path / "a.csv")
+
     async def _inner() -> None:
         with (
             patch("hermia.screens.run_preflight", return_value=_fake_preflight_report()),
-            patch("hermia.screens.open_run", return_value=_FAKE_RUN_PATHS),
+            patch("hermia.screens.open_run", return_value=run_paths),
             patch("hermia.screens.load_tests", return_value=_FAKE_TESTS),
             patch("hermia.screens.get_model_size_gb", return_value=4.0),
             patch("hermia.screens.unload_model"),
@@ -340,10 +341,8 @@ def test_run_evals_happy_path() -> None:
             patch("hermia.screens.run_test", return_value=_fake_run_test_result()),
             patch("hermia.screens.append_result"),
             patch("hermia.screens.patch_results"),
-            patch("hermia.screens.time") as mock_time,
+            patch("hermia.screens.time.sleep"),
         ):
-            mock_time.sleep = lambda *a: None
-
             app2 = _RunnerDirectApp()
             async with app2.run_test(size=(120, 40)) as pilot:
                 # Wait for the worker to complete (poll summary content)
@@ -359,11 +358,13 @@ def test_run_evals_happy_path() -> None:
     asyncio.run(_inner())
 
 
-def test_run_evals_no_runnable_models() -> None:
+def test_run_evals_no_runnable_models(tmp_path: Path) -> None:
+    run_paths = (tmp_path / "a.jsonl", tmp_path / "a.csv")
+
     async def _inner() -> None:
         with (
             patch("hermia.screens.run_preflight", return_value=_fake_preflight_report(runnable=[])),
-            patch("hermia.screens.open_run", return_value=_FAKE_RUN_PATHS),
+            patch("hermia.screens.open_run", return_value=run_paths),
             patch("hermia.screens.load_tests", return_value=_FAKE_TESTS),
             patch("hermia.screens.get_model_size_gb", return_value=4.0),
             patch("hermia.screens.unload_model"),
@@ -371,10 +372,8 @@ def test_run_evals_no_runnable_models() -> None:
             patch("hermia.screens.run_test", return_value=_fake_run_test_result()),
             patch("hermia.screens.append_result"),
             patch("hermia.screens.patch_results"),
-            patch("hermia.screens.time") as mock_time,
+            patch("hermia.screens.time.sleep"),
         ):
-            mock_time.sleep = lambda *a: None
-
             app2 = _RunnerDirectApp()
             async with app2.run_test(size=(120, 40)) as pilot:
                 # Wait for the worker to complete
@@ -389,7 +388,9 @@ def test_run_evals_no_runnable_models() -> None:
     asyncio.run(_inner())
 
 
-def test_run_evals_skipped_model_logged() -> None:
+def test_run_evals_skipped_model_logged(tmp_path: Path) -> None:
+    run_paths = (tmp_path / "a.jsonl", tmp_path / "a.csv")
+
     async def _inner() -> None:
         with (
             patch(
@@ -398,7 +399,7 @@ def test_run_evals_skipped_model_logged() -> None:
                     runnable=["qwen2.5:7b"], skipped=["llama3:8b"]
                 ),
             ),
-            patch("hermia.screens.open_run", return_value=_FAKE_RUN_PATHS),
+            patch("hermia.screens.open_run", return_value=run_paths),
             patch("hermia.screens.load_tests", return_value=_FAKE_TESTS),
             patch("hermia.screens.get_model_size_gb", return_value=4.0),
             patch("hermia.screens.unload_model"),
@@ -406,10 +407,8 @@ def test_run_evals_skipped_model_logged() -> None:
             patch("hermia.screens.run_test", return_value=_fake_run_test_result()),
             patch("hermia.screens.append_result"),
             patch("hermia.screens.patch_results"),
-            patch("hermia.screens.time") as mock_time,
+            patch("hermia.screens.time.sleep"),
         ):
-            mock_time.sleep = lambda *a: None
-
             app2 = _RunnerDirectApp()
             async with app2.run_test(size=(120, 40)) as pilot:
                 # Wait for the worker to complete

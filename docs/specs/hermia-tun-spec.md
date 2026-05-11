@@ -2,7 +2,7 @@
 
 **Bead:** hermia-tun  
 **Priority:** P0 (launch-blocking)  
-**Status:** Awaiting tests
+**Status:** Complete
 
 ---
 
