@@ -236,6 +236,7 @@ Description of the work and the strategic intent. Bead breakdown happens when th
 - `/api/ps` queried against the Ollama host in both modes; `size_vram` captured as `vram_server_gb` (what the inference server reports the model is consuming)
 - Result rows gain two new fields: `mode` (text, `"local"` or `"fleet"`) and `vram_server_gb` (float, nullable)
 - Postgres migration adds both columns idempotently
+- v0.1 host config: single `--host` CLI flag (default `http://localhost:11434`) or `HERMIA_HOST` env var; no fleet config file yet (that is v0.2)
 - Unit tests cover: local-mode collection, fleet-mode suppression, `/api/ps` parse, `/api/ps` unavailable (graceful null)
 **Estimate:** 1 day
 **Why:** In fleet mode, Hermia currently reports the eval client's idle Mac GPU — actively misleading. `size_vram` from `/api/ps` is the only inference-server metric available without additional deployment; it is also the most useful one for capacity planning. Running Hermia requires only Ollama in both modes; no sidecar, no SSH.
@@ -280,9 +281,23 @@ Description of the work and the strategic intent. Bead breakdown happens when th
 - `Transport` protocol/ABC with `generate(model, system, prompt, **opts) -> Response`
 - `OllamaTransport` and `OpenAICompatTransport` concrete implementations
 - `runner.run_test` takes a `transport` argument; default is `OllamaTransport` for backward compat
-- Auth tokens accepted via env var, never logged or written to result rows
+- Auth tokens accepted via env var reference only — never stored in config files, never logged, never written to result rows (AGENTS.md hard rule #11)
 - Cold-load metrics flagged "N/A" when transport is API-mode, not local-stack
-**Why:** The architectural change that makes Hermia a bus instead of a tool.
+- **Fleet config file** (`hermia-fleet.yaml`) introduced here:
+  ```yaml
+  fleet:
+    - name: "Eric 5090"
+      host: "http://100.71.60.30:11434"
+    - name: "LiteLLM Gateway"
+      host: "https://scottai.tailc7d860.ts.net:4000"
+      auth:
+        type: bearer
+        key_env: LITELLM_DISPATCH_KEY   # env var name — never the value
+  ```
+- `--fleet hermia-fleet.yaml` flag runs the full eval suite against every host; results tagged with `host_name`
+- Each host entry gets its own optional `auth` block; Ollama nodes need none
+- Config file is safe to commit; credentials live only in the environment
+**Why:** The architectural change that makes Hermia a bus instead of a tool. The fleet config is the user-facing expression of "run against all of these" without requiring SSH or sidecar deployment on inference nodes.
 
 ### Backend stack tagging
 **Priority:** P1
