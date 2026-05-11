@@ -61,8 +61,8 @@ def _backfill_aggregates(run_results: list[dict[str, Any]]) -> None:
     if len(run_results) == 1:
         delta: float | None = None
     else:
-        cold_tps = run_results[0]["tokens_per_sec"]
-        warm_tps_list = [r["tokens_per_sec"] for r in run_results[1:]]
+        cold_tps = float(run_results[0].get("tokens_per_sec", 0.0))
+        warm_tps_list = [float(r.get("tokens_per_sec", 0.0)) for r in run_results[1:]]
         if cold_tps == 0.0 and all(t == 0.0 for t in warm_tps_list):
             delta = None
         else:
