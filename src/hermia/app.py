@@ -1,7 +1,6 @@
 """Hermia EvalApp — entry point."""
 
 import argparse
-import sys
 
 from textual.app import App
 
@@ -26,6 +25,13 @@ class EvalApp(App):  # type: ignore[type-arg]
         self.push_screen(SelectionScreen(repeat=self.repeat))
 
 
+def _positive_int(value: str) -> int:
+    ivalue = int(value)
+    if ivalue < 1:
+        raise argparse.ArgumentTypeError(f"N must be >= 1, got {value}")
+    return ivalue
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Hermia LLM Eval")
     parser.add_argument(
@@ -35,16 +41,12 @@ def main() -> None:
     )
     parser.add_argument(
         "--repeat",
-        type=int,
+        type=_positive_int,
         default=1,
         metavar="N",
         help="Run each (model, test) pair N times (default: 1)",
     )
     args = parser.parse_args()
-
-    if args.repeat < 1:
-        print("error: --repeat N must be >= 1", file=sys.stderr)
-        sys.exit(2)
 
     runner.OLLAMA_BASE = args.host.rstrip("/")
     fleet_mode = "localhost" not in args.host and "127.0.0.1" not in args.host

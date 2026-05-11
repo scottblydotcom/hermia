@@ -296,6 +296,7 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
                 "info",
             )
 
+            model_first_call = True
             for test in tests:
                 run_results_for_test: list[dict[str, Any]] = []
                 for run_index in range(1, self.repeat + 1):
@@ -304,17 +305,19 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
                     result["run_timestamp"] = datetime.now(UTC).isoformat()
                     result["host"] = run_host
                     result["run_index"] = run_index
-                    result["is_cold"] = run_index == 1
+                    result["is_cold"] = model_first_call
+                    model_first_call = False
                     self.all_results.append(result)
-                    append_result(result, jsonl_path, csv_path)
+                    append_result(result, jsonl_path, csv_path=None)
                     run_results_for_test.append(result)
                     self.app.call_from_thread(self.query_one(ProgressBar).advance, 1)
 
                 # Compute aggregates after all N runs, then patch the already-written
-                # rows in the JSONL. Each run is crash-safe on disk; the patch
-                # adds aggregate fields atomically via tmp-file replace.
+                # rows in the JSONL. CSV written here so aggregate fields are included.
                 _backfill_aggregates(run_results_for_test)
                 patch_results(jsonl_path, run_results_for_test)
+                for result in run_results_for_test:
+                    append_result(result, jsonl_path=None, csv_path=csv_path)
 
                 # Log the last run's result for display
                 result = run_results_for_test[-1]
