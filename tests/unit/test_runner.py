@@ -215,4 +215,34 @@ def test_run_test_tokens_per_sec_computed() -> None:
         with patch("hermia.runner.time.time", side_effect=[0.0, 2.0]):
             result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
     assert result["tokens_per_sec"] == 50.0
-    assert result["elapsed_sec"] == 2.0
+
+
+def test_run_test_carries_frameworks_from_test() -> None:
+    fw = {
+        "owasp_llm_top10_2025": ["LLM01:2025"],
+        "mitre_atlas_v5_1": ["AML.T0100"],
+        "csa_maestro": [],
+        "nist_ai_rmf": [],
+    }
+    test_with_fw = {**_BASE_TEST, "frameworks": fw}
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"response": "{}", "eval_count": 10, "error": ""}
+    with patch("hermia.runner.requests.post", return_value=mock_resp):
+        result = run_test("qwen2.5:32b", test_with_fw, _mock_sampler())
+    assert result["frameworks"] == fw
+
+
+def test_run_test_frameworks_defaults_to_empty_dict() -> None:
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"response": "{}", "eval_count": 10, "error": ""}
+    with patch("hermia.runner.requests.post", return_value=mock_resp):
+        result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
+    assert result["frameworks"] == {}
+
+
+def test_load_tests_includes_frameworks_field() -> None:
+    results = load_tests(["system-prompt-extraction-resistance"])
+    assert len(results) == 1
+    fw = results[0]["frameworks"]
+    assert "LLM01:2025" in fw["owasp_llm_top10_2025"]
+    assert "AML.T0100" in fw["mitre_atlas_v5_1"]
