@@ -72,9 +72,9 @@ def detect_gpu() -> dict[str, Any]:
 
     found, name, vram_total_gb = _detect_nvidia()
     if found:
-        _NVIDIA_FOUND = True
         _NVIDIA_VRAM_TOTAL_GB = vram_total_gb
         _AMD_DEV = None
+        _NVIDIA_FOUND = True
         return {
             "found": True,
             "vendor": "nvidia",
