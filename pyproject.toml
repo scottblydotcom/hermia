@@ -54,4 +54,4 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov=hermia --cov-report=term-missing"
+addopts = "--cov=hermia --cov-report=term-missing --cov-branch"
