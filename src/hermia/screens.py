@@ -16,7 +16,7 @@ from textual.widgets import Button, Checkbox, Footer, Header, Label, ProgressBar
 from hermia import robustness
 from hermia.metrics import MetricsSampler
 from hermia.preflight import run_preflight
-from hermia.results import append_result, open_run
+from hermia.results import append_result, open_run, patch_results
 from hermia.runner import (
     get_model_size_gb,
     load_tests,
@@ -305,18 +305,16 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
                     result["host"] = run_host
                     result["run_index"] = run_index
                     result["is_cold"] = run_index == 1
+                    self.all_results.append(result)
+                    append_result(result, jsonl_path, csv_path)
                     run_results_for_test.append(result)
                     self.app.call_from_thread(self.query_one(ProgressBar).advance, 1)
 
-                # Aggregate fields require all N runs, so we write after the inner
-                # loop rather than immediately. Trade-off: a crash mid-repeat loses
-                # all runs for this (model, test_id) pair. Acceptable for --repeat
-                # values typical in v0.1; revisit if N grows large.
+                # Compute aggregates after all N runs, then patch the already-written
+                # rows in the JSONL. Each run is crash-safe on disk; the patch
+                # adds aggregate fields atomically via tmp-file replace.
                 _backfill_aggregates(run_results_for_test)
-
-                for result in run_results_for_test:
-                    self.all_results.append(result)
-                    append_result(result, jsonl_path, csv_path)
+                patch_results(jsonl_path, run_results_for_test)
 
                 # Log the last run's result for display
                 result = run_results_for_test[-1]

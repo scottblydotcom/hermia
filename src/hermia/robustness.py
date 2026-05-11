@@ -110,11 +110,6 @@ def score_rows(
 
     n = len(result_rows)
     counts = Counter(outcomes)
-    if not counts:
-        return RobustnessResult(
-            n=n, pass_count=pass_count, refusal_count=0,
-            consistency_pct=0.0, is_robust=False, majority_outcome=None,
-        )
     majority_outcome, majority_count = counts.most_common(1)[0]
     consistency_pct = majority_count / n
 

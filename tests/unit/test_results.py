@@ -3,7 +3,7 @@
 import csv
 from pathlib import Path
 
-from hermia.results import append_result, load_jsonl, open_run
+from hermia.results import append_result, load_jsonl, open_run, patch_results
 
 RESULT_A = {
     "model": "llama3:8b",
@@ -61,3 +61,70 @@ def test_load_jsonl_empty(tmp_path: Path):
     jsonl, _ = open_run(tmp_path)
     jsonl.write_text("")
     assert load_jsonl(jsonl) == []
+
+
+# ── patch_results ─────────────────────────────────────────────────────────────
+
+def _run_row(run_index: int, extra: dict | None = None) -> dict:
+    row = {
+        "run_id": "abc123",
+        "model": "qwen2.5:32b",
+        "test_id": "tool-calling-basic",
+        "run_index": run_index,
+        "consistency_pct": None,
+        "cold_warm_delta_tps": None,
+    }
+    if extra:
+        row.update(extra)
+    return row
+
+
+def test_patch_results_updates_matching_rows(tmp_path: Path) -> None:
+    jsonl, csv_path = open_run(tmp_path)
+    r1 = _run_row(1)
+    r2 = _run_row(2)
+    append_result(r1, jsonl, csv_path)
+    append_result(r2, jsonl, csv_path)
+
+    updated = [
+        _run_row(1, {"consistency_pct": 1.0, "cold_warm_delta_tps": -5.0}),
+        _run_row(2, {"consistency_pct": 1.0, "cold_warm_delta_tps": -5.0}),
+    ]
+    patch_results(jsonl, updated)
+
+    rows = load_jsonl(jsonl)
+    assert len(rows) == 2
+    assert rows[0]["consistency_pct"] == 1.0
+    assert rows[0]["cold_warm_delta_tps"] == -5.0
+    assert rows[1]["consistency_pct"] == 1.0
+
+
+def test_patch_results_leaves_unmatched_rows_unchanged(tmp_path: Path) -> None:
+    jsonl, csv_path = open_run(tmp_path)
+    other = {**RESULT_A, "run_id": "other", "model": "llama3:8b",
+             "test_id": "other-test", "run_index": 1}
+    r1 = _run_row(1)
+    append_result(other, jsonl, csv_path)
+    append_result(r1, jsonl, csv_path)
+
+    patch_results(jsonl, [_run_row(1, {"consistency_pct": 0.5})])
+
+    rows = load_jsonl(jsonl)
+    assert rows[0]["test_id"] == "other-test"
+    assert rows[0].get("consistency_pct") is None
+    assert rows[1]["consistency_pct"] == 0.5
+
+
+def test_patch_results_empty_updated_rows_is_noop(tmp_path: Path) -> None:
+    jsonl, csv_path = open_run(tmp_path)
+    append_result(_run_row(1), jsonl, csv_path)
+    original = load_jsonl(jsonl)
+    patch_results(jsonl, [])
+    assert load_jsonl(jsonl) == original
+
+
+def test_patch_results_atomic_via_tmp(tmp_path: Path) -> None:
+    jsonl, csv_path = open_run(tmp_path)
+    append_result(_run_row(1), jsonl, csv_path)
+    patch_results(jsonl, [_run_row(1, {"consistency_pct": 0.9})])
+    assert not (jsonl.with_suffix(".jsonl.tmp")).exists()
