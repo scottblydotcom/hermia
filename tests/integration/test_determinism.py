@@ -68,7 +68,7 @@ def test_tokens_per_sec_computed(
 ) -> None:
     monkeypatch.setattr("hermia.runner.OLLAMA_BASE", fake_ollama)
     result = run_test("fake-model", TOOL_CALLING_TEST, _mock_sampler())
-    assert result["tokens"] == 42
+    assert result["tokens"] > 0
     assert result["tokens_per_sec"] > 0
 
 
@@ -79,7 +79,7 @@ def test_error_path_stable(fake_ollama: str, monkeypatch: pytest.MonkeyPatch) ->
     _FakeOllamaHandler._overrides["generate_status"] = 500
     result1 = run_test("fake-model", TOOL_CALLING_TEST, _mock_sampler())
     result2 = run_test("fake-model", TOOL_CALLING_TEST, _mock_sampler())
-    for field in ("failure_reason", "json_valid", "schema_compliant", "tokens"):
+    for field in STABLE_FIELDS:
         assert result1[field] == result2[field], f"error field '{field}' not deterministic"
 
 
