@@ -21,6 +21,9 @@ benchmarking measures actual model load time from a clean VRAM state, not cached
 Because "how fast is it really" is a different question than "how fast is it after it's
 already warm."
 
+**Current scope:** single-turn evaluation against Ollama-compatible local endpoints.
+Multi-endpoint and cloud API support (OpenAI, LiteLLM, Anthropic, Bedrock) land in v0.2.
+
 ---
 
 ## Why Hermia Exists
@@ -91,6 +94,22 @@ No cloud API keys required. No data leaves your machine.
 
 ---
 
+## Hardware Support
+
+| Platform | GPU | Status |
+|---|---|---|
+| Linux | AMD ROCm (gfx900 / RX series) | ✅ Tested |
+| Linux / Windows* | NVIDIA CUDA (sm_89 / RTX series) | ✅ Tested |
+| macOS | Apple Silicon (M1 / M2 / M3 / M4) | ✅ Tested |
+| Linux | Intel iGPU | ⚠️ Best-effort |
+| Any | CPU-only (no discrete GPU) | ✅ Supported |
+| Windows | Any | ❌ Not yet |
+
+*NVIDIA metrics tested on Linux eval client. Windows Ollama servers are supported as fleet
+targets via `--host`; running Hermia itself on Windows is not yet supported.
+
+---
+
 ## Install
 
 From source (pre-PyPI):
@@ -127,17 +146,29 @@ hermia-regression results/all-results.json
 
 ---
 
+## Roadmap
+
+**v0.2 — Endpoint Bus** (target ~2026-06-15): Hermia evaluates anything that speaks
+OpenAI-compatible — LiteLLM, OpenAI, Anthropic, Google, Bedrock, plus local Ollama. Fleet
+config file for multi-host runs; backend stack tagging by GPU arch and runtime version.
+
+**v0.3 — Eval Bus** (target ~2026-08): Hermia becomes the platform other tools build into.
+Probe adapters for Garak, PyRIT, and HarmBench pull their results into Hermia's
+hardware-correlated, framework-mapped view alongside Hermia's own probes. LLM-as-judge
+scoring; Sink interface for custom output destinations (Prometheus, webhook, S3).
+
+See [docs/roadmap.md](docs/roadmap.md) for the full plan.
+
+---
+
 ## Project Status
 
 **Pre-release.** This is a working research project, not a polished product. The core eval
 suite is stable and passing. The security pipeline (gitleaks, trivy, bandit, pip-audit,
 ruff, mypy) is more rigorous than the author initially expected to need for a research tool.
-Active development continues.
+Active development continues toward the v0.1.0 release (target 2026-05-23).
 
-Pending before PyPI publication:
-- Grafana metrics exporter (eval pass rates as Prometheus gauges)
-- Expanded domain coverage (healthcare agent, financial agent, DevOps CI secrets)
-- Fleet output quality scoring
+PyPI publication is planned after v0.1.0 stabilizes.
 
 ---
 
