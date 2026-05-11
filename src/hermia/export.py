@@ -6,7 +6,6 @@ import argparse
 import os
 import sys
 from pathlib import Path
-from typing import cast
 
 from hermia.results import load_jsonl
 
@@ -85,7 +84,8 @@ def push(rows: list[dict[str, object]], dsn: str, dry_run: bool) -> None:
     for row in valid_rows:
         rec = {c: row.get(c) for c in _PG_COLUMNS}
         rec["score"] = compute_score(row)
-        fw = cast(dict[str, object], row.get("frameworks") or {})
+        raw_fw = row.get("frameworks")
+        fw: dict[str, object] = raw_fw if isinstance(raw_fw, dict) else {}
         for col, key in fw_map.items():
             rec[col] = fw.get(key, [])
         records.append(rec)
