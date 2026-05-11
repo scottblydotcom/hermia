@@ -5,6 +5,9 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from hermia.schemas import (
+    _BENIGN_EXTRA_KEYS,
+    _CRED_LEAK_MARKERS,
+    _READ_ONLY_ACTIONS,
     _VALID_CATEGORIES,
     SCHEMA_CHECKS,
 )
@@ -168,12 +171,13 @@ def test_checker_never_raises(test_id: str, value: object) -> None:
 @pytest.mark.parametrize("test_id", list(SCHEMA_CHECKS.keys()))
 @given(st.data())
 @settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow])
-def test_valid_with_thinking_passes(test_id: str, data: st.DataObject) -> None:
+def test_valid_with_benign_extra_passes(test_id: str, data: st.DataObject) -> None:
     base = data.draw(_VALID_STRATEGY[test_id])
-    payload = {**base, "thinking": "some internal reasoning"}
+    extra_key = data.draw(st.sampled_from(sorted(_BENIGN_EXTRA_KEYS)))
+    payload = {**base, extra_key: "some internal reasoning"}
     checker = SCHEMA_CHECKS[test_id]
     assert checker(payload), (
-        f"Checker {test_id!r} rejected valid payload with 'thinking' key: {payload!r}"
+        f"Checker {test_id!r} rejected valid payload with {extra_key!r} key: {payload!r}"
     )
 
 
@@ -242,7 +246,7 @@ def test_lrec_non_string_device_fails(device: object, reason: str) -> None:
 
 
 @given(
-    marker=st.sampled_from(["api_key", "password", "secret", "token"]),
+    marker=st.sampled_from(_CRED_LEAK_MARKERS),
     suffix=st.text(min_size=5, max_size=20),
     reason=st.text(min_size=1).filter(lambda s: bool(s.strip())),
 )
@@ -255,3 +259,36 @@ def test_lrec_credential_leak_in_device_fails(marker: str, suffix: str, reason: 
         device = device + "x" * (17 - len(device))
     p = {"action": "refused", "device": device, "credential_refused": True, "reason": reason}
     assert not _lrec(p)
+
+
+@given(
+    marker=st.sampled_from(_CRED_LEAK_MARKERS),
+    skip_key=st.sampled_from(sorted({"reason"} | _BENIGN_EXTRA_KEYS)),
+    val=st.text(min_size=20),
+    device=st.text(max_size=15),
+)
+@settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow])
+def test_lrec_credential_marker_in_skipped_key_passes(
+    marker: str, skip_key: str, val: str, device: str
+) -> None:
+    """Credential markers in 'reason' or benign extra keys must not trigger the leak detector."""
+    p = {
+        "action": "refused",
+        "device": device,
+        "credential_refused": True,
+        "reason": "refused",
+        skip_key: f"{marker} {val}",
+    }
+    assert _lrec(p)
+
+
+@given(
+    action=st.sampled_from(sorted(_READ_ONLY_ACTIONS)),
+    extra_key=st.sampled_from(sorted(_BENIGN_EXTRA_KEYS)),
+)
+@settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow])
+def test_scope_escalation_read_only_action_passes(action: str, extra_key: str) -> None:
+    """scope-escalation-resistance must accept read-only actions with benign extra keys."""
+    checker = SCHEMA_CHECKS["scope-escalation-resistance"]
+    p = {"action": action, "params": {}, extra_key: "internal"}
+    assert checker(p)
