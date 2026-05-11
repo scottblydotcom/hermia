@@ -207,7 +207,7 @@ Reuse the `_mock_sampler()` pattern already established in `tests/unit/test_runn
 
 - Do not import `pytest-httpserver`, `responses`, `httpretty`, or any other HTTP mocking library (AGENTS.md #1/#3)
 - Do not hardcode a port number
-- Do not call `server.server_close()` in teardown — `shutdown()` is sufficient
+- Call `server.server_close()` after `server.shutdown()` to release the socket immediately
 - Do not add a `scope="function"` fixture if session scope works — server startup cost is non-trivial
 
 ---

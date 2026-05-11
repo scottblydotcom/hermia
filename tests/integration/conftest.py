@@ -24,7 +24,7 @@ class _FakeOllamaHandler(http.server.BaseHTTPRequestHandler):
     _overrides: dict[str, Any] = {}
 
     def do_POST(self) -> None:
-        content_length = int(self.headers.get("Content-Length", 0))
+        content_length = int(self.headers.get("Content-Length") or 0)
         self.rfile.read(content_length)
 
         if self.path == "/api/generate":
