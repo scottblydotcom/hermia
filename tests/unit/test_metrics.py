@@ -149,7 +149,9 @@ def test_detect_gpu_picks_highest_vram_when_multiple_amdgpu():
 # NVIDIA detection tests
 # ---------------------------------------------------------------------------
 
-def _nvidia_detect_result(name: str = "NVIDIA GeForce RTX 5090", vram_mib: int = 32768) -> MagicMock:
+def _nvidia_detect_result(
+    name: str = "NVIDIA GeForce RTX 5090", vram_mib: int = 32768
+) -> MagicMock:
     r = MagicMock()
     r.returncode = 0
     r.stdout = f"{name}, {vram_mib}\n"
@@ -158,7 +160,8 @@ def _nvidia_detect_result(name: str = "NVIDIA GeForce RTX 5090", vram_mib: int =
 
 def test_detect_gpu_nvidia_found():
     """detect_gpu() returns vendor=nvidia when nvidia-smi succeeds."""
-    with patch("subprocess.run", return_value=_nvidia_detect_result("NVIDIA GeForce RTX 5090", 32768)):
+    result = _nvidia_detect_result("NVIDIA GeForce RTX 5090", 32768)
+    with patch("subprocess.run", return_value=result):
         info = detect_gpu()
 
     assert info["found"] is True
@@ -171,7 +174,8 @@ def test_detect_gpu_nvidia_found():
 
 def test_detect_gpu_nvidia_3090():
     """detect_gpu() correctly parses RTX 3090 (24 GB)."""
-    with patch("subprocess.run", return_value=_nvidia_detect_result("NVIDIA GeForce RTX 3090", 24576)):
+    result = _nvidia_detect_result("NVIDIA GeForce RTX 3090", 24576)
+    with patch("subprocess.run", return_value=result):
         info = detect_gpu()
 
     assert info["vendor"] == "nvidia"
@@ -222,7 +226,9 @@ def test_detect_gpu_nvidia_error_returncode():
 # get_gpu_stats NVIDIA routing tests
 # ---------------------------------------------------------------------------
 
-def _nvidia_stats_result(util_pct: float = 82.0, used_mib: float = 12288.0, total_mib: float = 32768.0) -> MagicMock:
+def _nvidia_stats_result(
+    util_pct: float = 82.0, used_mib: float = 12288.0, total_mib: float = 32768.0
+) -> MagicMock:
     r = MagicMock()
     r.returncode = 0
     r.stdout = f"{util_pct}, {used_mib}, {total_mib}\n"
