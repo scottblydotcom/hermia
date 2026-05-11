@@ -92,9 +92,11 @@ class SelectionScreen(Screen):  # type: ignore[type-arg]
             yield Button("Run Selected", id="run_btn", variant="primary")
         gpu = self.app.gpu_info  # type: ignore[attr-defined]
         if gpu["found"]:
-            gpu_label = f"GPU: {gpu['card']}  ({gpu['vram_total_gb']:.1f} GB VRAM)"
+            vendor = gpu.get("vendor", "")
+            mem_label = "unified memory" if vendor == "apple" else "VRAM"
+            gpu_label = f"GPU: {gpu['card']}  ({gpu['vram_total_gb']:.1f} GB {mem_label})"
         else:
-            gpu_label = "GPU: no AMD GPU detected — VRAM metrics unavailable"
+            gpu_label = "GPU: not detected — VRAM metrics unavailable"
         yield Label(gpu_label, id="gpu-info")
         yield Label("", id="status")
         yield Footer()
@@ -198,7 +200,10 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
             self.app.call_from_thread(self.query_one("#log-content", Static).update, content)
 
         # ── Preflight ────────────────────────────────────────────────────────
-        pf = run_preflight(self.models, self.app.model_list, RESULTS_DIR)  # type: ignore[attr-defined]
+        app = self.app
+        pf = run_preflight(
+            self.models, app.model_list, RESULTS_DIR, fleet_mode=app.fleet_mode  # type: ignore[attr-defined]
+        )
         append_log(
             f"Preflight  VRAM {pf.vram_available_gb:.1f}/{pf.vram_total_gb:.1f} GB free  "
             f"RAM {pf.ram_available_gb:.1f}/{pf.ram_total_gb:.1f} GB free  "
