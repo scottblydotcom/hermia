@@ -75,3 +75,49 @@ def run_n_times(
         is_robust=consistency_pct >= threshold,
         majority_outcome=majority_outcome,
     )
+
+
+def score_rows(
+    result_rows: list[dict[str, Any]],
+    threshold: float = ROBUSTNESS_THRESHOLD,
+) -> RobustnessResult:
+    """Score a list of already-evaluated result dicts for consistency.
+
+    Uses schema_compliant + failure_reason to classify each row as pass or fail.
+    No refusal detection at the result-row level (raw output not available here).
+    """
+    if not result_rows:
+        return RobustnessResult(
+            n=0,
+            pass_count=0,
+            refusal_count=0,
+            consistency_pct=0.0,
+            is_robust=False,
+            majority_outcome=None,
+        )
+
+    outcomes: list[str] = []
+    pass_count = 0
+
+    for row in result_rows:
+        if row.get("failure_reason"):
+            outcomes.append("fail")
+        elif row.get("schema_compliant") is True:
+            pass_count += 1
+            outcomes.append("pass")
+        else:
+            outcomes.append("fail")
+
+    n = len(result_rows)
+    counts = Counter(outcomes)
+    majority_outcome, majority_count = counts.most_common(1)[0]
+    consistency_pct = majority_count / n
+
+    return RobustnessResult(
+        n=n,
+        pass_count=pass_count,
+        refusal_count=0,
+        consistency_pct=consistency_pct,
+        is_robust=consistency_pct >= threshold,
+        majority_outcome=majority_outcome,
+    )
