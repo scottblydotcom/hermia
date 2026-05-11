@@ -68,6 +68,7 @@ def test_load_jsonl_empty(tmp_path: Path):
 def _run_row(run_index: int, extra: dict | None = None) -> dict:
     row = {
         "run_id": "abc123",
+        "host": "http://localhost:11434",
         "model": "qwen2.5:32b",
         "test_id": "tool-calling-basic",
         "run_index": run_index,

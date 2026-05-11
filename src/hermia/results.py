@@ -27,7 +27,9 @@ def append_result(
     if csv_path is not None:
         write_header = not csv_path.exists()
         with open(csv_path, "a", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=result.keys())
+            writer = csv.DictWriter(
+                f, fieldnames=result.keys(), extrasaction="ignore", restval=""
+            )
             if write_header:
                 writer.writeheader()
             writer.writerow(result)
@@ -40,7 +42,7 @@ def patch_results(jsonl_path: Path, updated_rows: list[dict[str, Any]]) -> None:
     updated_rows, then writes the file back atomically via a temp file.
     Unmatched rows are left unchanged.
     """
-    key = ("run_id", "model", "test_id", "run_index")
+    key = ("run_id", "host", "model", "test_id", "run_index")
     index = {tuple(r[k] for k in key): r for r in updated_rows if all(k in r for k in key)}
     if not index:
         return
