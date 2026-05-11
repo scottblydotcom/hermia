@@ -56,19 +56,19 @@ These are grounded in actual git history. Violations have caused real rework.
    It does not. After pushing fixes to an open PR, immediately post `/gemini review`
    as a PR comment. Do not proceed with other work until this is done.
 
-8a. **Call diminishing returns on Gemini after the first substantive round.**
+9. **Call diminishing returns on Gemini after the first substantive round.**
     Fix all HIGH-priority comments every round. After the first round, if subsequent
     rounds contain only MEDIUM or LOW items, use judgment: apply what's genuinely
     worth it, skip pure style nits, and merge rather than chasing infinite feedback.
     Gemini will loop forever on style. One or two rounds of MEDIUMs is fine; more
     than that is diminishing returns — merge.
 
-9. **Never write CI/workflow jobs with assumed permissions.**
+10. **Never write CI/workflow jobs with assumed permissions.**
    Each job's permissions must be explicitly and minimally scoped. Verify job
    output confirms correct behavior — not just that the workflow ran.
    *(Commit: b9f1ff0)*
 
-11. **Never store credentials in config files — always reference env var names.**
+12. **Never store credentials in config files — always reference env var names.**
     Fleet config files (`hermia-fleet.yaml` and any future config format) must
     never contain API keys, bearer tokens, passwords, or any secret value.
     Use `key_env: MY_VAR_NAME` — the name of the environment variable — never
@@ -77,7 +77,7 @@ These are grounded in actual git history. Violations have caused real rework.
     If a code path reads a config and would write a credential value into a result
     row, log line, or error message, that is a bug — fix it before merging.
 
-10. **Never open a PR against `main` from a work branch — always target `dev`.**
+11. **Never open a PR against `main` from a work branch — always target `dev`.**
     The only PR that should ever target `main` is the dev→main promotion PR.
     All other workflows: any work branch → PR → `dev` → PR → `main`.
     When using `gh pr create`, always pass `--base dev` explicitly; the default

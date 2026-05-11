@@ -254,6 +254,41 @@ Description of the work and the strategic intent. Bead breakdown happens when th
 **Estimate:** 0.5 days
 **Why:** Without the visual indicator, users cannot tell which metrics are meaningful. The display change is what makes the mode distinction legible.
 
+### Launch visual assets — TUI screenshots and GIF demo
+**Priority:** P1
+**Depends on:** All v0.1 functional items (run against a real or stable fake Ollama)
+**Permitted scope:** `docs/assets/` (NEW directory), `README.md`
+**Acceptance:**
+- At least two static terminal screenshots: SelectionScreen and RunnerScreen mid-run; saved as PNG in `docs/assets/`
+- One animated GIF (via `asciinema` + `agg`, or `vhs`, or screen capture): full happy-path run from model selection through results summary, ≤60 seconds
+- README `## Demo` section added with the GIF inline and a link to the screenshots
+- Filenames are descriptive (`selection-screen.png`, `runner-screen.png`, `hermia-demo.gif`)
+**Estimate:** 0.5 days
+**Why:** A TUI with no screenshot is a black box to anyone evaluating it. The GIF is the single highest-ROI trust signal for a first-time visitor.
+
+### Getting Started Guide
+**Priority:** P1
+**Depends on:** All v0.1 functional items
+**Permitted scope:** `docs/usage.md` (NEW), `README.md`
+**Acceptance:**
+- `docs/usage.md` covers: installation, prerequisites (Ollama + a pulled model), running a local eval, interpreting results, running against a remote host (`--host`), exporting to Postgres
+- Each section includes the exact command to run and expected output (text or screenshot reference)
+- README "Documentation" section links to `docs/usage.md`
+- Broken `docs/security-framework-research.md` reference resolved: file created as a stub with framework mapping rationale, or CLAUDE.md updated to reflect planned status (already done 2026-05-11)
+**Estimate:** 0.5 days
+**Why:** Report and external reviewer both flagged this gap. First-time users have nowhere to go after `pip install`.
+
+### GitHub launch checklist
+**Priority:** P1
+**Depends on:** README scope clarifications (hermia-cix)
+**Permitted scope:** GitHub repository settings (no code changes)
+**Acceptance:**
+- GitHub repository topics set: `llm-security`, `ai-evaluation`, `ollama`, `tui`, `security-testing`, `red-teaming`
+- GitHub release created for `v0.1.0` matching the CHANGELOG entry; release notes reference the CHANGELOG
+- Release tagged from `main` after dev→main promotion PR merges
+**Estimate:** 0.25 days
+**Why:** Discoverability and credibility. A repo with no release tag looks abandoned; topics surface it in GitHub search.
+
 ### README scope clarifications + roadmap section
 **Priority:** P0
 **Depends on:** All v0.1 functional items
@@ -457,5 +492,5 @@ Decisions made in conversation that we do not want to re-litigate later. If a fu
 
 ## Change log
 
-- **2026-05-11** — Added local vs. fleet mode detection bead and TUI mode-aware display bead (P1, v0.1). Updated NVIDIA smoke test AC to reflect Windows-only inference fleet. Added TUI pivot criteria to Deferred/Rejected. NVIDIA bead (hermia-ku7) merged.
+- **2026-05-11** — Added local vs. fleet mode detection bead and TUI mode-aware display bead (P1, v0.1). Updated NVIDIA smoke test AC to reflect Windows-only inference fleet. Added TUI pivot criteria to Deferred/Rejected. NVIDIA bead (hermia-ku7) merged. Added three launch-readiness beads from external repo analysis: "Launch visual assets" (screenshots + GIF demo), "Getting Started Guide" (`docs/usage.md`), "GitHub launch checklist" (topics + release tag). Fixed AGENTS.md rule 8a → renumbered 9–12 sequentially. Fixed broken `docs/security-framework-research.md` reference in CLAUDE.md.
 - **2026-05-10** — Initial draft. Covers v0.1 launch (2026-05-23), v0.2 endpoint bus, v0.3 eval bus, vNext research, cross-cutting, deferred. North Star and mythology framing established. Eval-bus thesis adopted.
