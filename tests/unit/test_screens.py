@@ -1,6 +1,6 @@
 """Unit tests for screens.py — pure functions and scoring logic."""
 
-from hermia.screens import RunnerScreen, _compute_scores, _sanitize_model_id
+from hermia.screens import RunnerScreen, _compute_scores, _sanitize_model_id, _backfill_aggregates
 
 # ── _sanitize_model_id ────────────────────────────────────────────────────────
 
@@ -95,6 +95,13 @@ def test_compute_scores_multiple_models_separate() -> None:
     assert len(scored) == 2
     assert scored[0][0] == "a"
     assert scored[1][0] == "b"
+
+
+# ── _backfill_aggregates ──────────────────────────────────────────────────────
+
+def test_backfill_aggregates_empty_list() -> None:
+    """Test that _backfill_aggregates handles empty list without error."""
+    _backfill_aggregates([])  # Should not raise
 
 
 # ── RunnerScreen init ─────────────────────────────────────────────────────────
