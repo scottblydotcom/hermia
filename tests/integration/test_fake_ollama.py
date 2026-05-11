@@ -8,6 +8,8 @@ import pytest
 from hermia.runner import get_available_models, run_test
 from tests.integration.conftest import DEFAULT_GENERATE, _FakeOllamaHandler
 
+# clear_overrides autouse fixture lives in conftest.py
+
 TOOL_CALLING_TEST: dict[str, Any] = {
     "id": "tool-calling-basic",
     "dimension": "tool-use",
@@ -37,13 +39,6 @@ def _mock_sampler(
         "vram_used_gb": vram,
     }
     return s
-
-
-@pytest.fixture(autouse=True)
-def clear_overrides() -> Any:
-    _FakeOllamaHandler._overrides = {}
-    yield
-    _FakeOllamaHandler._overrides = {}
 
 
 # ── T1: Happy path — full pipeline ───────────────────────────────────────────

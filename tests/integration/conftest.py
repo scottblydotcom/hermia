@@ -1,6 +1,7 @@
 import http.server
 import json
 import threading
+import time
 from typing import Any
 
 import pytest
@@ -30,8 +31,7 @@ class _FakeOllamaHandler(http.server.BaseHTTPRequestHandler):
             status = self._overrides.get("generate_status", 200)
 
             delay = self._overrides.get("generate_delay")
-            if delay:
-                import time
+            if delay is not None:
                 time.sleep(delay)
 
             raw: bytes | None = self._overrides.get("generate_raw")
@@ -65,6 +65,13 @@ class _FakeOllamaHandler(http.server.BaseHTTPRequestHandler):
         pass
 
 
+@pytest.fixture(autouse=True)
+def clear_overrides() -> Any:
+    _FakeOllamaHandler._overrides = {}
+    yield
+    _FakeOllamaHandler._overrides = {}
+
+
 @pytest.fixture(scope="session")
 def fake_ollama() -> Any:
     server = http.server.HTTPServer(("127.0.0.1", 0), _FakeOllamaHandler)
@@ -73,3 +80,4 @@ def fake_ollama() -> Any:
     thread.start()
     yield f"http://127.0.0.1:{port}"
     server.shutdown()
+    server.server_close()
