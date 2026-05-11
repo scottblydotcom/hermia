@@ -10,7 +10,7 @@ import requests
 from hermia.metrics import MetricsSampler, get_gpu_stats
 from hermia.schemas import SCHEMA_CHECKS
 
-OLLAMA_URL = "http://localhost:11434/api/generate"
+OLLAMA_BASE = "http://localhost:11434"
 PROJECT_ROOT = Path(__file__).parents[2]
 
 TEST_TIMEOUT = 90    # seconds per individual test request
@@ -19,7 +19,7 @@ LOAD_TIMEOUT = 120   # seconds for cold model load
 
 def get_available_models() -> list[dict[str, Any]]:
     try:
-        resp = requests.get("http://localhost:11434/api/tags", timeout=5)
+        resp = requests.get(f"{OLLAMA_BASE}/api/tags", timeout=5)
         return resp.json().get("models", [])  # type: ignore[no-any-return]
     except Exception:
         return []
@@ -36,7 +36,7 @@ def unload_model(model_name: str) -> None:
     """Evict model from VRAM."""
     try:
         requests.post(
-            OLLAMA_URL,
+            f"{OLLAMA_BASE}/api/generate",
             json={"model": model_name, "prompt": "", "stream": False, "keep_alive": 0},
             timeout=10,
         )
@@ -53,7 +53,7 @@ def prewarm_timed(model_name: str) -> tuple[float, float, float]:
     t0 = time.time()
     try:
         requests.post(
-            OLLAMA_URL,
+            f"{OLLAMA_BASE}/api/generate",
             json={
                 "model": model_name,
                 "prompt": "hi",
@@ -90,7 +90,7 @@ def run_test(
     error_type: str = ""
     try:
         t0 = time.time()
-        resp = requests.post(OLLAMA_URL, json=payload, timeout=TEST_TIMEOUT)
+        resp = requests.post(f"{OLLAMA_BASE}/api/generate", json=payload, timeout=TEST_TIMEOUT)
         elapsed = time.time() - t0
         data = resp.json()
         ollama_error = data.get("error", "")

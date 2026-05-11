@@ -1,5 +1,6 @@
 """Unit tests for MetricsSampler and GPU detection."""
 
+import json
 import time
 from unittest.mock import MagicMock, mock_open, patch
 
@@ -338,3 +339,132 @@ def test_get_gpu_stats_falls_back_to_sysfs_when_rocm_missing():
 
     assert gpu_pct == 50.0
     assert abs(vram_used - 2.0) < 0.01
+
+
+# ---------------------------------------------------------------------------
+# Apple Silicon detection and stats tests
+# ---------------------------------------------------------------------------
+
+def _make_sysctl_run(key: str, value: str) -> MagicMock:
+    """Return a mock subprocess.run result for a sysctl query."""
+    r = MagicMock()
+    r.returncode = 0
+    r.stdout = value + "\n"
+    return r
+
+
+def _ioreg_output(gpu_pct: int = 35, mem_used_bytes: int = 2 * 1024**3) -> str:
+    return (
+        f'"PerformanceStatistics" = {{"In use system memory (driver)"=0,'
+        f'"Device Utilization %"={gpu_pct},'
+        f'"In use system memory"={mem_used_bytes}}}\n'
+    )
+
+
+def test_detect_apple_silicon_arm64_native():
+    """detect_gpu() returns apple vendor when platform.machine() == 'arm64'."""
+    sp_json = json.dumps({"SPDisplaysDataType": [{"sppci_model": "Apple M3 Pro"}]})
+
+    def fake_run(cmd, **kw):
+        r = MagicMock()
+        r.returncode = 0
+        if "hw.memsize" in cmd:
+            r.stdout = str(18 * 1024**3) + "\n"
+        elif "SPDisplaysDataType" in cmd:
+            r.stdout = sp_json
+        else:
+            r.returncode = 1
+            r.stdout = ""
+        return r
+
+    with (
+        patch("subprocess.run", side_effect=fake_run),
+        patch("hermia.metrics.platform.machine", return_value="arm64"),
+        patch("hermia.metrics.sys.platform", "darwin"),
+        patch("hermia.metrics.glob.glob", return_value=[]),
+    ):
+        info = detect_gpu()
+
+    assert info["found"] is True
+    assert info["vendor"] == "apple"
+    assert info["card"] == "Apple M3 Pro"
+    assert abs(info["vram_total_gb"] - 18.0) < 0.1
+    assert metrics_mod._APPLE_SILICON is True
+
+
+def test_detect_apple_silicon_rosetta():
+    """detect_gpu() detects Apple Silicon even when Python runs under Rosetta (x86_64)."""
+    sp_json = json.dumps({"SPDisplaysDataType": [{"sppci_model": "Apple M1 Pro"}]})
+
+    def fake_run(cmd, **kw):
+        r = MagicMock()
+        r.returncode = 0
+        if "hw.optional.arm64" in cmd:
+            r.stdout = "1\n"
+        elif "hw.memsize" in cmd:
+            r.stdout = str(16 * 1024**3) + "\n"
+        elif "SPDisplaysDataType" in cmd:
+            r.stdout = sp_json
+        else:
+            r.returncode = 1
+            r.stdout = ""
+        return r
+
+    with (
+        patch("subprocess.run", side_effect=fake_run),
+        patch("hermia.metrics.platform.machine", return_value="x86_64"),
+        patch("hermia.metrics.sys.platform", "darwin"),
+        patch("hermia.metrics.glob.glob", return_value=[]),
+    ):
+        info = detect_gpu()
+
+    assert info["found"] is True
+    assert info["vendor"] == "apple"
+    assert info["card"] == "Apple M1 Pro"
+    assert abs(info["vram_total_gb"] - 16.0) < 0.1
+
+
+def test_detect_apple_silicon_not_darwin():
+    """detect_gpu() does not report Apple Silicon on Linux."""
+    with (
+        patch("subprocess.run", side_effect=FileNotFoundError),
+        patch("hermia.metrics.sys.platform", "linux"),
+        patch("hermia.metrics.glob.glob", return_value=[]),
+    ):
+        info = detect_gpu()
+
+    assert info["vendor"] != "apple"
+
+
+def test_get_gpu_stats_apple_silicon_ioreg():
+    """get_gpu_stats() returns ioreg data when _APPLE_SILICON is True."""
+    mem_bytes = int(1.5 * 1024**3)
+
+    with (
+        patch.object(metrics_mod, "_APPLE_SILICON", True),
+        patch.object(metrics_mod, "_NVIDIA_FOUND", False),
+        patch.object(metrics_mod, "_APPLE_VRAM_TOTAL_GB", 18.0),
+        patch("subprocess.run", return_value=MagicMock(
+            returncode=0, stdout=_ioreg_output(gpu_pct=42, mem_used_bytes=mem_bytes)
+        )),
+    ):
+        gpu_pct, vram_used, vram_total = get_gpu_stats()
+
+    assert gpu_pct == 42.0
+    assert abs(vram_used - 1.5) < 0.01
+    assert vram_total == 18.0
+
+
+def test_get_gpu_stats_apple_silicon_ioreg_error():
+    """get_gpu_stats() returns zeros with cached total on ioreg failure."""
+    with (
+        patch.object(metrics_mod, "_APPLE_SILICON", True),
+        patch.object(metrics_mod, "_NVIDIA_FOUND", False),
+        patch.object(metrics_mod, "_APPLE_VRAM_TOTAL_GB", 16.0),
+        patch("subprocess.run", side_effect=OSError),
+    ):
+        gpu_pct, vram_used, vram_total = get_gpu_stats()
+
+    assert gpu_pct == 0.0
+    assert vram_used == 0.0
+    assert vram_total == 16.0

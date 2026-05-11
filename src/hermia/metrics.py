@@ -1,8 +1,11 @@
-"""System and GPU metrics sampling (CPU, RAM, GPU via nvidia-smi or AMD sysfs/rocm-smi)."""
+"""System and GPU metrics sampling — nvidia-smi, Apple Silicon ioreg, AMD sysfs/rocm-smi."""
 
 import glob
 import json
+import platform
+import re
 import subprocess
+import sys
 import threading
 import time
 from typing import Any
@@ -10,6 +13,8 @@ from typing import Any
 _AMD_DEV: str | None = None
 _NVIDIA_FOUND: bool = False
 _NVIDIA_VRAM_TOTAL_GB: float = 0.0
+_APPLE_SILICON: bool = False
+_APPLE_VRAM_TOTAL_GB: float = 0.0
 
 
 def _find_amdgpu_dev() -> str | None:
@@ -63,20 +68,109 @@ def _detect_nvidia() -> tuple[bool, str, float]:
         return False, "", 0.0
 
 
+def _detect_apple_silicon() -> tuple[bool, str, float]:
+    """Detect Apple Silicon GPU. Returns (found, chip_name, vram_total_gb).
+
+    Uses sysctl hw.optional.arm64 so detection works even when Python runs
+    under Rosetta (where platform.machine() returns 'x86_64'). Total unified
+    memory is reported as vram_total_gb — on Apple Silicon, GPU and CPU share
+    the same physical memory pool.
+    """
+    if sys.platform != "darwin":
+        return False, "", 0.0
+
+    # platform.machine() works for native arm64 Python; sysctl catches Rosetta
+    is_arm = platform.machine() == "arm64"
+    if not is_arm:
+        try:
+            r = subprocess.run(  # noqa: S603
+                ["sysctl", "-n", "hw.optional.arm64"],  # noqa: S607
+                capture_output=True, text=True, timeout=2,
+            )
+            is_arm = r.stdout.strip() == "1"
+        except (subprocess.SubprocessError, OSError):
+            pass
+
+    if not is_arm:
+        return False, "", 0.0
+
+    # GPU model name from system_profiler (no sudo)
+    name = "Apple Silicon"
+    try:
+        r = subprocess.run(  # noqa: S603
+            ["system_profiler", "SPDisplaysDataType", "-json"],  # noqa: S607
+            capture_output=True, text=True, timeout=5,
+        )
+        data: dict[str, Any] = json.loads(r.stdout)
+        entries = data.get("SPDisplaysDataType", [])
+        if entries:
+            name = entries[0].get("sppci_model", name)
+    except (subprocess.SubprocessError, json.JSONDecodeError, OSError, KeyError):
+        pass
+
+    # Total unified memory from sysctl
+    vram_total_gb = 0.0
+    try:
+        r = subprocess.run(  # noqa: S603
+            ["sysctl", "-n", "hw.memsize"],  # noqa: S607
+            capture_output=True, text=True, timeout=2,
+        )
+        vram_total_gb = int(r.stdout.strip()) / (1024**3)
+    except (subprocess.SubprocessError, ValueError, OSError):
+        import psutil
+        vram_total_gb = psutil.virtual_memory().total / (1024**3)
+
+    return True, name, vram_total_gb
+
+
+def _gpu_stats_apple_silicon() -> tuple[float, float, float]:
+    """Read Apple Silicon GPU utilization and VRAM via ioreg (no sudo required).
+
+    ioreg IOAccelerator PerformanceStatistics exposes:
+      "Device Utilization %" — overall GPU engine utilization
+      "In use system memory" — bytes of unified memory currently used by GPU
+
+    powermetrics (sudo required) provides more granular GPU power data but is
+    not used here to avoid requiring elevated privileges.
+    """
+    try:
+        r = subprocess.run(  # noqa: S603
+            ["ioreg", "-r", "-d", "1", "-w", "0", "-c", "IOAccelerator"],  # noqa: S607
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode != 0 or not r.stdout:
+            return 0.0, 0.0, _APPLE_VRAM_TOTAL_GB
+        text = r.stdout
+        gpu_pct = 0.0
+        vram_used_gb = 0.0
+        m = re.search(r'"Device Utilization %"=(\d+)', text)
+        if m:
+            gpu_pct = float(m.group(1))
+        # "In use system memory" without the "(driver)" suffix
+        m = re.search(r'"In use system memory"=(\d+)', text)
+        if m:
+            vram_used_gb = int(m.group(1)) / (1024**3)
+        return gpu_pct, vram_used_gb, _APPLE_VRAM_TOTAL_GB
+    except (subprocess.SubprocessError, OSError, ValueError):
+        return 0.0, 0.0, _APPLE_VRAM_TOTAL_GB
+
+
 def detect_gpu() -> dict[str, Any]:
     """Detect GPU hardware at run start. Updates module-level cache.
 
-    Tries NVIDIA first (via nvidia-smi), then AMD (via sysfs). Returns a dict
-    with keys: found (bool), vendor (str), card (str), dev_path (str),
-    vram_total_gb (float). vendor is one of: nvidia, amd, none.
+    Tries NVIDIA first (via nvidia-smi), then Apple Silicon (via ioreg/sysctl),
+    then AMD (via sysfs). Returns a dict with keys: found (bool), vendor (str),
+    card (str), dev_path (str), vram_total_gb (float).
+    vendor is one of: nvidia, apple, amd, none.
     """
-    global _AMD_DEV, _NVIDIA_FOUND, _NVIDIA_VRAM_TOTAL_GB
+    global _AMD_DEV, _NVIDIA_FOUND, _NVIDIA_VRAM_TOTAL_GB, _APPLE_SILICON, _APPLE_VRAM_TOTAL_GB
 
     found, name, vram_total_gb = _detect_nvidia()
     if found:
         _NVIDIA_VRAM_TOTAL_GB = vram_total_gb
+        _APPLE_SILICON = False
         _AMD_DEV = None
-        _NVIDIA_FOUND = True
+        _NVIDIA_FOUND = True  # set last — sampler thread must not see True before VRAM is written
         return {
             "found": True,
             "vendor": "nvidia",
@@ -86,6 +180,21 @@ def detect_gpu() -> dict[str, Any]:
         }
 
     _NVIDIA_FOUND = False
+
+    found_apple, apple_name, apple_vram = _detect_apple_silicon()
+    if found_apple:
+        _APPLE_VRAM_TOTAL_GB = apple_vram
+        _AMD_DEV = None
+        _APPLE_SILICON = True  # set last
+        return {
+            "found": True,
+            "vendor": "apple",
+            "card": apple_name,
+            "dev_path": "",
+            "vram_total_gb": apple_vram,
+        }
+
+    _APPLE_SILICON = False
     _AMD_DEV = _find_amdgpu_dev()
     if _AMD_DEV is None:
         return {"found": False, "vendor": "none", "card": "", "dev_path": "", "vram_total_gb": 0.0}
@@ -157,11 +266,14 @@ def _gpu_stats_sysfs() -> tuple[float, float, float]:
 def get_gpu_stats() -> tuple[float, float, float]:
     """Return (gpu_pct, vram_used_gb, vram_total_gb).
 
-    Routes to nvidia-smi when an NVIDIA GPU was detected, otherwise tries
-    rocm-smi then falls back to amdgpu sysfs.
+    Routes to nvidia-smi, Apple Silicon ioreg, or AMD rocm-smi/sysfs based on
+    what detect_gpu() found at startup.
     """
     if _NVIDIA_FOUND:
         return _gpu_stats_nvidia()
+
+    if _APPLE_SILICON:
+        return _gpu_stats_apple_silicon()
 
     try:
         result = subprocess.run(  # noqa: S603
