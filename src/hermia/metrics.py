@@ -54,10 +54,12 @@ def _detect_nvidia() -> tuple[bool, str, float]:
             return False, "", 0.0
         line = result.stdout.strip().splitlines()[0]
         parts = [p.strip() for p in line.split(",")]
+        if len(parts) < 2:
+            return False, "", 0.0
         name = parts[0]
         vram_total_gb = float(parts[1]) / 1024  # MiB → GiB
         return True, name, vram_total_gb
-    except Exception:
+    except (subprocess.SubprocessError, ValueError, IndexError, OSError):
         return False, "", 0.0
 
 
@@ -114,17 +116,22 @@ def _gpu_stats_nvidia() -> tuple[float, float, float]:
             ],
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=2,
         )
         if result.returncode != 0 or not result.stdout.strip():
             return 0.0, 0.0, _NVIDIA_VRAM_TOTAL_GB
         line = result.stdout.strip().splitlines()[0]
         parts = [p.strip() for p in line.split(",")]
-        gpu_pct = float(parts[0])
-        vram_used = float(parts[1]) / 1024  # MiB → GiB
-        vram_total = float(parts[2]) / 1024  # MiB → GiB
+        if len(parts) < 3:
+            return 0.0, 0.0, _NVIDIA_VRAM_TOTAL_GB
+        try:
+            gpu_pct = float(parts[0])
+            vram_used = float(parts[1]) / 1024  # MiB → GiB
+            vram_total = float(parts[2]) / 1024  # MiB → GiB
+        except ValueError:
+            return 0.0, 0.0, _NVIDIA_VRAM_TOTAL_GB
         return gpu_pct, vram_used, vram_total
-    except Exception:
+    except (subprocess.SubprocessError, ValueError, IndexError, OSError):
         return 0.0, 0.0, _NVIDIA_VRAM_TOTAL_GB
 
 
