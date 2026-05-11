@@ -1,6 +1,6 @@
 """Unit tests for screens.py — pure functions and scoring logic."""
 
-from hermia.screens import RunnerScreen, _compute_scores, _sanitize_model_id, _backfill_aggregates
+from hermia.screens import RunnerScreen, _backfill_aggregates, _compute_scores, _sanitize_model_id
 
 # ── _sanitize_model_id ────────────────────────────────────────────────────────
 

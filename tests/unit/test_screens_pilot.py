@@ -2,14 +2,12 @@ import asyncio
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
 from textual.app import App
 from textual.widgets import Checkbox, Label, ProgressBar, Static
 
 from hermia.preflight import ModelCheck, PreflightReport
-from hermia.screens import RunnerScreen, SelectionScreen
 from hermia.schemas import TEST_IDS
-
+from hermia.screens import RunnerScreen, SelectionScreen
 
 FAKE_MODELS = [
     {"name": "qwen2.5:7b", "size": 4 * 1024**3},
@@ -89,6 +87,10 @@ def _fake_run_test_result(model: str = "qwen2.5:7b") -> dict:
         "is_cold": True,
         "failure_reason": "",
     }
+
+
+_FAKE_RUN_PATHS = (Path("a.jsonl"), Path("a.csv"))
+_FAKE_TESTS = [{"id": "tool-calling-basic", "prompt": "p", "system": "s"}]
 
 
 class _RunnerDirectApp(App):
@@ -330,8 +332,8 @@ def test_run_evals_happy_path() -> None:
     async def _inner() -> None:
         with (
             patch("hermia.screens.run_preflight", return_value=_fake_preflight_report()),
-            patch("hermia.screens.open_run", return_value=(Path("/tmp/a.jsonl"), Path("/tmp/a.csv"))),
-            patch("hermia.screens.load_tests", return_value=[{"id": "tool-calling-basic", "prompt": "p", "system": "s"}]),
+            patch("hermia.screens.open_run", return_value=_FAKE_RUN_PATHS),
+            patch("hermia.screens.load_tests", return_value=_FAKE_TESTS),
             patch("hermia.screens.get_model_size_gb", return_value=4.0),
             patch("hermia.screens.unload_model"),
             patch("hermia.screens.prewarm_timed", return_value=(1.0, 1.0, 2.0)),
@@ -361,8 +363,8 @@ def test_run_evals_no_runnable_models() -> None:
     async def _inner() -> None:
         with (
             patch("hermia.screens.run_preflight", return_value=_fake_preflight_report(runnable=[])),
-            patch("hermia.screens.open_run", return_value=(Path("/tmp/a.jsonl"), Path("/tmp/a.csv"))),
-            patch("hermia.screens.load_tests", return_value=[{"id": "tool-calling-basic", "prompt": "p", "system": "s"}]),
+            patch("hermia.screens.open_run", return_value=_FAKE_RUN_PATHS),
+            patch("hermia.screens.load_tests", return_value=_FAKE_TESTS),
             patch("hermia.screens.get_model_size_gb", return_value=4.0),
             patch("hermia.screens.unload_model"),
             patch("hermia.screens.prewarm_timed", return_value=(1.0, 1.0, 2.0)),
@@ -390,9 +392,14 @@ def test_run_evals_no_runnable_models() -> None:
 def test_run_evals_skipped_model_logged() -> None:
     async def _inner() -> None:
         with (
-            patch("hermia.screens.run_preflight", return_value=_fake_preflight_report(runnable=["qwen2.5:7b"], skipped=["llama3:8b"])),
-            patch("hermia.screens.open_run", return_value=(Path("/tmp/a.jsonl"), Path("/tmp/a.csv"))),
-            patch("hermia.screens.load_tests", return_value=[{"id": "tool-calling-basic", "prompt": "p", "system": "s"}]),
+            patch(
+                "hermia.screens.run_preflight",
+                return_value=_fake_preflight_report(
+                    runnable=["qwen2.5:7b"], skipped=["llama3:8b"]
+                ),
+            ),
+            patch("hermia.screens.open_run", return_value=_FAKE_RUN_PATHS),
+            patch("hermia.screens.load_tests", return_value=_FAKE_TESTS),
             patch("hermia.screens.get_model_size_gb", return_value=4.0),
             patch("hermia.screens.unload_model"),
             patch("hermia.screens.prewarm_timed", return_value=(1.0, 1.0, 2.0)),
