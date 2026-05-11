@@ -21,12 +21,12 @@ def append_result(
 ) -> None:
     """Append a single test result to JSONL and/or CSV. Pass None to skip either."""
     if jsonl_path is not None:
-        with open(jsonl_path, "a") as f:
+        with open(jsonl_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(result) + "\n")
 
     if csv_path is not None:
         write_header = not csv_path.exists()
-        with open(csv_path, "a", newline="") as f:
+        with open(csv_path, "a", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=result.keys())
             if write_header:
                 writer.writeheader()
