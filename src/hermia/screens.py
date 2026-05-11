@@ -58,7 +58,7 @@ def _compute_scores(
 def _backfill_aggregates(run_results: list[dict[str, Any]]) -> None:
     """Compute cold_warm_delta_tps and robustness fields; stamp onto each row in-place."""
     # cold_warm_delta_tps
-    if len(run_results) == 1:
+    if len(run_results) == 1 or not run_results[0].get("is_cold"):
         delta: float | None = None
     else:
         cold_tps = float(run_results[0].get("tokens_per_sec", 0.0))

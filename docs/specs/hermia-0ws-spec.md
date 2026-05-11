@@ -78,7 +78,7 @@ for test in tests:
     # Re-write or update records in all_results with aggregated fields
 ```
 
-**`is_cold` rule:** `is_cold = (run_index == 1)`. The first invocation of `run_test` against a model happens immediately after `prewarm_timed()`, which evicts and re-loads the model — making that first call cold by definition.
+**`is_cold` rule:** A `model_first_call` flag (reset to `True` before each model's test loop) tracks whether any `run_test` call has been made for this model in this session. The very first call sets `is_cold=True` and flips the flag to `False`; all subsequent calls — including later tests and all repeats — are `is_cold=False`. Only one row per model per session is ever cold, reflecting the single `prewarm_timed()` load.
 
 ### 3.3 Aggregate computation (internal helper in `screens.py`)
 
@@ -160,7 +160,8 @@ All six fields must be present on every result row written to JSONL/CSV. Rows fr
 
 | Case | Expected behaviour |
 |---|---|
-| `--repeat 1` (default) | `run_index=1`, `is_cold=True`, `cold_warm_delta_tps=None`, `consistency_pct=1.0`, `pass_count=0 or 1`, `robustness_n=1` |
+| `--repeat 1` (default), first test for model | `run_index=1`, `is_cold=True`, `cold_warm_delta_tps=None` (only one run, no warm baseline), `consistency_pct=1.0`, `robustness_n=1` |
+| `--repeat 3`, second+ test for model | `is_cold=False` on all rows; `cold_warm_delta_tps=None` (no cold run in this test) |
 | `--repeat 0` or negative | argparse rejects; prints error, exits non-zero |
 | First run times out (`tokens_per_sec=0`), subsequent succeed | `cold_warm_delta_tps = 0 - mean(warm_tps)` → negative float |
 | All N runs timeout | `cold_warm_delta_tps = None` (all tps==0 sentinel) |

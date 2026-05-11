@@ -31,6 +31,16 @@ def test_backfill_aggregates_single_run() -> None:
     assert "consistency_pct" in rows[0]
 
 
+def test_backfill_aggregates_warm_test_delta_is_none() -> None:
+    rows = [
+        {**_run_row(1, tokens_per_sec=50.0), "is_cold": False},
+        {**_run_row(2, tokens_per_sec=55.0), "is_cold": False},
+    ]
+    _backfill_aggregates(rows)
+    assert rows[0]["cold_warm_delta_tps"] is None
+    assert rows[1]["cold_warm_delta_tps"] is None
+
+
 def test_backfill_aggregates_two_runs_pass_pass() -> None:
     rows = [
         _run_row(1, tokens_per_sec=30.0),
