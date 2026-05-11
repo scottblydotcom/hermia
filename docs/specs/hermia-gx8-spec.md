@@ -14,7 +14,7 @@
 
 ## Design
 
-Call `run_test` twice with identical inputs against the `fake_ollama` fixture. Compare result dicts field-by-field. Scoring fields must be bytewise identical. Timing fields are excluded or tolerance-checked.
+Call `run_test` twice with identical inputs against the `fake_ollama` fixture. Compare result dicts field-by-field. Scoring fields must be bytewise identical. Timing fields are excluded or computed-check only.
 
 ### Stable fields (bytewise identical both runs)
 
@@ -33,10 +33,10 @@ These must match exactly:
 
 Note: peak_* fields are stable because the mock sampler always returns fixed values.
 
-### Timing fields (excluded / tolerance-checked)
+### Timing fields (excluded / computed-check only)
 
 - `elapsed_sec` — excluded from equality check (wall-clock jitter)
-- `tokens_per_sec` — allowed to vary ±5% between runs
+- `tokens_per_sec` — assert > 0 when tokens returned; stability not assertable against mock server
 
 ### Fields not present in runner output
 
