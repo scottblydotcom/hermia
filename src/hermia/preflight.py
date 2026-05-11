@@ -71,6 +71,7 @@ def run_preflight(
     selected_models: list[str],
     model_list: list[dict[str, Any]],
     results_dir: Path,
+    fleet_mode: bool = False,
 ) -> PreflightReport:
     _, vram_used, vram_total = get_gpu_stats()
     vram_available = max(0.0, vram_total - vram_used - VRAM_OVERHEAD_GB)
@@ -92,7 +93,7 @@ def run_preflight(
         fits_current_vram = size_gb <= vram_available
         fits_ram = (size_gb * RAM_LOAD_MULTIPLIER) <= ram_available_gb
 
-        if name in VULKAN_GFX900_BLOCKLIST:
+        if name in VULKAN_GFX900_BLOCKLIST and not fleet_mode:
             checks.append(ModelCheck(
                 name=name,
                 size_gb=size_gb,
@@ -104,18 +105,23 @@ def run_preflight(
             ))
             continue
 
-        skip = not fits_total_vram and not fits_ram
-        reason = ""
-        if not fits_total_vram and not fits_ram:
-            reason = (
-                f"{size_gb:.1f} GB exceeds total VRAM ({vram_total:.1f} GB) "
-                f"and available RAM ({ram_available_gb:.1f} GB)"
-            )
-        elif not fits_total_vram:
-            reason = (
-                f"{size_gb:.1f} GB exceeds total VRAM ({vram_total:.1f} GB) — "
-                f"CPU fallback possible but will be very slow"
-            )
+        # In fleet mode the remote server already has these models — trust it
+        if fleet_mode:
+            skip = False
+            reason = ""
+        else:
+            skip = not fits_total_vram and not fits_ram
+            reason = ""
+            if not fits_total_vram and not fits_ram:
+                reason = (
+                    f"{size_gb:.1f} GB exceeds total VRAM ({vram_total:.1f} GB) "
+                    f"and available RAM ({ram_available_gb:.1f} GB)"
+                )
+            elif not fits_total_vram:
+                reason = (
+                    f"{size_gb:.1f} GB exceeds total VRAM ({vram_total:.1f} GB) — "
+                    f"CPU fallback possible but will be very slow"
+                )
 
         checks.append(ModelCheck(
             name=name,
