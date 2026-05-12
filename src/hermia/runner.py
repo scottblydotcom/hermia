@@ -134,7 +134,7 @@ def prewarm_timed(model_name: str) -> tuple[float, float, float]:
 def load_tests_all() -> list[dict[str, Any]]:
     """Load all test cases from agentic-tasks.json (no ID filter)."""
     path = PROJECT_ROOT / "test-datasets" / "agentic-tasks.json"
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)["agentic_test_cases"]  # type: ignore[no-any-return]
 
 
