@@ -12,6 +12,7 @@ from hermia.metrics import get_gpu_stats
 VRAM_OVERHEAD_GB = 0.75  # headroom reserved for Ollama runtime
 RAM_LOAD_MULTIPLIER = 1.5  # approximate RAM needed for CPU-only inference
 MIN_DISK_FREE_GB = 0.5
+DEFAULT_OLLAMA_HOST = "http://localhost:11434"
 OLLAMA_MIN_SECURE_VERSION = "0.17.1"  # fixes CVE-2026-7482 (CVSS 9.1, "Bleeding Llama")
 
 # Models confirmed incompatible with Ollama's Vulkan backend on gfx900 (Vega 64).
@@ -46,7 +47,7 @@ def _parse_version(v: str) -> tuple[int, ...] | None:
     """
     try:
         v = v.lstrip("v") if v else ""
-        has_prerelease = "-" in v
+        has_prerelease = "-" in v.split("+")[0]
         base = v.split("-")[0].split("+")[0]
         parts = [int(x) for x in base.split(".")[:3]]
         while len(parts) < 3:
@@ -193,7 +194,7 @@ def run_preflight(
             reason=reason,
         ))
 
-    host = _normalize_host(os.environ.get("HERMIA_HOST", "http://localhost:11434"))
+    host = _normalize_host(os.environ.get("HERMIA_HOST", DEFAULT_OLLAMA_HOST))
     sec = check_ollama_security(host, fleet_mode=fleet_mode)
 
     return PreflightReport(
