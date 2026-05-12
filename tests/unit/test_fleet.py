@@ -104,6 +104,7 @@ _MINIMAL_RESULT = {
     "peak_gpu_pct": None,
     "peak_vram_used_gb": None,
     "mode": "fleet",
+    "host": "http://localhost:11434",
     "vram_server_gb": None,
 }
 
@@ -169,7 +170,10 @@ def test_run_fleet_result_host_field(tmp_path: Path) -> None:
     with (
         patch("hermia.runner.load_tests_all", return_value=_tests),
         patch("hermia.runner.get_available_models", return_value=[{"name": "m1"}]),
-        patch("hermia.runner.run_test", return_value=dict(_MINIMAL_RESULT)),
+        patch(
+            "hermia.runner.run_test",
+            side_effect=lambda *a, host=None, **kw: {**_MINIMAL_RESULT, "host": host},
+        ),
         patch("hermia.results.open_run", return_value=_run_files),
         patch("hermia.results.append_result", side_effect=lambda r, *_: captured.append(dict(r))),
         patch("hermia.metrics.MetricsSampler", return_value=MagicMock()),
