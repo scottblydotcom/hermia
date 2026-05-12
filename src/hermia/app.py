@@ -62,7 +62,7 @@ def main() -> None:
         try:
             entries = load_fleet_config(Path(args.fleet))
             run_fleet(entries, repeat=args.repeat, results_dir=RESULTS_DIR)
-        except (ValueError, RuntimeError) as exc:
+        except (ValueError, RuntimeError, OSError) as exc:
             print(f"hermia: {exc}", file=sys.stderr)
             sys.exit(1)
         sys.exit(0)
