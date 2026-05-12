@@ -13,8 +13,8 @@ def load_fleet_config(path: Path) -> list[dict[str, Any]]:
     """Parse fleet YAML. Returns list of host entries. Raises ValueError on invalid config."""
     with path.open() as f:
         data = yaml.safe_load(f)
-    entries = data.get("fleet", []) if isinstance(data, dict) else []
-    if not entries:
+    entries = data.get("fleet") if isinstance(data, dict) else None
+    if not isinstance(entries, list) or not entries:
         raise ValueError("Fleet config must contain at least one entry under 'fleet'")
     for i, entry in enumerate(entries):
         if not entry.get("name"):
@@ -26,10 +26,14 @@ def load_fleet_config(path: Path) -> list[dict[str, Any]]:
 
 def _build_auth_headers(entry: dict[str, Any]) -> dict[str, str]:
     """Return Authorization headers for entry, or {} if no auth configured."""
-    auth = entry.get("auth") or {}
-    bearer = auth.get("bearer") or {}
+    auth = entry.get("auth")
+    if not isinstance(auth, dict):
+        return {}
+    bearer = auth.get("bearer")
+    if not isinstance(bearer, dict):
+        return {}
     key_env = bearer.get("key_env")
-    if not key_env:
+    if not isinstance(key_env, str) or not key_env:
         return {}
     token = os.environ.get(key_env)
     if not token:
