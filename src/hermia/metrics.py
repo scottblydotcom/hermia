@@ -1,4 +1,4 @@
-"""System and GPU metrics sampling — nvidia-smi, Apple Silicon ioreg, AMD sysfs/rocm-smi."""
+"""System and GPU metrics sampling — nvidia-smi, Apple Silicon ioreg, AMD sysfs/rocm-smi, Intel i915."""
 
 import glob
 import json
@@ -15,6 +15,7 @@ _NVIDIA_FOUND: bool = False
 _NVIDIA_VRAM_TOTAL_GB: float = 0.0
 _APPLE_SILICON: bool = False
 _APPLE_VRAM_TOTAL_GB: float = 0.0
+_INTEL_IGPU: bool = False
 
 
 def _find_amdgpu_dev() -> str | None:
@@ -155,15 +156,76 @@ def _gpu_stats_apple_silicon() -> tuple[float, float, float]:
         return 0.0, 0.0, _APPLE_VRAM_TOTAL_GB
 
 
+def _detect_intel_igpu() -> tuple[bool, str]:
+    """Detect Intel iGPU. Returns (found, name).
+
+    macOS: parses system_profiler SPDisplaysDataType for an Intel GPU entry.
+    Linux: scans DRM sysfs uevent files for DRIVER=i915.
+    Returns (False, "") when not found or on other platforms.
+    """
+    if sys.platform == "darwin":
+        try:
+            r = subprocess.run(  # noqa: S603
+                ["system_profiler", "SPDisplaysDataType", "-json"],  # noqa: S607
+                capture_output=True, text=True, timeout=5,
+            )
+            data: dict[str, Any] = json.loads(r.stdout)
+            for entry in data.get("SPDisplaysDataType", []):
+                model = entry.get("sppci_model", "")
+                if "Intel" in model:
+                    return True, model
+        except (subprocess.SubprocessError, json.JSONDecodeError, OSError, KeyError):
+            pass
+        return False, ""
+
+    if sys.platform == "linux":
+        for uevent_path in glob.glob("/sys/class/drm/card*/device/uevent"):
+            try:
+                with open(uevent_path) as f:
+                    if "DRIVER=i915" in f.read():
+                        return True, "Intel iGPU"
+            except OSError:
+                continue
+
+    return False, ""
+
+
+def _gpu_stats_intel() -> tuple[float, float, float]:
+    """Read Intel iGPU utilization via intel_gpu_top (Linux only).
+
+    Returns (gpu_pct, 0.0, 0.0) — i915 sysfs does not expose VRAM usage
+    without kernel perf access. Returns (0.0, 0.0, 0.0) on any failure.
+    """
+    if sys.platform != "linux":
+        return 0.0, 0.0, 0.0
+    try:
+        r = subprocess.run(  # noqa: S603
+            ["intel_gpu_top", "-J", "-s", "200"],  # noqa: S607
+            capture_output=True, text=True, timeout=1,
+        )
+        text = r.stdout.strip()
+        start = text.find("{")
+        end = text.rfind("}")
+        if start == -1 or end <= start:
+            return 0.0, 0.0, 0.0
+        obj = json.loads(text[start : end + 1])
+        engines = obj.get("engines", {})
+        render = engines.get("Render/3D/0", engines.get("Render/3D", {}))
+        return float(render.get("busy", 0.0)), 0.0, 0.0
+    except Exception:
+        return 0.0, 0.0, 0.0
+
+
 def detect_gpu() -> dict[str, Any]:
     """Detect GPU hardware at run start. Updates module-level cache.
 
     Tries NVIDIA first (via nvidia-smi), then Apple Silicon (via ioreg/sysctl),
-    then AMD (via sysfs). Returns a dict with keys: found (bool), vendor (str),
-    card (str), dev_path (str), vram_total_gb (float).
-    vendor is one of: nvidia, apple, amd, none.
+    then AMD (via sysfs), then Intel iGPU (via i915/system_profiler).
+    Returns a dict with keys: found (bool), vendor (str), card (str),
+    dev_path (str), vram_total_gb (float).
+    vendor is one of: nvidia, apple, amd, intel, none.
     """
-    global _AMD_DEV, _NVIDIA_FOUND, _NVIDIA_VRAM_TOTAL_GB, _APPLE_SILICON, _APPLE_VRAM_TOTAL_GB
+    global _AMD_DEV, _NVIDIA_FOUND, _NVIDIA_VRAM_TOTAL_GB, _APPLE_SILICON, _APPLE_VRAM_TOTAL_GB, _INTEL_IGPU
 
     found, name, vram_total_gb = _detect_nvidia()
     if found:
@@ -196,22 +258,35 @@ def detect_gpu() -> dict[str, Any]:
 
     _APPLE_SILICON = False
     _AMD_DEV = _find_amdgpu_dev()
-    if _AMD_DEV is None:
-        return {"found": False, "vendor": "none", "card": "", "dev_path": "", "vram_total_gb": 0.0}
+    if _AMD_DEV is not None:
+        _INTEL_IGPU = False
+        card = _AMD_DEV.split("/sys/class/drm/")[-1].split("/")[0]
+        try:
+            with open(f"{_AMD_DEV}/mem_info_vram_total") as f:
+                vram_total_gb = int(f.read().strip()) / (1024**3)
+        except OSError:
+            vram_total_gb = 0.0
+        return {
+            "found": True,
+            "vendor": "amd",
+            "card": card,
+            "dev_path": _AMD_DEV,
+            "vram_total_gb": vram_total_gb,
+        }
 
-    card = _AMD_DEV.split("/sys/class/drm/")[-1].split("/")[0]
-    try:
-        with open(f"{_AMD_DEV}/mem_info_vram_total") as f:
-            vram_total_gb = int(f.read().strip()) / (1024**3)
-    except OSError:
-        vram_total_gb = 0.0
-    return {
-        "found": True,
-        "vendor": "amd",
-        "card": card,
-        "dev_path": _AMD_DEV,
-        "vram_total_gb": vram_total_gb,
-    }
+    found_intel, intel_name = _detect_intel_igpu()
+    if found_intel:
+        _INTEL_IGPU = True
+        return {
+            "found": True,
+            "vendor": "intel",
+            "card": intel_name,
+            "dev_path": "",
+            "vram_total_gb": 0.0,
+        }
+
+    _INTEL_IGPU = False
+    return {"found": False, "vendor": "none", "card": "", "dev_path": "", "vram_total_gb": 0.0}
 
 
 def _gpu_stats_nvidia() -> tuple[float, float, float]:
@@ -266,14 +341,21 @@ def _gpu_stats_sysfs() -> tuple[float, float, float]:
 def get_gpu_stats() -> tuple[float, float, float]:
     """Return (gpu_pct, vram_used_gb, vram_total_gb).
 
-    Routes to nvidia-smi, Apple Silicon ioreg, or AMD rocm-smi/sysfs based on
-    what detect_gpu() found at startup.
+    Routes to nvidia-smi, Apple Silicon ioreg, Intel i915, or AMD rocm-smi/sysfs
+    based on what detect_gpu() found at startup. Returns (0.0, 0.0, 0.0) on
+    CPU-only systems.
     """
     if _NVIDIA_FOUND:
         return _gpu_stats_nvidia()
 
     if _APPLE_SILICON:
         return _gpu_stats_apple_silicon()
+
+    if _INTEL_IGPU:
+        return _gpu_stats_intel()
+
+    if _AMD_DEV is None:
+        return 0.0, 0.0, 0.0
 
     try:
         result = subprocess.run(  # noqa: S603

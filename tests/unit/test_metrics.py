@@ -305,6 +305,9 @@ def test_get_gpu_stats_falls_back_to_sysfs_when_rocm_returns_zeros():
 
     with (
         patch.object(metrics_mod, "_NVIDIA_FOUND", False),
+        patch.object(metrics_mod, "_APPLE_SILICON", False),
+        patch.object(metrics_mod, "_INTEL_IGPU", False),
+        patch.object(metrics_mod, "_AMD_DEV", dev),
         patch("subprocess.run", return_value=mock_result),
         patch("hermia.metrics.glob.glob", return_value=[f"{dev}/uevent"]),
         patch("builtins.open", side_effect=fake_open),
@@ -331,6 +334,9 @@ def test_get_gpu_stats_falls_back_to_sysfs_when_rocm_missing():
 
     with (
         patch.object(metrics_mod, "_NVIDIA_FOUND", False),
+        patch.object(metrics_mod, "_APPLE_SILICON", False),
+        patch.object(metrics_mod, "_INTEL_IGPU", False),
+        patch.object(metrics_mod, "_AMD_DEV", dev),
         patch("subprocess.run", side_effect=FileNotFoundError),
         patch("hermia.metrics.glob.glob", return_value=[f"{dev}/uevent"]),
         patch("builtins.open", side_effect=fake_open),
@@ -468,3 +474,142 @@ def test_get_gpu_stats_apple_silicon_ioreg_error():
     assert gpu_pct == 0.0
     assert vram_used == 0.0
     assert vram_total == 16.0
+
+
+# ---------------------------------------------------------------------------
+# hermia-qqz: Intel iGPU detection and CPU-only fallback
+# ---------------------------------------------------------------------------
+
+def test_detect_intel_igpu_linux():
+    """detect_gpu() returns vendor=intel when DRIVER=i915 is the only GPU on Linux."""
+    uevent_paths = ["/sys/class/drm/card0/device/uevent"]
+    with (
+        patch("subprocess.run", side_effect=FileNotFoundError),
+        patch("hermia.metrics.sys.platform", "linux"),
+        patch("hermia.metrics.glob.glob", return_value=uevent_paths),
+        patch("builtins.open", mock_open(read_data="DRIVER=i915\n")),
+    ):
+        info = detect_gpu()
+
+    assert info["found"] is True
+    assert info["vendor"] == "intel"
+    assert "Intel" in info["card"] or info["card"] == "Intel iGPU"
+    assert metrics_mod._INTEL_IGPU is True
+    assert metrics_mod._AMD_DEV is None
+
+
+def test_detect_intel_igpu_macos():
+    """detect_gpu() returns vendor=intel when system_profiler reports an Intel GPU."""
+    sp_json = json.dumps({"SPDisplaysDataType": [{"sppci_model": "Intel Iris Pro 580"}]})
+
+    def fake_run(cmd, **kw):
+        r = MagicMock()
+        r.returncode = 0
+        if "SPDisplaysDataType" in cmd:
+            r.stdout = sp_json
+        else:
+            r.returncode = 1
+            r.stdout = ""
+        return r
+
+    with (
+        patch("subprocess.run", side_effect=fake_run),
+        patch("hermia.metrics.sys.platform", "darwin"),
+        patch("hermia.metrics.platform.machine", return_value="x86_64"),
+        patch("hermia.metrics.glob.glob", return_value=[]),
+    ):
+        info = detect_gpu()
+
+    assert info["found"] is True
+    assert info["vendor"] == "intel"
+    assert info["card"] == "Intel Iris Pro 580"
+    assert metrics_mod._INTEL_IGPU is True
+
+
+def test_detect_intel_igpu_not_found_linux():
+    """detect_gpu() returns vendor=none when no GPU at all on Linux."""
+    with (
+        patch("subprocess.run", side_effect=FileNotFoundError),
+        patch("hermia.metrics.sys.platform", "linux"),
+        patch("hermia.metrics.glob.glob", return_value=[]),
+    ):
+        info = detect_gpu()
+
+    assert info["found"] is False
+    assert info["vendor"] == "none"
+    assert metrics_mod._INTEL_IGPU is False
+
+
+def test_detect_amd_takes_priority_over_intel():
+    """AMD dGPU wins when both DRIVER=amdgpu and DRIVER=i915 are present."""
+    uevent_paths = [
+        "/sys/class/drm/card0/device/uevent",
+        "/sys/class/drm/card1/device/uevent",
+    ]
+    uevent_data = {
+        "/sys/class/drm/card0/device/uevent": "DRIVER=i915\n",
+        "/sys/class/drm/card1/device/uevent": "DRIVER=amdgpu\n",
+        "/sys/class/drm/card1/device/mem_info_vram_total": str(8 * 1024**3),
+    }
+
+    def fake_open(path, *a, **kw):
+        return mock_open(read_data=uevent_data.get(path, ""))()
+
+    with (
+        patch("subprocess.run", side_effect=FileNotFoundError),
+        patch("hermia.metrics.sys.platform", "linux"),
+        patch("hermia.metrics.glob.glob", return_value=uevent_paths),
+        patch("builtins.open", side_effect=fake_open),
+    ):
+        info = detect_gpu()
+
+    assert info["vendor"] == "amd"
+    assert metrics_mod._INTEL_IGPU is False
+
+
+def test_get_gpu_stats_intel_routes_to_intel_stats():
+    """get_gpu_stats() routes to _gpu_stats_intel() when _INTEL_IGPU is True."""
+    with (
+        patch.object(metrics_mod, "_INTEL_IGPU", True),
+        patch.object(metrics_mod, "_NVIDIA_FOUND", False),
+        patch.object(metrics_mod, "_APPLE_SILICON", False),
+        patch.object(metrics_mod, "_AMD_DEV", None),
+        patch("hermia.metrics._gpu_stats_intel", return_value=(55.0, 0.0, 0.0)),
+    ):
+        gpu_pct, vram_used, vram_total = get_gpu_stats()
+
+    assert gpu_pct == 55.0
+    assert vram_used == 0.0
+    assert vram_total == 0.0
+
+
+def test_get_gpu_stats_intel_no_tool_returns_zeros():
+    """_gpu_stats_intel() returns zeros when intel_gpu_top is not installed."""
+    with (
+        patch.object(metrics_mod, "_INTEL_IGPU", True),
+        patch.object(metrics_mod, "_NVIDIA_FOUND", False),
+        patch.object(metrics_mod, "_APPLE_SILICON", False),
+        patch.object(metrics_mod, "_AMD_DEV", None),
+        patch("hermia.metrics.sys.platform", "linux"),
+        patch("subprocess.run", side_effect=FileNotFoundError),
+    ):
+        gpu_pct, vram_used, vram_total = get_gpu_stats()
+
+    assert gpu_pct == 0.0
+    assert vram_used == 0.0
+    assert vram_total == 0.0
+
+
+def test_get_gpu_stats_cpu_only_returns_zeros():
+    """get_gpu_stats() returns zeros when no GPU was detected (CPU-only)."""
+    with (
+        patch.object(metrics_mod, "_NVIDIA_FOUND", False),
+        patch.object(metrics_mod, "_APPLE_SILICON", False),
+        patch.object(metrics_mod, "_INTEL_IGPU", False),
+        patch.object(metrics_mod, "_AMD_DEV", None),
+    ):
+        gpu_pct, vram_used, vram_total = get_gpu_stats()
+
+    assert gpu_pct == 0.0
+    assert vram_used == 0.0
+    assert vram_total == 0.0
