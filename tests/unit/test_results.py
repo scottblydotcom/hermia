@@ -129,3 +129,19 @@ def test_patch_results_atomic_via_tmp(tmp_path: Path) -> None:
     append_result(_run_row(1), jsonl, csv_path)
     patch_results(jsonl, [_run_row(1, {"consistency_pct": 0.9})])
     assert not (jsonl.with_suffix(".jsonl.tmp")).exists()
+
+
+# ---------------------------------------------------------------------------
+# hermia-843: JSONL injection round-trip
+# ---------------------------------------------------------------------------
+
+
+def test_jsonl_injection_in_output_preview_does_not_split_record(tmp_path: Path) -> None:
+    """An embedded newline + JSON object in output_preview must not become a
+    second JSONL record when the file is read back."""
+    jsonl, csv_path = open_run(tmp_path)
+    row = {**RESULT_A, "output_preview": 'hello\n{"malicious": true}'}
+    append_result(row, jsonl, csv_path)
+    rows = load_jsonl(jsonl)
+    assert len(rows) == 1
+    assert rows[0]["output_preview"] == 'hello\n{"malicious": true}'
