@@ -241,6 +241,7 @@ def detect_gpu() -> dict[str, Any]:
         _NVIDIA_VRAM_TOTAL_GB = vram_total_gb
         _APPLE_SILICON = False
         _AMD_DEV = None
+        _INTEL_IGPU = False
         _NVIDIA_FOUND = True  # set last — sampler thread must not see True before VRAM is written
         return {
             "found": True,
@@ -256,6 +257,7 @@ def detect_gpu() -> dict[str, Any]:
     if found_apple:
         _APPLE_VRAM_TOTAL_GB = apple_vram
         _AMD_DEV = None
+        _INTEL_IGPU = False
         _APPLE_SILICON = True  # set last
         return {
             "found": True,
