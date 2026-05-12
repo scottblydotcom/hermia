@@ -33,30 +33,37 @@ def detect_mode(host: str) -> str:
 
 
 # Only cache successful (non-None) results — transient failures should retry.
-_vram_cache: dict[tuple[str, str], float] = {}
+_vram_cache: dict[tuple[str, str], float | None] = {}
 
 
 def fetch_server_vram(host: str, model: str) -> float | None:
     """Query /api/ps on host; return size_vram for model in GiB, or None.
 
-    Successful results are cached per (host, model). Failures are not cached
-    so transient network errors retry on the next call.
-    Returns None if the endpoint is unavailable, the model is not listed,
-    or size_vram is absent. Never raises.
+    Caches the result (including None) when the server responds successfully —
+    a healthy server that doesn't report the model won't change between tests.
+    Network errors and non-2xx responses are not cached so transient failures
+    retry. Never raises.
     """
     key = (host, model)
     if key in _vram_cache:
         return _vram_cache[key]
     try:
-        resp = requests.get(f"{host}/api/ps", timeout=5)
-        for m in resp.json().get("models", []):
-            if m.get("name") == model:
-                size = m.get("size_vram")
-                if size is not None:
-                    result = float(size) / (1024 ** 3)
-                    _vram_cache[key] = result
-                    return result
-        return None
+        resp = requests.get(f"{host}/api/ps", timeout=2)
+        if not resp.ok:
+            return None
+
+        found_vram = None
+        data = resp.json()
+        if isinstance(data, dict):
+            for m in data.get("models") or []:
+                if m.get("name") == model:
+                    size = m.get("size_vram")
+                    if size is not None:
+                        found_vram = float(size) / (1024 ** 3)
+                    break
+
+        _vram_cache[key] = found_vram
+        return found_vram
     except Exception:  # noqa: BLE001
         return None
 
