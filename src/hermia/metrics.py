@@ -1,4 +1,4 @@
-"""System and GPU metrics sampling — nvidia-smi, Apple Silicon ioreg, AMD sysfs/rocm-smi, Intel i915."""
+"""System and GPU metrics sampling — nvidia-smi, Apple Silicon ioreg, AMD sysfs/rocm-smi, Intel i915."""  # noqa: E501
 
 import glob
 import json
@@ -234,7 +234,8 @@ def detect_gpu() -> dict[str, Any]:
     dev_path (str), vram_total_gb (float).
     vendor is one of: nvidia, apple, amd, intel, none.
     """
-    global _AMD_DEV, _NVIDIA_FOUND, _NVIDIA_VRAM_TOTAL_GB, _APPLE_SILICON, _APPLE_VRAM_TOTAL_GB, _INTEL_IGPU
+    global _AMD_DEV, _NVIDIA_FOUND, _NVIDIA_VRAM_TOTAL_GB  # noqa: PLW0603
+    global _APPLE_SILICON, _APPLE_VRAM_TOTAL_GB, _INTEL_IGPU  # noqa: PLW0603
 
     found, name, vram_total_gb = _detect_nvidia()
     if found:

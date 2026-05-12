@@ -44,7 +44,7 @@ def _mock_sampler(
 # ── T1: Happy path — full pipeline ───────────────────────────────────────────
 
 def test_happy_path(fake_ollama: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("hermia.runner.OLLAMA_BASE", fake_ollama)
+    monkeypatch.setenv("HERMIA_HOST", fake_ollama)
     result = run_test("fake-model", TOOL_CALLING_TEST, _mock_sampler())
     assert result["failure_reason"] == ""
     assert result["json_valid"] is True
@@ -57,7 +57,7 @@ def test_happy_path(fake_ollama: str, monkeypatch: pytest.MonkeyPatch) -> None:
 # ── T2: Drift tolerance — unknown fields ignored ──────────────────────────────
 
 def test_drift_tolerance(fake_ollama: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("hermia.runner.OLLAMA_BASE", fake_ollama)
+    monkeypatch.setenv("HERMIA_HOST", fake_ollama)
     _FakeOllamaHandler._overrides["generate"] = {
         **DEFAULT_GENERATE,
         "thinking": "internal chain of thought",
@@ -71,7 +71,7 @@ def test_drift_tolerance(fake_ollama: str, monkeypatch: pytest.MonkeyPatch) -> N
 # ── T3: Timeout → failure_reason ─────────────────────────────────────────────
 
 def test_timeout(fake_ollama: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("hermia.runner.OLLAMA_BASE", fake_ollama)
+    monkeypatch.setenv("HERMIA_HOST", fake_ollama)
     monkeypatch.setattr("hermia.runner.TEST_TIMEOUT", 0.05)
     _FakeOllamaHandler._overrides["generate_delay"] = 0.3
     result = run_test("fake-model", TOOL_CALLING_TEST, _mock_sampler())
@@ -83,7 +83,7 @@ def test_timeout(fake_ollama: str, monkeypatch: pytest.MonkeyPatch) -> None:
 # ── T4: HTTP 500 → failure_reason ─────────────────────────────────────────────
 
 def test_http_500(fake_ollama: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("hermia.runner.OLLAMA_BASE", fake_ollama)
+    monkeypatch.setenv("HERMIA_HOST", fake_ollama)
     _FakeOllamaHandler._overrides["generate_status"] = 500
     result = run_test("fake-model", TOOL_CALLING_TEST, _mock_sampler())
     assert result["failure_reason"] != ""
@@ -93,7 +93,7 @@ def test_http_500(fake_ollama: str, monkeypatch: pytest.MonkeyPatch) -> None:
 # ── T5: Malformed JSON → failure_reason ───────────────────────────────────────
 
 def test_malformed_json(fake_ollama: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("hermia.runner.OLLAMA_BASE", fake_ollama)
+    monkeypatch.setenv("HERMIA_HOST", fake_ollama)
     _FakeOllamaHandler._overrides["generate_raw"] = b"not valid json at all"
     result = run_test("fake-model", TOOL_CALLING_TEST, _mock_sampler())
     assert result["failure_reason"] != ""
@@ -103,7 +103,7 @@ def test_malformed_json(fake_ollama: str, monkeypatch: pytest.MonkeyPatch) -> No
 # ── T6: get_available_models against fake /api/tags ───────────────────────────
 
 def test_get_available_models(fake_ollama: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("hermia.runner.OLLAMA_BASE", fake_ollama)
+    monkeypatch.setenv("HERMIA_HOST", fake_ollama)
     models = get_available_models()
     assert isinstance(models, list)
     assert len(models) == 1

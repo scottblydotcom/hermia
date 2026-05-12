@@ -51,7 +51,7 @@ def _mock_sampler(
 # ── T1: Stable fields bytewise identical across two runs ──────────────────────
 
 def test_stable_fields_identical(fake_ollama: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("hermia.runner.OLLAMA_BASE", fake_ollama)
+    monkeypatch.setenv("HERMIA_HOST", fake_ollama)
     result1 = run_test("fake-model", TOOL_CALLING_TEST, _mock_sampler())
     result2 = run_test("fake-model", TOOL_CALLING_TEST, _mock_sampler())
     for field in STABLE_FIELDS:
@@ -66,7 +66,7 @@ def test_stable_fields_identical(fake_ollama: str, monkeypatch: pytest.MonkeyPat
 def test_tokens_per_sec_computed(
     fake_ollama: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr("hermia.runner.OLLAMA_BASE", fake_ollama)
+    monkeypatch.setenv("HERMIA_HOST", fake_ollama)
     result = run_test("fake-model", TOOL_CALLING_TEST, _mock_sampler())
     assert result["tokens"] > 0
     assert result["tokens_per_sec"] > 0
@@ -75,7 +75,7 @@ def test_tokens_per_sec_computed(
 # ── T3: Error-path fields are stable ─────────────────────────────────────────
 
 def test_error_path_stable(fake_ollama: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("hermia.runner.OLLAMA_BASE", fake_ollama)
+    monkeypatch.setenv("HERMIA_HOST", fake_ollama)
     _FakeOllamaHandler._overrides["generate_status"] = 500
     result1 = run_test("fake-model", TOOL_CALLING_TEST, _mock_sampler())
     result2 = run_test("fake-model", TOOL_CALLING_TEST, _mock_sampler())
@@ -86,7 +86,7 @@ def test_error_path_stable(fake_ollama: str, monkeypatch: pytest.MonkeyPatch) ->
 # ── T4: Two runs complete in under 2 seconds ──────────────────────────────────
 
 def test_two_runs_under_2s(fake_ollama: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("hermia.runner.OLLAMA_BASE", fake_ollama)
+    monkeypatch.setenv("HERMIA_HOST", fake_ollama)
     t0 = time.monotonic()
     run_test("fake-model", TOOL_CALLING_TEST, _mock_sampler())
     run_test("fake-model", TOOL_CALLING_TEST, _mock_sampler())

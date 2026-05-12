@@ -1,0 +1,2 @@
+ALTER TABLE hermia_results ADD COLUMN IF NOT EXISTS mode TEXT;
+ALTER TABLE hermia_results ADD COLUMN IF NOT EXISTS vram_server_gb DOUBLE PRECISION;

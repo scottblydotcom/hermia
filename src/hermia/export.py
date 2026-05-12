@@ -40,6 +40,8 @@ _PG_COLUMNS = (
     "robustness_n",
     "judge_score",
     "judge_reasoning",
+    "mode",
+    "vram_server_gb",
 )
 
 _INSERT_SQL = (

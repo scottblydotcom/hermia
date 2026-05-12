@@ -1,12 +1,12 @@
 """Hermia EvalApp — entry point."""
 
 import argparse
+import os
 
 from textual.app import App
 
-import hermia.runner as runner
 from hermia.metrics import detect_gpu
-from hermia.runner import get_available_models
+from hermia.runner import detect_mode, get_available_models
 from hermia.screens import SelectionScreen
 
 
@@ -48,8 +48,8 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    runner.OLLAMA_BASE = args.host.rstrip("/")
-    fleet_mode = "localhost" not in args.host and "127.0.0.1" not in args.host
+    os.environ["HERMIA_HOST"] = args.host.rstrip("/")
+    fleet_mode = detect_mode(args.host) == "fleet"
 
     EvalApp(fleet_mode=fleet_mode, repeat=args.repeat).run()
 
