@@ -11,7 +11,7 @@ import yaml
 
 def load_fleet_config(path: Path) -> list[dict[str, Any]]:
     """Parse fleet YAML. Returns list of host entries. Raises ValueError on invalid config."""
-    with path.open() as f:
+    with path.open(encoding="utf-8") as f:
         data = yaml.safe_load(f)
     entries = data.get("fleet") if isinstance(data, dict) else None
     if not isinstance(entries, list) or not entries:
