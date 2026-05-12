@@ -1,5 +1,6 @@
 """Ollama model management and test execution."""
 
+import functools
 import json
 import os
 import time
@@ -25,13 +26,18 @@ def get_ollama_host() -> str:
 
 def detect_mode(host: str) -> str:
     """Return 'local' if host resolves to localhost/loopback, else 'fleet'."""
+    if "://" not in host:
+        host = f"http://{host}"
     hostname = urlparse(host).hostname or ""
-    return "local" if hostname in ("localhost", "127.0.0.1") else "fleet"
+    return "local" if hostname in ("localhost", "127.0.0.1", "::1") else "fleet"
 
 
+@functools.cache
 def fetch_server_vram(host: str, model: str) -> float | None:
     """Query /api/ps on host; return size_vram for model in GiB, or None.
 
+    Result is cached per (host, model) — /api/ps is stable once a model is
+    loaded. Call fetch_server_vram.cache_clear() between runs if needed.
     Returns None if the endpoint is unavailable, the model is not listed,
     or size_vram is absent. Never raises.
     """

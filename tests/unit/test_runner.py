@@ -3,8 +3,10 @@
 import os
 from unittest.mock import MagicMock, patch
 
+import pytest
 import requests
 
+import hermia.runner as _runner_mod
 from hermia.runner import (
     get_available_models,
     get_model_size_gb,
@@ -12,6 +14,13 @@ from hermia.runner import (
     run_test,
     unload_model,
 )
+
+
+@pytest.fixture(autouse=True)
+def _clear_vram_cache() -> None:
+    _runner_mod.fetch_server_vram.cache_clear()
+    yield
+    _runner_mod.fetch_server_vram.cache_clear()
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -322,6 +331,16 @@ def test_detect_mode_remote_ip() -> None:
 def test_detect_mode_remote_hostname() -> None:
     from hermia.runner import detect_mode
     assert detect_mode("http://erics-origin-neuron:11434") == "fleet"
+
+
+def test_detect_mode_ipv6_loopback() -> None:
+    from hermia.runner import detect_mode
+    assert detect_mode("http://[::1]:11434") == "local"
+
+
+def test_detect_mode_no_scheme() -> None:
+    from hermia.runner import detect_mode
+    assert detect_mode("127.0.0.1:11434") == "local"
 
 
 # ── fetch_server_vram ─────────────────────────────────────────────────────────
