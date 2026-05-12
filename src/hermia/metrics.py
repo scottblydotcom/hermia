@@ -16,6 +16,7 @@ _NVIDIA_VRAM_TOTAL_GB: float = 0.0
 _APPLE_SILICON: bool = False
 _APPLE_VRAM_TOTAL_GB: float = 0.0
 _INTEL_IGPU: bool = False
+NVIDIA_MIN_SUPPORTED_COMPUTE: float = 6.0
 
 
 def _find_amdgpu_dev() -> str | None:
@@ -47,26 +48,34 @@ def _find_amdgpu_dev() -> str | None:
     return candidates[0][1]
 
 
-def _detect_nvidia() -> tuple[bool, str, float]:
-    """Probe nvidia-smi to detect an NVIDIA GPU. Returns (found, name, vram_total_gb)."""
+def _detect_nvidia() -> tuple[bool, str, float, float]:
+    """Probe nvidia-smi. Returns (found, name, vram_total_gb, compute_cap)."""  # noqa: E501
     try:
         result = subprocess.run(  # noqa: S603
-            ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],  # noqa: S607
+            [  # noqa: S607
+                "nvidia-smi",
+                "--query-gpu=name,memory.total,compute_cap",
+                "--format=csv,noheader,nounits",
+            ],
             capture_output=True,
             text=True,
             timeout=5,
         )
         if result.returncode != 0 or not result.stdout.strip():
-            return False, "", 0.0
+            return False, "", 0.0, 0.0
         line = result.stdout.strip().splitlines()[0]
         parts = [p.strip() for p in line.split(",")]
         if len(parts) < 2:
-            return False, "", 0.0
+            return False, "", 0.0, 0.0
         name = parts[0]
         vram_total_gb = float(parts[1]) / 1024  # MiB → GiB
-        return True, name, vram_total_gb
+        try:
+            compute_cap = float(parts[2]) if len(parts) >= 3 else 0.0
+        except (ValueError, IndexError):
+            compute_cap = 0.0
+        return True, name, vram_total_gb, compute_cap
     except (subprocess.SubprocessError, ValueError, IndexError, OSError):
-        return False, "", 0.0
+        return False, "", 0.0, 0.0
 
 
 def _detect_apple_silicon() -> tuple[bool, str, float]:
@@ -237,7 +246,7 @@ def detect_gpu() -> dict[str, Any]:
     global _AMD_DEV, _NVIDIA_FOUND, _NVIDIA_VRAM_TOTAL_GB  # noqa: PLW0603
     global _APPLE_SILICON, _APPLE_VRAM_TOTAL_GB, _INTEL_IGPU  # noqa: PLW0603
 
-    found, name, vram_total_gb = _detect_nvidia()
+    found, name, vram_total_gb, compute_cap = _detect_nvidia()
     if found:
         _NVIDIA_VRAM_TOTAL_GB = vram_total_gb
         _APPLE_SILICON = False
@@ -250,6 +259,7 @@ def detect_gpu() -> dict[str, Any]:
             "card": name,
             "dev_path": "",
             "vram_total_gb": vram_total_gb,
+            "compute_cap": compute_cap,
         }
 
     _NVIDIA_FOUND = False
@@ -266,6 +276,7 @@ def detect_gpu() -> dict[str, Any]:
             "card": apple_name,
             "dev_path": "",
             "vram_total_gb": apple_vram,
+            "compute_cap": 0.0,
         }
 
     _APPLE_SILICON = False
@@ -284,6 +295,7 @@ def detect_gpu() -> dict[str, Any]:
             "card": card,
             "dev_path": _AMD_DEV,
             "vram_total_gb": vram_total_gb,
+            "compute_cap": 0.0,
         }
 
     found_intel, intel_name = _detect_intel_igpu()
@@ -295,10 +307,14 @@ def detect_gpu() -> dict[str, Any]:
             "card": intel_name,
             "dev_path": "",
             "vram_total_gb": 0.0,
+            "compute_cap": 0.0,
         }
 
     _INTEL_IGPU = False
-    return {"found": False, "vendor": "none", "card": "", "dev_path": "", "vram_total_gb": 0.0}
+    return {
+        "found": False, "vendor": "none", "card": "",
+        "dev_path": "", "vram_total_gb": 0.0, "compute_cap": 0.0,
+    }
 
 
 def _gpu_stats_nvidia() -> tuple[float, float, float]:
