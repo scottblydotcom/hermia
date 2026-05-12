@@ -73,10 +73,13 @@ def fetch_server_vram(
         return None
 
 
-def get_available_models(headers: dict[str, str] | None = None) -> list[dict[str, Any]]:
-    host = get_ollama_host()
+def get_available_models(
+    host: str | None = None,
+    headers: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    _host = _normalize_host(host) if host is not None else get_ollama_host()
     try:
-        resp = requests.get(f"{host}/api/tags", timeout=5, headers=headers or {})
+        resp = requests.get(f"{_host}/api/tags", timeout=5, headers=headers or {})
         return resp.json().get("models", [])  # type: ignore[no-any-return]
     except Exception:
         return []
