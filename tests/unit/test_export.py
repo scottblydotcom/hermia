@@ -352,7 +352,7 @@ def test_push_framework_columns_populated_from_nested_dict() -> None:
 # hermia-0ws: new repeat/aggregate column tests
 # ---------------------------------------------------------------------------
 
-from hermia.export import _INSERT_SQL, _PG_COLUMNS  # noqa: E402
+from hermia.export import _INSERT_SQL, _PG_COLUMNS, collect_results, push  # noqa: E402
 
 
 def test_pg_columns_includes_repeat_fields() -> None:
@@ -510,3 +510,32 @@ def test_v01_rows_write_null_for_judge_fields() -> None:
     rec = captured_calls[0][0]
     assert rec["judge_score"] is None
     assert rec["judge_reasoning"] is None
+
+
+# ---------------------------------------------------------------------------
+# hermia-pg4: mode and vram_server_gb columns
+# ---------------------------------------------------------------------------
+
+
+def test_pg_columns_includes_mode() -> None:
+    assert "mode" in _PG_COLUMNS
+
+
+def test_pg_columns_includes_vram_server_gb() -> None:
+    assert "vram_server_gb" in _PG_COLUMNS
+
+
+def test_push_dry_run_includes_mode_and_vram_server_gb(tmp_path: Path, capsys) -> None:
+    """mode and vram_server_gb survive the push pipeline in dry-run."""
+    row = {
+        **_ROW,
+        "mode": "fleet",
+        "vram_server_gb": 18.5,
+        "frameworks": {},
+    }
+    p = tmp_path / "eval_20260509_120000.jsonl"
+    _write_jsonl(p, [row])
+    rows = collect_results(tmp_path)
+    push(rows, dsn="", dry_run=True)
+    captured = capsys.readouterr()
+    assert "Would process 1 row" in captured.out

@@ -1,25 +1,56 @@
 """Ollama model management and test execution."""
 
 import json
+import os
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import requests
 
 from hermia.metrics import MetricsSampler, get_gpu_stats
 from hermia.schemas import SCHEMA_CHECKS
 
-OLLAMA_BASE = "http://localhost:11434"
 PROJECT_ROOT = Path(__file__).parents[2]
 
 TEST_TIMEOUT = 90    # seconds per individual test request
 LOAD_TIMEOUT = 120   # seconds for cold model load
 
 
-def get_available_models() -> list[dict[str, Any]]:
+def get_ollama_host() -> str:
+    """Return the configured Ollama host URL from env var or default."""
+    return os.environ.get("HERMIA_HOST", "http://localhost:11434")
+
+
+def detect_mode(host: str) -> str:
+    """Return 'local' if host resolves to localhost/loopback, else 'fleet'."""
+    hostname = urlparse(host).hostname or ""
+    return "local" if hostname in ("localhost", "127.0.0.1") else "fleet"
+
+
+def fetch_server_vram(host: str, model: str) -> float | None:
+    """Query /api/ps on host; return size_vram for model in GiB, or None.
+
+    Returns None if the endpoint is unavailable, the model is not listed,
+    or size_vram is absent. Never raises.
+    """
     try:
-        resp = requests.get(f"{OLLAMA_BASE}/api/tags", timeout=5)
+        resp = requests.get(f"{host}/api/ps", timeout=5)
+        for m in resp.json().get("models", []):
+            if m.get("name") == model:
+                size = m.get("size_vram")
+                if size is not None:
+                    return size / (1024 ** 3)
+        return None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def get_available_models() -> list[dict[str, Any]]:
+    host = get_ollama_host()
+    try:
+        resp = requests.get(f"{host}/api/tags", timeout=5)
         return resp.json().get("models", [])  # type: ignore[no-any-return]
     except Exception:
         return []
@@ -34,9 +65,10 @@ def get_model_size_gb(model_name: str, model_list: list[dict[str, Any]]) -> floa
 
 def unload_model(model_name: str) -> None:
     """Evict model from VRAM."""
+    host = get_ollama_host()
     try:
         requests.post(
-            f"{OLLAMA_BASE}/api/generate",
+            f"{host}/api/generate",
             json={"model": model_name, "prompt": "", "stream": False, "keep_alive": 0},
             timeout=10,
         )
@@ -49,11 +81,12 @@ def prewarm_timed(model_name: str) -> tuple[float, float, float]:
 
     Returns (load_time_sec, vram_before_gb, vram_after_gb).
     """
+    host = get_ollama_host()
     _, vram_before, _ = get_gpu_stats()
     t0 = time.time()
     try:
         requests.post(
-            f"{OLLAMA_BASE}/api/generate",
+            f"{host}/api/generate",
             json={
                 "model": model_name,
                 "prompt": "hi",
@@ -77,8 +110,10 @@ def load_tests(selected_ids: list[str]) -> list[dict[str, Any]]:
 
 
 def run_test(
-    model: str, test: dict[str, Any], sampler: MetricsSampler
+    model: str, test: dict[str, Any], sampler: MetricsSampler, host: str | None = None
 ) -> dict[str, Any]:
+    _host = host if host is not None else get_ollama_host()
+    mode = detect_mode(_host)
     payload = {
         "model": model,
         "system": test["system"],
@@ -86,11 +121,12 @@ def run_test(
         "stream": False,
         "options": {"temperature": 0.1},
     }
-    sampler.start()
+    if mode == "local":
+        sampler.start()
     error_type: str = ""
     try:
         t0 = time.time()
-        resp = requests.post(f"{OLLAMA_BASE}/api/generate", json=payload, timeout=TEST_TIMEOUT)
+        resp = requests.post(f"{_host}/api/generate", json=payload, timeout=TEST_TIMEOUT)
         elapsed = time.time() - t0
         data = resp.json()
         ollama_error = data.get("error", "")
@@ -108,8 +144,9 @@ def run_test(
         output = ""
         tokens = 0
         error_type = f"ERROR: {e}"
-    sampler.stop()
-    peak = sampler.peak()
+    if mode == "local":
+        sampler.stop()
+    peak = sampler.peak() if mode == "local" else {}
 
     json_valid = False
     schema_ok = False
@@ -137,8 +174,10 @@ def run_test(
         "elapsed_sec": round(elapsed, 2),
         "tokens_per_sec": round(tps, 1),
         "output_preview": preview,
-        "peak_cpu_pct": round(peak.get("cpu_pct", 0), 1),
-        "peak_ram_used_gb": round(peak.get("ram_used_gb", 0), 2),
-        "peak_gpu_pct": round(peak.get("gpu_pct", 0), 1),
-        "peak_vram_used_gb": round(peak.get("vram_used_gb", 0), 2),
+        "peak_cpu_pct": round(peak.get("cpu_pct", 0), 1) if mode == "local" else None,
+        "peak_ram_used_gb": round(peak.get("ram_used_gb", 0), 2) if mode == "local" else None,
+        "peak_gpu_pct": round(peak.get("gpu_pct", 0), 1) if mode == "local" else None,
+        "peak_vram_used_gb": round(peak.get("vram_used_gb", 0), 2) if mode == "local" else None,
+        "mode": mode,
+        "vram_server_gb": fetch_server_vram(_host, model),
     }
