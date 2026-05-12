@@ -468,3 +468,45 @@ def test_sql_injection_values_pass_through_verbatim() -> None:
     assert sql == _INSERT_SQL
     assert records[0]["model"] == hostile_model
     assert records[0]["test_id"] == hostile_test_id
+
+
+# ---------------------------------------------------------------------------
+# hermia-97t: judge_score / judge_reasoning columns
+# ---------------------------------------------------------------------------
+
+
+def test_pg_columns_includes_judge_fields() -> None:
+    assert "judge_score" in _PG_COLUMNS
+    assert "judge_reasoning" in _PG_COLUMNS
+
+
+def test_v01_rows_write_null_for_judge_fields() -> None:
+    """v0.1 result rows have no judge fields — both columns must be NULL in the
+    parameter dict so the DB receives NULL, not a missing-key error."""
+    import sys
+
+    captured_calls: list = []
+
+    mock_pg = MagicMock()
+    mock_extras = MagicMock()
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_cur.__enter__ = MagicMock(return_value=mock_cur)
+    mock_cur.__exit__ = MagicMock(return_value=False)
+    mock_conn.cursor.return_value = mock_cur
+    mock_pg.connect.return_value = mock_conn
+
+    def capture_batch(cur, sql, records):
+        captured_calls.append(records)
+
+    mock_extras.execute_batch.side_effect = capture_batch
+
+    with patch.dict(sys.modules, {"psycopg2": mock_pg, "psycopg2.extras": mock_extras}):
+        push([_ROW], dsn="postgresql://test", dry_run=False)
+
+    assert len(captured_calls) == 1
+    rec = captured_calls[0][0]
+    assert rec["judge_score"] is None
+    assert rec["judge_reasoning"] is None
