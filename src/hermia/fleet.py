@@ -55,42 +55,34 @@ def run_fleet(
     run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     tests = load_tests_all()
 
-    old_host = os.environ.get("HERMIA_HOST")
-    try:
-        for idx, entry in enumerate(entries, 1):
-            name = entry["name"]
-            host_url = entry["host"].rstrip("/")
-            headers = _build_auth_headers(entry)
+    for idx, entry in enumerate(entries, 1):
+        name = entry["name"]
+        host_url = entry["host"].rstrip("/")
+        headers = _build_auth_headers(entry)
 
-            os.environ["HERMIA_HOST"] = host_url
-            models = get_available_models(headers=headers)
-            print_fn(
-                f"[{idx}/{len(entries)}] {name} ({host_url})"
-                f" — {len(models)} models, {len(tests)} tests"
-            )
+        models = get_available_models(host=host_url, headers=headers)
+        print_fn(
+            f"[{idx}/{len(entries)}] {name} ({host_url})"
+            f" — {len(models)} models, {len(tests)} tests"
+        )
 
-            sampler = MetricsSampler()
-            for model_entry in models:
-                model = model_entry["name"]
-                for test in tests:
-                    for run_index in range(repeat):
-                        result = run_test(model, test, sampler, host=host_url, headers=headers)
-                        result["run_id"] = run_id
-                        result["run_timestamp"] = datetime.now(UTC).isoformat()
-                        result["host"] = host_url
-                        result["run_index"] = run_index
-                        result["is_cold"] = False
-                        result["cold_warm_delta_tps"] = None
-                        result["consistency_pct"] = None
-                        result["pass_count"] = None
-                        result["robustness_n"] = None
-                        append_result(result, jsonl_path, csv_path)
-                        status = "✓" if not result.get("failure_reason") else "✗"
-                        print_fn(f"  {status} {model}:{test['id']} ({result['elapsed_sec']}s)")
-    finally:
-        if old_host is not None:
-            os.environ["HERMIA_HOST"] = old_host
-        else:
-            os.environ.pop("HERMIA_HOST", None)
+        sampler = MetricsSampler()
+        for model_entry in models:
+            model = model_entry["name"]
+            for test in tests:
+                for run_index in range(repeat):
+                    result = run_test(model, test, sampler, host=host_url, headers=headers)
+                    result["run_id"] = run_id
+                    result["run_timestamp"] = datetime.now(UTC).isoformat()
+                    result["host"] = host_url
+                    result["run_index"] = run_index
+                    result["is_cold"] = False
+                    result["cold_warm_delta_tps"] = None
+                    result["consistency_pct"] = None
+                    result["pass_count"] = None
+                    result["robustness_n"] = None
+                    append_result(result, jsonl_path, csv_path)
+                    status = "✓" if not result.get("failure_reason") else "✗"
+                    print_fn(f"  {status} {model}:{test['id']} ({result['elapsed_sec']}s)")
 
     return jsonl_path
