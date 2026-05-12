@@ -44,6 +44,13 @@ def test_load_fleet_config_missing_host(tmp_path: Path) -> None:
         load_fleet_config(cfg)
 
 
+def test_load_fleet_config_empty_fleet(tmp_path: Path) -> None:
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text("fleet: []\n")
+    with pytest.raises(ValueError, match="at least one entry"):
+        load_fleet_config(cfg)
+
+
 # ---------------------------------------------------------------------------
 # _build_auth_headers
 # ---------------------------------------------------------------------------
@@ -119,7 +126,7 @@ def _make_run_fleet_mocks(tmp_path: Path):
         _models = [{"name": "m1"}]
         _run_files = (tmp_path / "out.jsonl", tmp_path / "out.csv")
         with (
-            patch("hermia.fleet.load_tests_all", return_value=_tests),
+            patch("hermia.runner.load_tests_all", return_value=_tests),
             patch("hermia.runner.get_available_models", return_value=_models),
             patch("hermia.runner.run_test", return_value=dict(_MINIMAL_RESULT)) as mock_run,
             patch("hermia.results.open_run", return_value=_run_files),
@@ -160,7 +167,7 @@ def test_run_fleet_result_host_field(tmp_path: Path) -> None:
     _tests = [{"id": "t1", "system": "s", "prompt": "p"}]
     _run_files = (tmp_path / "out.jsonl", tmp_path / "out.csv")
     with (
-        patch("hermia.fleet.load_tests_all", return_value=_tests),
+        patch("hermia.runner.load_tests_all", return_value=_tests),
         patch("hermia.runner.get_available_models", return_value=[{"name": "m1"}]),
         patch("hermia.runner.run_test", return_value=dict(_MINIMAL_RESULT)),
         patch("hermia.results.open_run", return_value=_run_files),
