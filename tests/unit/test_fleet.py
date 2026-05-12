@@ -33,14 +33,14 @@ def test_load_fleet_config_valid(tmp_path: Path) -> None:
 def test_load_fleet_config_missing_name(tmp_path: Path) -> None:
     cfg = tmp_path / "fleet.yaml"
     cfg.write_text("fleet:\n  - host: http://host1:11434\n")
-    with pytest.raises(ValueError, match="missing 'name'"):
+    with pytest.raises(ValueError, match="missing or invalid 'name'"):
         load_fleet_config(cfg)
 
 
 def test_load_fleet_config_missing_host(tmp_path: Path) -> None:
     cfg = tmp_path / "fleet.yaml"
     cfg.write_text("fleet:\n  - name: openclaw\n")
-    with pytest.raises(ValueError, match="missing 'host'"):
+    with pytest.raises(ValueError, match="missing or invalid 'host'"):
         load_fleet_config(cfg)
 
 
