@@ -187,6 +187,27 @@ The tool steals answers from the Oracle and tells you which one to trust.
 
 ---
 
+## Security
+
+Hermia communicates with Ollama via `/api/tags`, `/api/generate`, and `/api/ps`.
+It never uploads model files and is not affected by model-upload CVEs
+(CVE-2026-7482, CVE-2026-5757).
+
+**Protect your Ollama instance:**
+
+- Run Ollama bound to `127.0.0.1` (the default) — never expose port 11434 publicly
+- Keep Ollama upgraded; 0.17.1+ patches CVE-2026-7482 (CVSS 9.1, heap memory
+  disclosure via crafted GGUF upload, nicknamed "Bleeding Llama")
+- CVE-2026-5757 (same attack class, no upstream patch as of May 2026) — restrict
+  `/api/create` access at the network or firewall layer
+- Fleet deployments: use `hermia-fleet.yaml` `auth` blocks or a Tailscale overlay
+  to prevent unauthenticated access to remote Ollama endpoints
+
+Hermia surfaces known Ollama version vulnerabilities at run time in the preflight
+log as `SEC ⚠` warnings.
+
+---
+
 ## Contributing
 
 Contributions welcome. Please read [AGENTS.md](AGENTS.md) before opening a PR — it covers

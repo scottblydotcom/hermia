@@ -1,16 +1,19 @@
-"""Pre-run sanity checks: VRAM, system RAM, and disk space."""
+"""Pre-run sanity checks: VRAM, system RAM, disk space, and Ollama security posture."""
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import psutil
+import requests
 
 from hermia.metrics import get_gpu_stats
 
 VRAM_OVERHEAD_GB = 0.75  # headroom reserved for Ollama runtime
 RAM_LOAD_MULTIPLIER = 1.5  # approximate RAM needed for CPU-only inference
 MIN_DISK_FREE_GB = 0.5
+OLLAMA_MIN_SECURE_VERSION = "0.17.1"  # fixes CVE-2026-7482 (CVSS 9.1, "Bleeding Llama")
 
 # Models confirmed incompatible with Ollama's Vulkan backend on gfx900 (Vega 64).
 # gemma2:9b falls back to CPU silently, produces garbled output, and fails all tests.
@@ -30,6 +33,42 @@ class ModelCheck:
     reason: str = ""
 
 
+def _normalize_host(host: str) -> str:
+    host = host.rstrip("/")
+    return host if "://" in host else f"http://{host}"
+
+
+def _parse_version(v: str) -> tuple[int, ...]:
+    """Parse 'X.Y.Z' → (X, Y, Z). Returns (0,) on failure."""
+    try:
+        return tuple(int(x) for x in v.split(".")[:3])
+    except (ValueError, AttributeError):
+        return (0,)
+
+
+def check_ollama_security(host: str, fleet_mode: bool = False) -> list[str]:
+    """Query /api/version and return SEC warning strings. Never raises."""
+    warnings: list[str] = []
+    try:
+        resp = requests.get(f"{host}/api/version", timeout=3)
+        if resp.ok:
+            ver = resp.json().get("version", "")
+            if ver and _parse_version(ver) < _parse_version(OLLAMA_MIN_SECURE_VERSION):
+                warnings.append(
+                    f"SEC ⚠ CVE-2026-7482 (CVSS 9.1): Ollama {ver} is vulnerable "
+                    f"to heap memory disclosure — upgrade to {OLLAMA_MIN_SECURE_VERSION}+"
+                )
+    except Exception:  # noqa: BLE001
+        pass
+
+    if not fleet_mode:
+        warnings.append(
+            "SEC ⚠ CVE-2026-5757 (no patch): Ollama model upload endpoint is "
+            "unpatched — restrict /api/create to localhost or trusted networks"
+        )
+    return warnings
+
+
 @dataclass
 class PreflightReport:
     vram_total_gb: float
@@ -40,6 +79,7 @@ class PreflightReport:
     disk_free_gb: float
     disk_ok: bool
     models: list[ModelCheck] = field(default_factory=list)
+    security_warnings: list[str] = field(default_factory=list)
 
     @property
     def runnable_models(self) -> list[str]:
@@ -133,6 +173,9 @@ def run_preflight(
             reason=reason,
         ))
 
+    host = _normalize_host(os.environ.get("HERMIA_HOST", "http://localhost:11434"))
+    sec = check_ollama_security(host, fleet_mode=fleet_mode)
+
     return PreflightReport(
         vram_total_gb=vram_total,
         vram_used_gb=vram_used,
@@ -142,4 +185,5 @@ def run_preflight(
         disk_free_gb=disk_free_gb,
         disk_ok=disk_free_gb >= MIN_DISK_FREE_GB,
         models=checks,
+        security_warnings=sec,
     )

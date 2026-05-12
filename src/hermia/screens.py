@@ -283,6 +283,8 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
         for w in pf.warnings:
             style = "fail" if w.startswith("SKIP") or w.startswith("Low disk") else "warn"
             append_log(f"  {w}", style)
+        for sw in pf.security_warnings:
+            append_log(f"  {sw}", "warn")
 
         runnable = pf.runnable_models
         if not runnable:
