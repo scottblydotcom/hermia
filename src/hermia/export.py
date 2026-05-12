@@ -38,6 +38,8 @@ _PG_COLUMNS = (
     "consistency_pct",
     "pass_count",
     "robustness_n",
+    "judge_score",
+    "judge_reasoning",
 )
 
 _INSERT_SQL = (
