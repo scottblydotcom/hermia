@@ -33,7 +33,7 @@ currently valued at roughly the GDP of a medium-sized country. It has hundreds o
 years of community contributions, serious research backing, and a team of people whose
 full-time job is this. You should use it.
 
-Hermia is built in a homelab. Different scale. Genuinely different problem.
+Hermia is built in a consultancy lab. Different scale. Genuinely different problem.
 
 Garak asks: *is this model vulnerable to known attack patterns?*
 
