@@ -1,5 +1,6 @@
 """Textual screens: SelectionScreen and RunnerScreen."""
 
+import os
 import socket
 import statistics
 import time
@@ -25,6 +26,15 @@ from hermia.runner import (
     unload_model,
 )
 from hermia.schemas import TEST_IDS
+
+
+def _resolve_fleet_host(host_url: str) -> tuple[str, str | None]:
+    host_ip = host_url.split("://")[-1].split(":")[0]
+    try:
+        hostname = socket.gethostbyaddr(host_ip)[0]
+    except (socket.herror, OSError):
+        hostname = None
+    return host_url, hostname
 
 
 def _sanitize_model_id(name: str) -> str:
@@ -130,6 +140,15 @@ class SelectionScreen(Screen):  # type: ignore[type-arg]
         yield Label("", id="status")
         yield Footer()
 
+    def on_mount(self) -> None:
+        if self.app.fleet_mode:  # type: ignore[attr-defined]
+            host_url = os.environ.get("HERMIA_HOST", "http://localhost:11434")
+            _, hostname = _resolve_fleet_host(host_url)
+            subtitle = f"FLEET  {host_url}" + (f"  → {hostname}" if hostname else "")
+        else:
+            subtitle = "LOCAL"
+        self.app.sub_title = subtitle  # type: ignore[attr-defined]
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "all_models":
             for m in self.app.model_list:  # type: ignore[attr-defined]
@@ -201,10 +220,22 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
         yield Footer()
 
     def on_mount(self) -> None:
+        if self.app.fleet_mode:  # type: ignore[attr-defined]
+            host_url = os.environ.get("HERMIA_HOST", "http://localhost:11434")
+            _, hostname = _resolve_fleet_host(host_url)
+            subtitle = f"FLEET  {host_url}" + (f"  → {hostname}" if hostname else "")
+        else:
+            subtitle = "LOCAL"
+        self.app.sub_title = subtitle  # type: ignore[attr-defined]
         self.set_interval(2, self._refresh_metrics)
         self.run_evals()
 
     def _refresh_metrics(self) -> None:
+        if self.app.fleet_mode:  # type: ignore[attr-defined]
+            self.query_one("#metrics-bar", Static).update(
+                "FLEET  —  metrics suppressed (client-side only)"
+            )
+            return
         m = self._live_sampler.latest
         if not m:
             return
