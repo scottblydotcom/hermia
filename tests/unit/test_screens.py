@@ -124,6 +124,7 @@ def test_runner_screen_stores_models_and_tests() -> None:
 # ── _resolve_fleet_host ───────────────────────────────────────────────────────
 
 def test_resolve_fleet_host_dns_success(monkeypatch) -> None:
+    _resolve_fleet_host.cache_clear()
     monkeypatch.setattr(socket, "gethostbyaddr", lambda ip: ("m3pro", [], []))
     url, hostname = _resolve_fleet_host("http://192.168.25.50:11434")
     assert url == "http://192.168.25.50:11434"
@@ -131,6 +132,7 @@ def test_resolve_fleet_host_dns_success(monkeypatch) -> None:
 
 
 def test_resolve_fleet_host_dns_failure(monkeypatch) -> None:
+    _resolve_fleet_host.cache_clear()
     def _raise(ip: str) -> None:
         raise socket.herror("not found")
     monkeypatch.setattr(socket, "gethostbyaddr", _raise)
@@ -140,6 +142,7 @@ def test_resolve_fleet_host_dns_failure(monkeypatch) -> None:
 
 
 def test_resolve_fleet_host_strips_port_before_lookup(monkeypatch) -> None:
+    _resolve_fleet_host.cache_clear()
     seen: list[str] = []
     monkeypatch.setattr(socket, "gethostbyaddr", lambda ip: seen.append(ip) or ("m3pro", [], []))
     _resolve_fleet_host("http://192.168.25.50:11434")
@@ -147,6 +150,7 @@ def test_resolve_fleet_host_strips_port_before_lookup(monkeypatch) -> None:
 
 
 def test_resolve_fleet_host_returns_url_unchanged(monkeypatch) -> None:
+    _resolve_fleet_host.cache_clear()
     monkeypatch.setattr(socket, "gethostbyaddr", lambda ip: ("gateway", [], []))
     url, _ = _resolve_fleet_host("http://100.71.60.30:11434")
     assert url == "http://100.71.60.30:11434"

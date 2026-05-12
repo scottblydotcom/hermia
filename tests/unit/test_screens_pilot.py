@@ -481,9 +481,7 @@ def test_runner_screen_fleet_metrics_bar_suppressed(monkeypatch) -> None:
                 await pilot.pause()
                 screen = pilot.app.screen
                 assert isinstance(screen, RunnerScreen)
-                screen._refresh_metrics()
-                await pilot.pause()
-                bar = str(pilot.app.screen.query_one("#metrics-bar").render())
+                bar = str(screen.query_one("#metrics-bar").render())
                 assert "FLEET" in bar
                 assert "suppressed" in bar
     asyncio.run(_inner())

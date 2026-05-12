@@ -5,6 +5,7 @@ import socket
 import statistics
 import time
 from datetime import UTC, datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -29,8 +30,11 @@ from hermia.runner import (
 from hermia.schemas import TEST_IDS
 
 
+@lru_cache(maxsize=1)
 def _resolve_fleet_host(host_url: str) -> tuple[str, str | None]:
-    host_ip = urlparse(host_url).hostname or ""
+    host_ip = urlparse(host_url).hostname
+    if not host_ip:
+        return host_url, None
     try:
         hostname = socket.gethostbyaddr(host_ip)[0]
     except (socket.herror, OSError):
@@ -224,15 +228,15 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
 
     def on_mount(self) -> None:
         self.app.sub_title = _get_subtitle(self.app.fleet_mode)  # type: ignore[attr-defined]
-        self.set_interval(2, self._refresh_metrics)
-        self.run_evals()
-
-    def _refresh_metrics(self) -> None:
         if self.app.fleet_mode:  # type: ignore[attr-defined]
             self.query_one("#metrics-bar", Static).update(
                 "FLEET  —  metrics suppressed (client-side only)"
             )
-            return
+        else:
+            self.set_interval(2, self._refresh_metrics)
+        self.run_evals()
+
+    def _refresh_metrics(self) -> None:
         m = self._live_sampler.latest
         if not m:
             return
