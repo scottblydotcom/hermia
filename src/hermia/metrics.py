@@ -16,7 +16,7 @@ _NVIDIA_VRAM_TOTAL_GB: float = 0.0
 _APPLE_SILICON: bool = False
 _APPLE_VRAM_TOTAL_GB: float = 0.0
 _INTEL_IGPU: bool = False
-_NVIDIA_MIN_SUPPORTED_COMPUTE: float = 6.0
+NVIDIA_MIN_SUPPORTED_COMPUTE: float = 6.0
 
 
 def _find_amdgpu_dev() -> str | None:

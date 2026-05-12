@@ -17,7 +17,7 @@ from textual.screen import Screen
 from textual.widgets import Button, Checkbox, Footer, Header, Label, ProgressBar, Static
 
 from hermia import robustness
-from hermia.metrics import _NVIDIA_MIN_SUPPORTED_COMPUTE, MetricsSampler
+from hermia.metrics import NVIDIA_MIN_SUPPORTED_COMPUTE, MetricsSampler
 from hermia.preflight import run_preflight
 from hermia.results import append_result, open_run, patch_results
 from hermia.runner import (
@@ -149,8 +149,9 @@ class SelectionScreen(Screen):  # type: ignore[type-arg]
             warn = ""
             if vendor == "nvidia":
                 cc = gpu.get("compute_cap", 0.0)
-                if 0.0 < cc < _NVIDIA_MIN_SUPPORTED_COMPUTE:
-                    warn = f"  ⚠ sm {cc} — Ollama may fall back to CPU (requires sm 6.0+)"
+                if 0.0 < cc < NVIDIA_MIN_SUPPORTED_COMPUTE:
+                    min_cc = NVIDIA_MIN_SUPPORTED_COMPUTE
+                    warn = f"  ⚠ sm {cc} — Ollama may fall back to CPU (requires sm {min_cc}+)"
             gpu_label = f"GPU: {gpu['card']}  ({gpu['vram_total_gb']:.1f} GB {mem_label}){warn}"
         else:
             gpu_label = "GPU: not detected — VRAM metrics unavailable"
