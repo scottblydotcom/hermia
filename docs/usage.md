@@ -255,11 +255,13 @@ Set your DSN and create the table (run once):
 export HERMIA_PG_DSN="postgresql://user:pass@localhost:5432/hermia"
 psql $HERMIA_PG_DSN -f scripts/create_table.sql
 psql $HERMIA_PG_DSN -f scripts/add_framework_columns.sql
+psql $HERMIA_PG_DSN -f scripts/add_judge_columns.sql
 ```
 
 `create_table.sql` creates `hermia_results` with all columns and the unique conflict key.
-`add_framework_columns.sql` adds GIN indexes on the framework taxonomy arrays — run both
-on a fresh install, or only the second if upgrading from an earlier version.
+`add_framework_columns.sql` adds GIN indexes on the framework taxonomy arrays.
+`add_judge_columns.sql` adds `judge_score` and `judge_reasoning` for v0.3 LLM-as-judge.
+Run all three on a fresh install, or only the relevant migration scripts when upgrading.
 
 ### Push results
 
