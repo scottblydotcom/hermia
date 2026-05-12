@@ -134,7 +134,11 @@ def load_tests(selected_ids: list[str]) -> list[dict[str, Any]]:
 
 
 def run_test(
-    model: str, test: dict[str, Any], sampler: MetricsSampler, host: str | None = None
+    model: str,
+    test: dict[str, Any],
+    sampler: MetricsSampler,
+    host: str | None = None,
+    headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     _host = _normalize_host(host) if host is not None else get_ollama_host()
     mode = detect_mode(_host)
@@ -145,12 +149,15 @@ def run_test(
         "stream": False,
         "options": {"temperature": 0.1},
     }
+    req_headers = headers or {}
     if mode == "local":
         sampler.start()
     error_type: str = ""
     try:
         t0 = time.time()
-        resp = requests.post(f"{_host}/api/generate", json=payload, timeout=TEST_TIMEOUT)
+        resp = requests.post(
+            f"{_host}/api/generate", json=payload, headers=req_headers, timeout=TEST_TIMEOUT
+        )
         elapsed = time.time() - t0
         data = resp.json()
         ollama_error = data.get("error", "")
