@@ -110,7 +110,7 @@ def test_detect_gpu_no_amdgpu():
     with (
         patch("subprocess.run", side_effect=FileNotFoundError),
         patch("hermia.metrics.glob.glob", return_value=uevent_paths),
-        patch("builtins.open", mock_open(read_data="DRIVER=i915\n")),
+        patch("builtins.open", mock_open(read_data="DRIVER=virtio\n")),
     ):
         info = detect_gpu()
 
