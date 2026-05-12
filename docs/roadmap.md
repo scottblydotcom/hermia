@@ -478,6 +478,7 @@ Items that aren't milestone-bound. Keep them surfaced so they don't get forgotte
 - **Calibration mode.** A small canonical subset of MMLU-Pro / GPQA-Diamond / LiveBench questions so fleet models can be placed on the public benchmark spectrum without external API access.
 - **Model identity verification.** OWASP LLM08. A hash- or fingerprint-based test that verifies the lane returned the configured model. Depends on having lanes (post-v0.2).
 - **PyPI publication.** Pre-release today. After v0.1 stabilizes (likely after first round of community feedback), publish to PyPI.
+- **Semgrep SAST in CI.** Add `semgrep.yml` GitHub Action (free CLI, no contributor limits). Bandit covers known-bad patterns; Semgrep adds project-specific invariant rules that generic tools can't know. High-value rules to write: credentials must never appear in `output_preview` or result rows; new Transport implementations must source auth tokens from env vars only (not config files); `fetch_server_vram` return value must never be logged at any severity. Time this for v0.2 when the transport/auth layer lands — that's when custom invariant rules become load-bearing.
 
 ---
 
