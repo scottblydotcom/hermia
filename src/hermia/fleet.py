@@ -55,7 +55,7 @@ def run_fleet(
     """Run headless eval against all fleet entries. Returns path to JSONL output."""
     from hermia.metrics import MetricsSampler
     from hermia.results import append_result, open_run
-    from hermia.runner import get_available_models, load_tests_all, run_test
+    from hermia.runner import _normalize_host, get_available_models, load_tests_all, run_test
 
     jsonl_path, csv_path = open_run(results_dir)
     run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -63,8 +63,7 @@ def run_fleet(
 
     for idx, entry in enumerate(entries, 1):
         name = entry["name"]
-        _raw = entry["host"].rstrip("/")
-        host_url = _raw if "://" in _raw else f"http://{_raw}"
+        host_url = _normalize_host(entry["host"])
         headers = _build_auth_headers(entry)
 
         models = get_available_models(host=host_url, headers=headers)

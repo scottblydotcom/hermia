@@ -59,8 +59,12 @@ def main() -> None:
         from hermia.fleet import load_fleet_config, run_fleet
         from hermia.screens import RESULTS_DIR
 
-        entries = load_fleet_config(Path(args.fleet))
-        run_fleet(entries, repeat=args.repeat, results_dir=RESULTS_DIR)
+        try:
+            entries = load_fleet_config(Path(args.fleet))
+            run_fleet(entries, repeat=args.repeat, results_dir=RESULTS_DIR)
+        except (ValueError, RuntimeError) as exc:
+            print(f"hermia: {exc}", file=sys.stderr)
+            sys.exit(1)
         sys.exit(0)
 
     os.environ["HERMIA_HOST"] = args.host.rstrip("/")
