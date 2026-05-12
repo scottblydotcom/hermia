@@ -136,13 +136,12 @@ hermia
 ```
 
 Hermia opens a TUI. Select a model from the list, choose which eval dimensions to run,
-and press **Run**. Results appear live alongside system metrics.
+and press **Run**. Results appear live alongside system metrics. Each run writes
+`results/eval_TIMESTAMP.jsonl` and `results/eval_TIMESTAMP.csv`.
 
-To run the regression detection script against a saved results file:
-
-```bash
-hermia-regression results/all-results.json
-```
+See the [Getting Started Guide](docs/usage.md) for a full walkthrough: result
+interpretation, `--repeat N` consistency scoring, fleet mode, regression detection,
+and Postgres export.
 
 ---
 
@@ -178,6 +177,13 @@ PyPI publication is planned after v0.1.0 stabilizes.
 Apollo's cattle) + **Pythia** (the Oracle of Delphi, who spoke for Apollo).
 
 The tool steals answers from the Oracle and tells you which one to trust.
+
+---
+
+## Documentation
+
+- [Getting Started Guide](docs/usage.md) — install, run, interpret results, fleet mode, Postgres export
+- [Roadmap](docs/roadmap.md) — v0.2 endpoint bus, v0.3 eval bus, full backlog
 
 ---
 
