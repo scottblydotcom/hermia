@@ -219,5 +219,6 @@ def run_test(
         "peak_gpu_pct": round(peak.get("gpu_pct", 0), 1) if mode == "local" else None,
         "peak_vram_used_gb": round(peak.get("vram_used_gb", 0), 2) if mode == "local" else None,
         "mode": mode,
+        "host": _host,
         "vram_server_gb": fetch_server_vram(_host, model, headers=req_headers or None),
     }

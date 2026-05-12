@@ -80,7 +80,6 @@ def run_fleet(
                     result = run_test(model, test, sampler, host=host_url, headers=headers)
                     result["run_id"] = run_id
                     result["run_timestamp"] = datetime.now(UTC).isoformat()
-                    result["host"] = host_url
                     result["run_index"] = run_index
                     result["is_cold"] = False
                     result["cold_warm_delta_tps"] = None
