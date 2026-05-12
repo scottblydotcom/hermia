@@ -7,6 +7,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from textual import work
 from textual.app import ComposeResult
@@ -29,12 +30,20 @@ from hermia.schemas import TEST_IDS
 
 
 def _resolve_fleet_host(host_url: str) -> tuple[str, str | None]:
-    host_ip = host_url.split("://")[-1].split(":")[0]
+    host_ip = urlparse(host_url).hostname or ""
     try:
         hostname = socket.gethostbyaddr(host_ip)[0]
     except (socket.herror, OSError):
         hostname = None
     return host_url, hostname
+
+
+def _get_subtitle(fleet_mode: bool) -> str:
+    if not fleet_mode:
+        return "LOCAL"
+    host_url = os.environ.get("HERMIA_HOST", "http://localhost:11434")
+    _, hostname = _resolve_fleet_host(host_url)
+    return f"FLEET  {host_url}" + (f"  → {hostname}" if hostname else "")
 
 
 def _sanitize_model_id(name: str) -> str:
@@ -141,13 +150,7 @@ class SelectionScreen(Screen):  # type: ignore[type-arg]
         yield Footer()
 
     def on_mount(self) -> None:
-        if self.app.fleet_mode:  # type: ignore[attr-defined]
-            host_url = os.environ.get("HERMIA_HOST", "http://localhost:11434")
-            _, hostname = _resolve_fleet_host(host_url)
-            subtitle = f"FLEET  {host_url}" + (f"  → {hostname}" if hostname else "")
-        else:
-            subtitle = "LOCAL"
-        self.app.sub_title = subtitle
+        self.app.sub_title = _get_subtitle(self.app.fleet_mode)  # type: ignore[attr-defined]
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "all_models":
@@ -220,13 +223,7 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
         yield Footer()
 
     def on_mount(self) -> None:
-        if self.app.fleet_mode:  # type: ignore[attr-defined]
-            host_url = os.environ.get("HERMIA_HOST", "http://localhost:11434")
-            _, hostname = _resolve_fleet_host(host_url)
-            subtitle = f"FLEET  {host_url}" + (f"  → {hostname}" if hostname else "")
-        else:
-            subtitle = "LOCAL"
-        self.app.sub_title = subtitle
+        self.app.sub_title = _get_subtitle(self.app.fleet_mode)  # type: ignore[attr-defined]
         self.set_interval(2, self._refresh_metrics)
         self.run_evals()
 

@@ -1,5 +1,4 @@
 import asyncio
-import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -434,9 +433,9 @@ def test_selection_screen_local_badge() -> None:
     asyncio.run(_inner())
 
 
-def test_selection_screen_fleet_badge() -> None:
+def test_selection_screen_fleet_badge(monkeypatch) -> None:
+    monkeypatch.setenv("HERMIA_HOST", "http://192.168.25.50:11434")
     async def _inner() -> None:
-        os.environ["HERMIA_HOST"] = "http://192.168.25.50:11434"
         _rv = ("http://192.168.25.50:11434", "m3pro")
         with patch("hermia.screens._resolve_fleet_host", return_value=_rv):
             async with _make_test_app(fleet_mode=True).run_test() as pilot:
@@ -447,9 +446,9 @@ def test_selection_screen_fleet_badge() -> None:
     asyncio.run(_inner())
 
 
-def test_selection_screen_fleet_badge_no_dns() -> None:
+def test_selection_screen_fleet_badge_no_dns(monkeypatch) -> None:
+    monkeypatch.setenv("HERMIA_HOST", "http://192.168.25.50:11434")
     async def _inner() -> None:
-        os.environ["HERMIA_HOST"] = "http://192.168.25.50:11434"
         _rv = ("http://192.168.25.50:11434", None)
         with patch("hermia.screens._resolve_fleet_host", return_value=_rv):
             async with _make_test_app(fleet_mode=True).run_test() as pilot:
@@ -459,7 +458,9 @@ def test_selection_screen_fleet_badge_no_dns() -> None:
     asyncio.run(_inner())
 
 
-def test_runner_screen_fleet_metrics_bar_suppressed() -> None:
+def test_runner_screen_fleet_metrics_bar_suppressed(monkeypatch) -> None:
+    monkeypatch.setenv("HERMIA_HOST", "http://192.168.25.50:11434")
+
     class _FleetRunnerApp(App):
         def __init__(self) -> None:
             super().__init__()
@@ -471,7 +472,6 @@ def test_runner_screen_fleet_metrics_bar_suppressed() -> None:
             self.push_screen(RunnerScreen(["qwen2.5:7b"], ["tool-calling-basic"], repeat=1))
 
     async def _inner() -> None:
-        os.environ["HERMIA_HOST"] = "http://192.168.25.50:11434"
         _rv = ("http://192.168.25.50:11434", None)
         with (
             patch.object(RunnerScreen, "run_evals"),
@@ -489,7 +489,9 @@ def test_runner_screen_fleet_metrics_bar_suppressed() -> None:
     asyncio.run(_inner())
 
 
-def test_runner_screen_fleet_subtitle() -> None:
+def test_runner_screen_fleet_subtitle(monkeypatch) -> None:
+    monkeypatch.setenv("HERMIA_HOST", "http://192.168.25.50:11434")
+
     class _FleetRunnerApp(App):
         def __init__(self) -> None:
             super().__init__()
@@ -501,7 +503,6 @@ def test_runner_screen_fleet_subtitle() -> None:
             self.push_screen(RunnerScreen(["qwen2.5:7b"], ["tool-calling-basic"], repeat=1))
 
     async def _inner() -> None:
-        os.environ["HERMIA_HOST"] = "http://192.168.25.50:11434"
         _rv = ("http://192.168.25.50:11434", "m3pro")
         with (
             patch.object(RunnerScreen, "run_evals"),
