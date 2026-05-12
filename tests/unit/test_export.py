@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from hermia.export import collect_results, compute_score, main, push
+from hermia.export import _INSERT_SQL, _PG_COLUMNS, collect_results, compute_score, main, push
 from hermia.results import load_jsonl
 
 _ROW = {
@@ -352,7 +352,6 @@ def test_push_framework_columns_populated_from_nested_dict() -> None:
 # hermia-0ws: new repeat/aggregate column tests
 # ---------------------------------------------------------------------------
 
-from hermia.export import _INSERT_SQL, _PG_COLUMNS, collect_results, push  # noqa: E402
 
 
 def test_pg_columns_includes_repeat_fields() -> None:
