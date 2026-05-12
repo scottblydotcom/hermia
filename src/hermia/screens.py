@@ -147,7 +147,7 @@ class SelectionScreen(Screen):  # type: ignore[type-arg]
             subtitle = f"FLEET  {host_url}" + (f"  → {hostname}" if hostname else "")
         else:
             subtitle = "LOCAL"
-        self.app.sub_title = subtitle  # type: ignore[attr-defined]
+        self.app.sub_title = subtitle
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "all_models":
@@ -226,7 +226,7 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
             subtitle = f"FLEET  {host_url}" + (f"  → {hostname}" if hostname else "")
         else:
             subtitle = "LOCAL"
-        self.app.sub_title = subtitle  # type: ignore[attr-defined]
+        self.app.sub_title = subtitle
         self.set_interval(2, self._refresh_metrics)
         self.run_evals()
 
