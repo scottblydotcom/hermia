@@ -18,9 +18,9 @@ from hermia.runner import (
 
 @pytest.fixture(autouse=True)
 def _clear_vram_cache() -> None:
-    _runner_mod.fetch_server_vram.cache_clear()
+    _runner_mod._vram_cache.clear()
     yield
-    _runner_mod.fetch_server_vram.cache_clear()
+    _runner_mod._vram_cache.clear()
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 

@@ -70,10 +70,10 @@ class _FakeOllamaHandler(http.server.BaseHTTPRequestHandler):
 @pytest.fixture(autouse=True)
 def clear_overrides() -> Any:
     _FakeOllamaHandler._overrides = {}
-    _runner_mod.fetch_server_vram.cache_clear()
+    _runner_mod._vram_cache.clear()
     yield
     _FakeOllamaHandler._overrides = {}
-    _runner_mod.fetch_server_vram.cache_clear()
+    _runner_mod._vram_cache.clear()
 
 
 @pytest.fixture(scope="session")
