@@ -58,7 +58,9 @@ def _parse_version(v: str) -> tuple[int, ...] | None:
 
 
 _parsed_min = _parse_version(OLLAMA_MIN_SECURE_VERSION)
-_MIN_SECURE_VERSION_TUPLE: tuple[int, ...] = _parsed_min if _parsed_min is not None else (0, 17, 1)
+_MIN_SECURE_VERSION_TUPLE: tuple[int, ...] = (
+    _parsed_min if _parsed_min is not None else (0, 17, 1, 1)
+)
 
 
 def check_ollama_security(host: str, fleet_mode: bool = False) -> list[str]:
