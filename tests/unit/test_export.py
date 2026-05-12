@@ -419,3 +419,52 @@ def test_push_framework_columns_default_to_empty_for_old_rows() -> None:
     assert rec["framework_mitre"] == []
     assert rec["framework_maestro"] == []
     assert rec["framework_nist"] == []
+
+
+# ---------------------------------------------------------------------------
+# hermia-1bf: SQL injection round-trip
+# ---------------------------------------------------------------------------
+
+
+def test_sql_injection_values_pass_through_verbatim() -> None:
+    """Hostile model/test_id strings must appear verbatim in the parameter dict
+    and must never be interpolated into the SQL template itself."""
+    import sys
+
+    hostile_model = "'; DROP TABLE hermia_results;--"
+    hostile_test_id = "<script>alert(1)</script>"
+
+    row = {
+        **_ROW,
+        "model": hostile_model,
+        "test_id": hostile_test_id,
+    }
+
+    captured_calls: list = []
+
+    mock_pg = MagicMock()
+    mock_extras = MagicMock()
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_cur.__enter__ = MagicMock(return_value=mock_cur)
+    mock_cur.__exit__ = MagicMock(return_value=False)
+    mock_conn.cursor.return_value = mock_cur
+    mock_pg.connect.return_value = mock_conn
+
+    def capture_batch(cur, sql, records):
+        assert hostile_model not in sql
+        assert hostile_test_id not in sql
+        captured_calls.append((sql, records))
+
+    mock_extras.execute_batch.side_effect = capture_batch
+
+    with patch.dict(sys.modules, {"psycopg2": mock_pg, "psycopg2.extras": mock_extras}):
+        push([row], dsn="postgresql://test", dry_run=False)
+
+    assert len(captured_calls) == 1
+    sql, records = captured_calls[0]
+    assert sql == _INSERT_SQL
+    assert records[0]["model"] == hostile_model
+    assert records[0]["test_id"] == hostile_test_id
