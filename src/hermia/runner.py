@@ -18,17 +18,19 @@ TEST_TIMEOUT = 90    # seconds per individual test request
 LOAD_TIMEOUT = 120   # seconds for cold model load
 
 
+def _normalize_host(host: str) -> str:
+    host = host.rstrip("/")
+    return host if "://" in host else f"http://{host}"
+
+
 def get_ollama_host() -> str:
     """Return the configured Ollama host URL from env var or default."""
-    host = os.environ.get("HERMIA_HOST", "http://localhost:11434").rstrip("/")
-    return host if "://" in host else f"http://{host}"
+    return _normalize_host(os.environ.get("HERMIA_HOST", "http://localhost:11434"))
 
 
 def detect_mode(host: str) -> str:
     """Return 'local' if host resolves to localhost/loopback, else 'fleet'."""
-    if "://" not in host:
-        host = f"http://{host}"
-    hostname = urlparse(host).hostname or ""
+    hostname = urlparse(_normalize_host(host)).hostname or ""
     return "local" if hostname in ("localhost", "127.0.0.1", "::1") else "fleet"
 
 
@@ -38,17 +40,19 @@ _vram_cache: dict[tuple[str, str], float | None] = {}
 def fetch_server_vram(host: str, model: str) -> float | None:
     """Query /api/ps on host; return size_vram for model in GiB, or None.
 
-    Caches the result (including None) when the server responds successfully —
-    a healthy server that doesn't report the model won't change between tests.
-    Network errors and non-2xx responses are not cached so transient failures
-    retry. Never raises.
+    Caches the result (including None) on a successful response or a 404 —
+    both are stable within a session. Network errors and other non-2xx
+    responses are not cached so transient failures retry. Never raises.
     """
+    host = _normalize_host(host)
     key = (host, model)
     if key in _vram_cache:
         return _vram_cache[key]
     try:
         resp = requests.get(f"{host}/api/ps", timeout=2)
         if not resp.ok:
+            if resp.status_code == 404:
+                _vram_cache[key] = None
             return None
 
         found_vram = None
@@ -132,11 +136,7 @@ def load_tests(selected_ids: list[str]) -> list[dict[str, Any]]:
 def run_test(
     model: str, test: dict[str, Any], sampler: MetricsSampler, host: str | None = None
 ) -> dict[str, Any]:
-    _host = host if host is not None else get_ollama_host()
-    if host is not None:
-        _host = _host.rstrip("/")
-        if "://" not in _host:
-            _host = f"http://{_host}"
+    _host = _normalize_host(host) if host is not None else get_ollama_host()
     mode = detect_mode(_host)
     payload = {
         "model": model,
