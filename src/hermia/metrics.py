@@ -182,7 +182,8 @@ def _detect_intel_igpu() -> tuple[bool, str]:
         for uevent_path in glob.glob("/sys/class/drm/card*/device/uevent"):
             try:
                 with open(uevent_path) as f:
-                    if "DRIVER=i915" in f.read():
+                    content = f.read()
+                    if "DRIVER=i915" in content or "DRIVER=xe" in content:
                         return True, "Intel iGPU"
             except OSError:
                 continue
@@ -193,22 +194,30 @@ def _detect_intel_igpu() -> tuple[bool, str]:
 def _gpu_stats_intel() -> tuple[float, float, float]:
     """Read Intel iGPU utilization via intel_gpu_top (Linux only).
 
-    Returns (gpu_pct, 0.0, 0.0) — i915 sysfs does not expose VRAM usage
-    without kernel perf access. Returns (0.0, 0.0, 0.0) on any failure.
+    intel_gpu_top streams JSON objects continuously; we run it briefly and
+    capture output on TimeoutExpired. VRAM is not exposed by i915/xe sysfs
+    without kernel perf access, so vram fields are always 0.0.
+    Returns (0.0, 0.0, 0.0) on any failure or when not on Linux.
     """
     if sys.platform != "linux":
         return 0.0, 0.0, 0.0
     try:
-        r = subprocess.run(  # noqa: S603
-            ["intel_gpu_top", "-J", "-s", "200"],  # noqa: S607
-            capture_output=True, text=True, timeout=1,
-        )
-        text = r.stdout.strip()
-        start = text.find("{")
-        end = text.rfind("}")
-        if start == -1 or end <= start:
+        try:
+            r = subprocess.run(  # noqa: S603
+                ["intel_gpu_top", "-J", "-s", "100"],  # noqa: S607
+                capture_output=True, text=True, timeout=0.4,
+            )
+            text = r.stdout
+        except subprocess.TimeoutExpired as e:
+            raw = e.stdout
+            text = raw if isinstance(raw, str) else (raw.decode(errors="ignore") if raw else "")
+
+        if not text:
             return 0.0, 0.0, 0.0
-        obj = json.loads(text[start : end + 1])
+        lines = [ln for ln in text.splitlines() if ln.strip().startswith("{")]
+        if not lines:
+            return 0.0, 0.0, 0.0
+        obj = json.loads(lines[-1])
         engines = obj.get("engines", {})
         render = engines.get("Render/3D/0", engines.get("Render/3D", {}))
         return float(render.get("busy", 0.0)), 0.0, 0.0

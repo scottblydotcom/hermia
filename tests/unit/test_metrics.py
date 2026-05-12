@@ -498,6 +498,21 @@ def test_detect_intel_igpu_linux():
     assert metrics_mod._AMD_DEV is None
 
 
+def test_detect_intel_igpu_xe_driver_linux():
+    """detect_gpu() detects Intel Xe GPU (DRIVER=xe) on Linux."""
+    uevent_paths = ["/sys/class/drm/card0/device/uevent"]
+    with (
+        patch("subprocess.run", side_effect=FileNotFoundError),
+        patch("hermia.metrics.sys.platform", "linux"),
+        patch("hermia.metrics.glob.glob", return_value=uevent_paths),
+        patch("builtins.open", mock_open(read_data="DRIVER=xe\n")),
+    ):
+        info = detect_gpu()
+
+    assert info["found"] is True
+    assert info["vendor"] == "intel"
+
+
 def test_detect_intel_igpu_macos():
     """detect_gpu() returns vendor=intel when system_profiler reports an Intel GPU."""
     sp_json = json.dumps({"SPDisplaysDataType": [{"sppci_model": "Intel Iris Pro 580"}]})
@@ -596,6 +611,28 @@ def test_get_gpu_stats_intel_no_tool_returns_zeros():
         gpu_pct, vram_used, vram_total = get_gpu_stats()
 
     assert gpu_pct == 0.0
+    assert vram_used == 0.0
+    assert vram_total == 0.0
+
+
+def test_get_gpu_stats_intel_timeout_captures_partial_output():
+    """_gpu_stats_intel() captures stdout from TimeoutExpired and parses it."""
+    import subprocess as sp
+
+    sample_json = '{"engines": {"Render/3D/0": {"busy": 63.5}}}\n'
+    exc = sp.TimeoutExpired(cmd=["intel_gpu_top"], timeout=0.4, output=sample_json)
+
+    with (
+        patch.object(metrics_mod, "_INTEL_IGPU", True),
+        patch.object(metrics_mod, "_NVIDIA_FOUND", False),
+        patch.object(metrics_mod, "_APPLE_SILICON", False),
+        patch.object(metrics_mod, "_AMD_DEV", None),
+        patch("hermia.metrics.sys.platform", "linux"),
+        patch("subprocess.run", side_effect=exc),
+    ):
+        gpu_pct, vram_used, vram_total = get_gpu_stats()
+
+    assert abs(gpu_pct - 63.5) < 0.01
     assert vram_used == 0.0
     assert vram_total == 0.0
 
