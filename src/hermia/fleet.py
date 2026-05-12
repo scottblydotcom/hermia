@@ -63,7 +63,8 @@ def run_fleet(
 
     for idx, entry in enumerate(entries, 1):
         name = entry["name"]
-        host_url = entry["host"].rstrip("/")
+        _raw = entry["host"].rstrip("/")
+        host_url = _raw if "://" in _raw else f"http://{_raw}"
         headers = _build_auth_headers(entry)
 
         models = get_available_models(host=host_url, headers=headers)
