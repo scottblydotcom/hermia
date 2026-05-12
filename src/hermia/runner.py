@@ -32,7 +32,6 @@ def detect_mode(host: str) -> str:
     return "local" if hostname in ("localhost", "127.0.0.1", "::1") else "fleet"
 
 
-# Only cache successful (non-None) results — transient failures should retry.
 _vram_cache: dict[tuple[str, str], float | None] = {}
 
 
@@ -133,9 +132,11 @@ def load_tests(selected_ids: list[str]) -> list[dict[str, Any]]:
 def run_test(
     model: str, test: dict[str, Any], sampler: MetricsSampler, host: str | None = None
 ) -> dict[str, Any]:
-    _host = (host if host is not None else get_ollama_host()).rstrip("/")
-    if "://" not in _host:
-        _host = f"http://{_host}"
+    _host = host if host is not None else get_ollama_host()
+    if host is not None:
+        _host = _host.rstrip("/")
+        if "://" not in _host:
+            _host = f"http://{_host}"
     mode = detect_mode(_host)
     payload = {
         "model": model,
