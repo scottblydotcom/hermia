@@ -1,11 +1,14 @@
 """Textual screens: SelectionScreen and RunnerScreen."""
 
+import os
 import socket
 import statistics
 import time
 from datetime import UTC, datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from textual import work
 from textual.app import ComposeResult
@@ -25,6 +28,26 @@ from hermia.runner import (
     unload_model,
 )
 from hermia.schemas import TEST_IDS
+
+
+@lru_cache(maxsize=1)
+def _resolve_fleet_host(host_url: str) -> tuple[str, str | None]:
+    host_ip = urlparse(host_url).hostname
+    if not host_ip:
+        return host_url, None
+    try:
+        hostname = socket.gethostbyaddr(host_ip)[0]
+    except (socket.herror, OSError):
+        hostname = None
+    return host_url, hostname
+
+
+def _get_subtitle(fleet_mode: bool) -> str:
+    if not fleet_mode:
+        return "LOCAL"
+    host_url = os.environ.get("HERMIA_HOST", "http://localhost:11434")
+    _, hostname = _resolve_fleet_host(host_url)
+    return f"FLEET  {host_url}" + (f"  → {hostname}" if hostname else "")
 
 
 def _sanitize_model_id(name: str) -> str:
@@ -130,6 +153,9 @@ class SelectionScreen(Screen):  # type: ignore[type-arg]
         yield Label("", id="status")
         yield Footer()
 
+    def on_mount(self) -> None:
+        self.app.sub_title = _get_subtitle(self.app.fleet_mode)  # type: ignore[attr-defined]
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "all_models":
             for m in self.app.model_list:  # type: ignore[attr-defined]
@@ -201,7 +227,13 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
         yield Footer()
 
     def on_mount(self) -> None:
-        self.set_interval(2, self._refresh_metrics)
+        self.app.sub_title = _get_subtitle(self.app.fleet_mode)  # type: ignore[attr-defined]
+        if self.app.fleet_mode:  # type: ignore[attr-defined]
+            self.query_one("#metrics-bar", Static).update(
+                "FLEET  —  metrics suppressed (client-side only)"
+            )
+        else:
+            self.set_interval(2, self._refresh_metrics)
         self.run_evals()
 
     def _refresh_metrics(self) -> None:

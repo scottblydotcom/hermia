@@ -1,6 +1,14 @@
 """Unit tests for screens.py — pure functions and scoring logic."""
 
-from hermia.screens import RunnerScreen, _backfill_aggregates, _compute_scores, _sanitize_model_id
+import socket
+
+from hermia.screens import (
+    RunnerScreen,
+    _backfill_aggregates,
+    _compute_scores,
+    _resolve_fleet_host,
+    _sanitize_model_id,
+)
 
 # ── _sanitize_model_id ────────────────────────────────────────────────────────
 
@@ -111,3 +119,38 @@ def test_runner_screen_stores_models_and_tests() -> None:
     assert screen.models == ["qwen2.5:32b", "llama3:8b"]
     assert screen.test_ids == ["tool-calling-basic"]
     assert screen.all_results == []
+
+
+# ── _resolve_fleet_host ───────────────────────────────────────────────────────
+
+def test_resolve_fleet_host_dns_success(monkeypatch) -> None:
+    _resolve_fleet_host.cache_clear()
+    monkeypatch.setattr(socket, "gethostbyaddr", lambda ip: ("m3pro", [], []))
+    url, hostname = _resolve_fleet_host("http://192.168.25.50:11434")
+    assert url == "http://192.168.25.50:11434"
+    assert hostname == "m3pro"
+
+
+def test_resolve_fleet_host_dns_failure(monkeypatch) -> None:
+    _resolve_fleet_host.cache_clear()
+    def _raise(ip: str) -> None:
+        raise socket.herror("not found")
+    monkeypatch.setattr(socket, "gethostbyaddr", _raise)
+    url, hostname = _resolve_fleet_host("http://192.168.25.50:11434")
+    assert url == "http://192.168.25.50:11434"
+    assert hostname is None
+
+
+def test_resolve_fleet_host_strips_port_before_lookup(monkeypatch) -> None:
+    _resolve_fleet_host.cache_clear()
+    seen: list[str] = []
+    monkeypatch.setattr(socket, "gethostbyaddr", lambda ip: seen.append(ip) or ("m3pro", [], []))
+    _resolve_fleet_host("http://192.168.25.50:11434")
+    assert seen == ["192.168.25.50"]
+
+
+def test_resolve_fleet_host_returns_url_unchanged(monkeypatch) -> None:
+    _resolve_fleet_host.cache_clear()
+    monkeypatch.setattr(socket, "gethostbyaddr", lambda ip: ("gateway", [], []))
+    url, _ = _resolve_fleet_host("http://100.71.60.30:11434")
+    assert url == "http://100.71.60.30:11434"

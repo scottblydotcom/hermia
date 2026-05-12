@@ -421,3 +421,93 @@ def test_run_evals_skipped_model_logged(tmp_path: Path) -> None:
 
             assert "Skipping" in log_content
     asyncio.run(_inner())
+
+
+# ── mode badge (hermia-3lu) ───────────────────────────────────────────────────
+
+def test_selection_screen_local_badge() -> None:
+    async def _inner() -> None:
+        async with _make_test_app(fleet_mode=False).run_test() as pilot:
+            await pilot.pause()
+            assert pilot.app.sub_title == "LOCAL"
+    asyncio.run(_inner())
+
+
+def test_selection_screen_fleet_badge(monkeypatch) -> None:
+    monkeypatch.setenv("HERMIA_HOST", "http://192.168.25.50:11434")
+    async def _inner() -> None:
+        _rv = ("http://192.168.25.50:11434", "m3pro")
+        with patch("hermia.screens._resolve_fleet_host", return_value=_rv):
+            async with _make_test_app(fleet_mode=True).run_test() as pilot:
+                await pilot.pause()
+                assert "FLEET" in pilot.app.sub_title
+                assert "192.168.25.50" in pilot.app.sub_title
+                assert "m3pro" in pilot.app.sub_title
+    asyncio.run(_inner())
+
+
+def test_selection_screen_fleet_badge_no_dns(monkeypatch) -> None:
+    monkeypatch.setenv("HERMIA_HOST", "http://192.168.25.50:11434")
+    async def _inner() -> None:
+        _rv = ("http://192.168.25.50:11434", None)
+        with patch("hermia.screens._resolve_fleet_host", return_value=_rv):
+            async with _make_test_app(fleet_mode=True).run_test() as pilot:
+                await pilot.pause()
+                assert "FLEET" in pilot.app.sub_title
+                assert "→" not in pilot.app.sub_title
+    asyncio.run(_inner())
+
+
+def test_runner_screen_fleet_metrics_bar_suppressed(monkeypatch) -> None:
+    monkeypatch.setenv("HERMIA_HOST", "http://192.168.25.50:11434")
+
+    class _FleetRunnerApp(App):
+        def __init__(self) -> None:
+            super().__init__()
+            self.model_list = [{"name": "qwen2.5:7b", "size": 4 * 1024**3}]
+            self.gpu_info = GPU_FOUND
+            self.fleet_mode = True
+
+        def on_mount(self) -> None:
+            self.push_screen(RunnerScreen(["qwen2.5:7b"], ["tool-calling-basic"], repeat=1))
+
+    async def _inner() -> None:
+        _rv = ("http://192.168.25.50:11434", None)
+        with (
+            patch.object(RunnerScreen, "run_evals"),
+            patch("hermia.screens._resolve_fleet_host", return_value=_rv),
+        ):
+            async with _FleetRunnerApp().run_test() as pilot:
+                await pilot.pause()
+                screen = pilot.app.screen
+                assert isinstance(screen, RunnerScreen)
+                bar = str(screen.query_one("#metrics-bar").render())
+                assert "FLEET" in bar
+                assert "suppressed" in bar
+    asyncio.run(_inner())
+
+
+def test_runner_screen_fleet_subtitle(monkeypatch) -> None:
+    monkeypatch.setenv("HERMIA_HOST", "http://192.168.25.50:11434")
+
+    class _FleetRunnerApp(App):
+        def __init__(self) -> None:
+            super().__init__()
+            self.model_list = [{"name": "qwen2.5:7b", "size": 4 * 1024**3}]
+            self.gpu_info = GPU_FOUND
+            self.fleet_mode = True
+
+        def on_mount(self) -> None:
+            self.push_screen(RunnerScreen(["qwen2.5:7b"], ["tool-calling-basic"], repeat=1))
+
+    async def _inner() -> None:
+        _rv = ("http://192.168.25.50:11434", "m3pro")
+        with (
+            patch.object(RunnerScreen, "run_evals"),
+            patch("hermia.screens._resolve_fleet_host", return_value=_rv),
+        ):
+            async with _FleetRunnerApp().run_test() as pilot:
+                await pilot.pause()
+                assert "FLEET" in pilot.app.sub_title
+                assert "m3pro" in pilot.app.sub_title
+    asyncio.run(_inner())
