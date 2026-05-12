@@ -37,7 +37,9 @@ def detect_mode(host: str) -> str:
 _vram_cache: dict[tuple[str, str], float | None] = {}
 
 
-def fetch_server_vram(host: str, model: str) -> float | None:
+def fetch_server_vram(
+    host: str, model: str, headers: dict[str, str] | None = None
+) -> float | None:
     """Query /api/ps on host; return size_vram for model in GiB, or None.
 
     Caches the result (including None) on a successful response or a 404 —
@@ -49,7 +51,7 @@ def fetch_server_vram(host: str, model: str) -> float | None:
     if key in _vram_cache:
         return _vram_cache[key]
     try:
-        resp = requests.get(f"{host}/api/ps", timeout=2)
+        resp = requests.get(f"{host}/api/ps", timeout=2, headers=headers or {})
         if not resp.ok:
             if resp.status_code == 404:
                 _vram_cache[key] = None
@@ -71,10 +73,10 @@ def fetch_server_vram(host: str, model: str) -> float | None:
         return None
 
 
-def get_available_models() -> list[dict[str, Any]]:
+def get_available_models(headers: dict[str, str] | None = None) -> list[dict[str, Any]]:
     host = get_ollama_host()
     try:
-        resp = requests.get(f"{host}/api/tags", timeout=5)
+        resp = requests.get(f"{host}/api/tags", timeout=5, headers=headers or {})
         return resp.json().get("models", [])  # type: ignore[no-any-return]
     except Exception:
         return []
@@ -126,11 +128,15 @@ def prewarm_timed(model_name: str) -> tuple[float, float, float]:
     return load_time, vram_before, vram_after
 
 
-def load_tests(selected_ids: list[str]) -> list[dict[str, Any]]:
+def load_tests_all() -> list[dict[str, Any]]:
+    """Load all test cases from agentic-tasks.json (no ID filter)."""
     path = PROJECT_ROOT / "test-datasets" / "agentic-tasks.json"
     with open(path) as f:
-        all_tests: list[dict[str, Any]] = json.load(f)["agentic_test_cases"]
-    return [t for t in all_tests if t["id"] in selected_ids]
+        return json.load(f)["agentic_test_cases"]  # type: ignore[no-any-return]
+
+
+def load_tests(selected_ids: list[str]) -> list[dict[str, Any]]:
+    return [t for t in load_tests_all() if t["id"] in selected_ids]
 
 
 def run_test(
@@ -210,5 +216,5 @@ def run_test(
         "peak_gpu_pct": round(peak.get("gpu_pct", 0), 1) if mode == "local" else None,
         "peak_vram_used_gb": round(peak.get("vram_used_gb", 0), 2) if mode == "local" else None,
         "mode": mode,
-        "vram_server_gb": fetch_server_vram(_host, model),
+        "vram_server_gb": fetch_server_vram(_host, model, headers=req_headers or None),
     }
