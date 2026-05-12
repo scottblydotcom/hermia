@@ -110,9 +110,13 @@ Best: llama3.2 (91/100)
 Saved: eval_20260511_143022.jsonl  | eval_20260511_143022.csv
 ```
 
-**Agentic score** = (JSON pass rate × 0.40) + (schema pass rate × 0.60). A model that
-produces well-structured, schema-compliant responses to agentic tasks scores higher than
-one that responds in free text, even if the free-text answer is "correct."
+**Agentic score** (summary table) = (JSON pass rate × 0.40) + (schema pass rate × 0.60).
+A model that produces well-structured, schema-compliant responses to agentic tasks scores
+higher than one that responds in free text, even if the free-text answer is "correct."
+
+Each individual result row also carries a per-row **score** (used in Postgres export):
+`100` = JSON valid + schema compliant, `60` = JSON valid but schema failed,
+`25` = response received but not valid JSON, `0` = error / timeout / no response.
 
 **Load benchmarks** measure cold-load time (from clean VRAM state) and model size. This is
 the actual load time a user or system experiences on first use, not cached inference.
@@ -213,11 +217,14 @@ hermia-regression all-results.json
 Output:
 
 ```
-REGRESSION REPORT
------------------
-llama3.2  security-direct-injection  baseline 100%  latest 60%  REGRESSION
-qwen2.5:7b  No regressions detected.
+=== Hermia Regression Report ===
+[SOFT] llama3.2 / security-direct-injection | baseline 100% → current 60%
+       llama3.2/security-direct-injection pass rate dropped 100% → 60% (Δ=40.0 pp).
+
+Summary: 0 hard failure(s), 1 soft alert(s)
 ```
+
+`[HARD]` = complete failure (current rate 0%). `[SOFT]` = significant drop but still passing sometimes.
 
 Exit codes:
 - `0` — no regressions
@@ -246,8 +253,13 @@ Set your DSN and create the table (run once):
 
 ```bash
 export HERMIA_PG_DSN="postgresql://user:pass@localhost:5432/hermia"
+psql $HERMIA_PG_DSN -f scripts/create_table.sql
 psql $HERMIA_PG_DSN -f scripts/add_framework_columns.sql
 ```
+
+`create_table.sql` creates `hermia_results` with all columns and the unique conflict key.
+`add_framework_columns.sql` adds GIN indexes on the framework taxonomy arrays — run both
+on a fresh install, or only the second if upgrading from an earlier version.
 
 ### Push results
 
