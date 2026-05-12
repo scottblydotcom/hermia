@@ -47,7 +47,7 @@ def fetch_server_vram(host: str, model: str) -> float | None:
             if m.get("name") == model:
                 size = m.get("size_vram")
                 if size is not None:
-                    return size / (1024 ** 3)
+                    return float(size) / (1024 ** 3)
         return None
     except Exception:  # noqa: BLE001
         return None

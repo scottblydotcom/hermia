@@ -6,6 +6,8 @@ from typing import Any
 
 import pytest
 
+import hermia.runner as _runner_mod
+
 DEFAULT_GENERATE: dict[str, Any] = {
     "model": "fake-model",
     "created_at": "2026-01-01T00:00:00Z",
@@ -68,8 +70,10 @@ class _FakeOllamaHandler(http.server.BaseHTTPRequestHandler):
 @pytest.fixture(autouse=True)
 def clear_overrides() -> Any:
     _FakeOllamaHandler._overrides = {}
+    _runner_mod.fetch_server_vram.cache_clear()
     yield
     _FakeOllamaHandler._overrides = {}
+    _runner_mod.fetch_server_vram.cache_clear()
 
 
 @pytest.fixture(scope="session")
