@@ -18,7 +18,7 @@ from textual.widgets import Button, Checkbox, Footer, Header, Label, ProgressBar
 
 from hermia import robustness
 from hermia.metrics import NVIDIA_MIN_SUPPORTED_COMPUTE, MetricsSampler
-from hermia.preflight import run_preflight
+from hermia.preflight import DEFAULT_OLLAMA_HOST, run_preflight
 from hermia.results import append_result, open_run, patch_results
 from hermia.runner import (
     get_model_size_gb,
@@ -45,7 +45,7 @@ def _resolve_fleet_host(host_url: str) -> tuple[str, str | None]:
 def _get_subtitle(fleet_mode: bool) -> str:
     if not fleet_mode:
         return "LOCAL"
-    host_url = os.environ.get("HERMIA_HOST", "http://localhost:11434")
+    host_url = os.environ.get("HERMIA_HOST", DEFAULT_OLLAMA_HOST)
     _, hostname = _resolve_fleet_host(host_url)
     return f"FLEET  {host_url}" + (f"  → {hostname}" if hostname else "")
 
