@@ -37,16 +37,17 @@ def _normalize_host(host: str) -> str:
     return host if "://" in host else f"http://{host}"
 
 
-def _parse_version(v: str) -> tuple[int, ...]:
-    """Parse 'X.Y.Z[-suffix]' → (X, Y, Z). Returns (0,) on failure."""
+def _parse_version(v: str) -> tuple[int, ...] | None:
+    """Parse 'X.Y.Z[-suffix]' → (X, Y, Z). Returns None on failure."""
     try:
         base = v.split("-")[0] if v else ""
         return tuple(int(x) for x in base.split(".")[:3])
     except (ValueError, AttributeError):
-        return (0,)
+        return None
 
 
-_MIN_SECURE_VERSION_TUPLE: tuple[int, ...] = _parse_version(OLLAMA_MIN_SECURE_VERSION)
+_parsed_min = _parse_version(OLLAMA_MIN_SECURE_VERSION)
+_MIN_SECURE_VERSION_TUPLE: tuple[int, ...] = _parsed_min if _parsed_min is not None else (0, 17, 1)
 
 
 def check_ollama_security(host: str, fleet_mode: bool = False) -> list[str]:
@@ -58,7 +59,8 @@ def check_ollama_security(host: str, fleet_mode: bool = False) -> list[str]:
         resp = requests.get(f"{host}/api/version", timeout=3)
         if resp.ok:
             ver = resp.json().get("version", "")
-            if ver and _parse_version(ver) < _MIN_SECURE_VERSION_TUPLE:
+            v_tuple = _parse_version(ver)
+            if v_tuple is not None and v_tuple < _MIN_SECURE_VERSION_TUPLE:
                 warnings.append(
                     f"SEC ⚠ CVE-2026-7482 (CVSS 9.1): Ollama {ver} is vulnerable "
                     f"to heap memory disclosure — upgrade to {OLLAMA_MIN_SECURE_VERSION}+"
