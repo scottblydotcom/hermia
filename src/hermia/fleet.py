@@ -11,8 +11,13 @@ import yaml
 
 def load_fleet_config(path: Path) -> list[dict[str, Any]]:
     """Parse fleet YAML. Returns list of host entries. Raises ValueError on invalid config."""
-    with path.open(encoding="utf-8") as f:
-        data = yaml.safe_load(f)
+    try:
+        with path.open(encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+    except OSError as exc:
+        raise ValueError(f"Cannot read fleet config {path}: {exc}") from exc
+    except yaml.YAMLError as exc:
+        raise ValueError(f"Invalid YAML in fleet config {path}: {exc}") from exc
     entries = data.get("fleet") if isinstance(data, dict) else None
     if not isinstance(entries, list) or not entries:
         raise ValueError("Fleet config must contain at least one entry under 'fleet'")
