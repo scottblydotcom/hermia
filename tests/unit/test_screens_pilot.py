@@ -437,7 +437,8 @@ def test_selection_screen_local_badge() -> None:
 def test_selection_screen_fleet_badge() -> None:
     async def _inner() -> None:
         os.environ["HERMIA_HOST"] = "http://192.168.25.50:11434"
-        with patch("hermia.screens._resolve_fleet_host", return_value=("http://192.168.25.50:11434", "m3pro")):
+        _rv = ("http://192.168.25.50:11434", "m3pro")
+        with patch("hermia.screens._resolve_fleet_host", return_value=_rv):
             async with _make_test_app(fleet_mode=True).run_test() as pilot:
                 await pilot.pause()
                 assert "FLEET" in pilot.app.sub_title
@@ -449,7 +450,8 @@ def test_selection_screen_fleet_badge() -> None:
 def test_selection_screen_fleet_badge_no_dns() -> None:
     async def _inner() -> None:
         os.environ["HERMIA_HOST"] = "http://192.168.25.50:11434"
-        with patch("hermia.screens._resolve_fleet_host", return_value=("http://192.168.25.50:11434", None)):
+        _rv = ("http://192.168.25.50:11434", None)
+        with patch("hermia.screens._resolve_fleet_host", return_value=_rv):
             async with _make_test_app(fleet_mode=True).run_test() as pilot:
                 await pilot.pause()
                 assert "FLEET" in pilot.app.sub_title
@@ -470,9 +472,10 @@ def test_runner_screen_fleet_metrics_bar_suppressed() -> None:
 
     async def _inner() -> None:
         os.environ["HERMIA_HOST"] = "http://192.168.25.50:11434"
+        _rv = ("http://192.168.25.50:11434", None)
         with (
             patch.object(RunnerScreen, "run_evals"),
-            patch("hermia.screens._resolve_fleet_host", return_value=("http://192.168.25.50:11434", None)),
+            patch("hermia.screens._resolve_fleet_host", return_value=_rv),
         ):
             async with _FleetRunnerApp().run_test() as pilot:
                 await pilot.pause()
@@ -499,9 +502,10 @@ def test_runner_screen_fleet_subtitle() -> None:
 
     async def _inner() -> None:
         os.environ["HERMIA_HOST"] = "http://192.168.25.50:11434"
+        _rv = ("http://192.168.25.50:11434", "m3pro")
         with (
             patch.object(RunnerScreen, "run_evals"),
-            patch("hermia.screens._resolve_fleet_host", return_value=("http://192.168.25.50:11434", "m3pro")),
+            patch("hermia.screens._resolve_fleet_host", return_value=_rv),
         ):
             async with _FleetRunnerApp().run_test() as pilot:
                 await pilot.pause()

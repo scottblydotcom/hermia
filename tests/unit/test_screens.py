@@ -2,7 +2,13 @@
 
 import socket
 
-from hermia.screens import RunnerScreen, _backfill_aggregates, _compute_scores, _resolve_fleet_host, _sanitize_model_id
+from hermia.screens import (
+    RunnerScreen,
+    _backfill_aggregates,
+    _compute_scores,
+    _resolve_fleet_host,
+    _sanitize_model_id,
+)
 
 # ── _sanitize_model_id ────────────────────────────────────────────────────────
 
