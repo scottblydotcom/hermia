@@ -113,6 +113,24 @@ def test_ollama_security_vulnerable_version():
     assert any("0.16.0" in w for w in warns)
 
 
+def test_ollama_security_prerelease_of_fix_is_vulnerable():
+    with _mock_version("0.17.1-rc1"):
+        warns = check_ollama_security("http://localhost:11434", fleet_mode=False)
+    assert any("CVE-2026-7482" in w for w in warns)
+
+
+def test_ollama_security_v_prefix_handled():
+    with _mock_version("v0.22.1"):
+        warns = check_ollama_security("http://localhost:11434", fleet_mode=False)
+    assert not any("CVE-2026-7482" in w for w in warns)
+
+
+def test_ollama_security_build_metadata_handled():
+    with _mock_version("0.22.1+build.123"):
+        warns = check_ollama_security("http://localhost:11434", fleet_mode=False)
+    assert not any("CVE-2026-7482" in w for w in warns)
+
+
 def test_ollama_security_patched_version():
     with _mock_version(OLLAMA_MIN_SECURE_VERSION):
         warns = check_ollama_security("http://localhost:11434", fleet_mode=False)
