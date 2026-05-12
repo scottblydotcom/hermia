@@ -151,11 +151,11 @@ def test_detect_gpu_picks_highest_vram_when_multiple_amdgpu():
 # ---------------------------------------------------------------------------
 
 def _nvidia_detect_result(
-    name: str = "NVIDIA GeForce RTX 5090", vram_mib: int = 32768
+    name: str = "NVIDIA GeForce RTX 5090", vram_mib: int = 32768, compute_cap: float = 8.9
 ) -> MagicMock:
     r = MagicMock()
     r.returncode = 0
-    r.stdout = f"{name}, {vram_mib}\n"
+    r.stdout = f"{name}, {vram_mib}, {compute_cap}\n"
     return r
 
 
@@ -278,6 +278,65 @@ def test_get_gpu_stats_nvidia_nonzero_returncode_returns_zeros():
 
     assert gpu_pct == 0.0
     assert vram_total == 24.0
+
+
+# ---------------------------------------------------------------------------
+# _detect_nvidia compute_cap tests
+# ---------------------------------------------------------------------------
+
+def test_detect_nvidia_returns_compute_cap():
+    """_detect_nvidia() parses compute_cap as the third CSV field."""
+    r = MagicMock()
+    r.returncode = 0
+    r.stdout = "GTX 980, 4096, 5.2\n"
+    with patch("subprocess.run", return_value=r):
+        found, name, vram, compute_cap = metrics_mod._detect_nvidia()
+    assert found is True
+    assert name == "GTX 980"
+    assert compute_cap == 5.2
+
+
+def test_detect_nvidia_compute_cap_missing():
+    """_detect_nvidia() returns 0.0 for compute_cap when the field is absent."""
+    r = MagicMock()
+    r.returncode = 0
+    r.stdout = "GTX 980, 4096\n"
+    with patch("subprocess.run", return_value=r):
+        found, name, vram, compute_cap = metrics_mod._detect_nvidia()
+    assert found is True
+    assert compute_cap == 0.0
+
+
+def test_detect_gpu_nvidia_includes_compute_cap():
+    """detect_gpu() includes compute_cap in the returned dict for NVIDIA."""
+    result = _nvidia_detect_result("NVIDIA GeForce GTX 980", 4096, compute_cap=5.2)
+    with patch("subprocess.run", return_value=result):
+        info = detect_gpu()
+    assert info["vendor"] == "nvidia"
+    assert info["compute_cap"] == 5.2
+
+
+def test_detect_gpu_non_nvidia_compute_cap_zero():
+    """detect_gpu() returns compute_cap=0.0 for non-NVIDIA (AMD fallback) paths."""
+    uevent_paths = ["/sys/class/drm/card1/device/uevent"]
+    dev = "/sys/class/drm/card1/device"
+    uevent_data = {
+        "/sys/class/drm/card1/device/uevent": "DRIVER=amdgpu\n",
+        f"{dev}/mem_info_vram_total": str(8 * 1024**3),
+    }
+
+    def fake_open(path, *a, **kw):
+        return mock_open(read_data=uevent_data.get(path, ""))()
+
+    with (
+        patch("subprocess.run", side_effect=FileNotFoundError),
+        patch("hermia.metrics.glob.glob", return_value=uevent_paths),
+        patch("builtins.open", side_effect=fake_open),
+    ):
+        info = detect_gpu()
+
+    assert info["vendor"] == "amd"
+    assert info["compute_cap"] == 0.0
 
 
 # ---------------------------------------------------------------------------

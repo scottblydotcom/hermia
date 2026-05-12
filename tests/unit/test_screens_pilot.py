@@ -20,6 +20,7 @@ GPU_FOUND = {
     "vendor": "nvidia",
     "vram_total_gb": 24.0,
     "vram_used_gb": 0.5,
+    "compute_cap": 8.9,
 }
 
 GPU_NOT_FOUND = {"found": False}
@@ -510,4 +511,46 @@ def test_runner_screen_fleet_subtitle(monkeypatch) -> None:
                 await pilot.pause()
                 assert "FLEET" in pilot.app.sub_title
                 assert "m3pro" in pilot.app.sub_title
+    asyncio.run(_inner())
+
+
+# ── NVIDIA compute capability warning (hermia-klc) ───────────────────────────
+
+def test_selection_screen_old_nvidia_shows_warning() -> None:
+    gpu_info = {
+        "found": True, "vendor": "nvidia", "card": "GTX 980",
+        "vram_total_gb": 4.0, "compute_cap": 5.2,
+    }
+    async def _inner() -> None:
+        async with _make_test_app(gpu_info=gpu_info).run_test() as pilot:
+            await pilot.pause()
+            label = pilot.app.screen.query_one("#gpu-info", Label)
+            assert "⚠" in str(label.render())
+            assert "sm 5.2" in str(label.render())
+    asyncio.run(_inner())
+
+
+def test_selection_screen_new_nvidia_no_warning() -> None:
+    gpu_info = {
+        "found": True, "vendor": "nvidia", "card": "RTX 4090",
+        "vram_total_gb": 24.0, "compute_cap": 8.9,
+    }
+    async def _inner() -> None:
+        async with _make_test_app(gpu_info=gpu_info).run_test() as pilot:
+            await pilot.pause()
+            label = pilot.app.screen.query_one("#gpu-info", Label)
+            assert "⚠" not in str(label.render())
+    asyncio.run(_inner())
+
+
+def test_selection_screen_non_nvidia_no_warning() -> None:
+    gpu_info = {
+        "found": True, "vendor": "amd", "card": "RX 7800 XT",
+        "vram_total_gb": 16.0, "compute_cap": 0.0,
+    }
+    async def _inner() -> None:
+        async with _make_test_app(gpu_info=gpu_info).run_test() as pilot:
+            await pilot.pause()
+            label = pilot.app.screen.query_one("#gpu-info", Label)
+            assert "⚠" not in str(label.render())
     asyncio.run(_inner())
