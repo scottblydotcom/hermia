@@ -34,7 +34,7 @@ def detect_mode(host: str) -> str:
     return "local" if hostname in ("localhost", "127.0.0.1", "::1") else "fleet"
 
 
-_vram_cache: dict[tuple[str, str], float | None] = {}
+_vram_cache: dict[tuple[Any, ...], float | None] = {}
 
 
 def fetch_server_vram(
@@ -47,7 +47,8 @@ def fetch_server_vram(
     responses are not cached so transient failures retry. Never raises.
     """
     host = _normalize_host(host)
-    key = (host, model)
+    headers_key = tuple(sorted(headers.items())) if headers else ()
+    key = (host, model, headers_key)
     if key in _vram_cache:
         return _vram_cache[key]
     try:
