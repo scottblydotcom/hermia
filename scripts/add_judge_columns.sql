@@ -4,5 +4,5 @@
 -- v0.3 LLM-as-judge work populates them via the --judge flag.
 
 ALTER TABLE hermia_results
-    ADD COLUMN IF NOT EXISTS judge_score     INTEGER,
+    ADD COLUMN IF NOT EXISTS judge_score     NUMERIC,
     ADD COLUMN IF NOT EXISTS judge_reasoning TEXT;

@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS hermia_results (
     consistency_pct     NUMERIC,
     pass_count          INTEGER,
     robustness_n        INTEGER,
-    judge_score         INTEGER,
+    judge_score         NUMERIC,
     judge_reasoning     TEXT,
     UNIQUE (run_id, host, model, test_id, run_index)
 );
