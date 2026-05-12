@@ -386,6 +386,40 @@ Description of the work and the strategic intent. Bead breakdown happens when th
 - Soft-fails with a comment listing out-of-scope files; doesn't block merge but makes the violation visible
 **Why:** Novel governance pattern. Possible blog post.
 
+### VRAM-aware model recommendations
+**Priority:** P2
+**Depends on:** —
+**Permitted scope:** `src/hermia/recommend.py` (NEW), `src/hermia/app.py`, tests
+**Acceptance (sketch):**
+- Query the Ollama registry (or local `/api/tags` + `ollama list`) to enumerate available models and their sizes
+- Filter by detected VRAM (GPU) + system RAM (CPU-offload headroom); classify each model as `fits_gpu`, `fits_cpu_offload`, or `too_large`
+- Rank survivors by parameter count and quant level (prefer Q4_K_M / Q8_0 for the VRAM budget)
+- `hermia recommend` subcommand: prints a ranked table; optional `--pull` flag runs `ollama pull` for the top N
+- On Apple Silicon, unified memory is treated as VRAM (already captured by `detect_gpu()`)
+**Why:** The single biggest onboarding friction for a new Ollama user is not knowing which model fits. Hermia already has hardware detection — this closes the loop.
+
+### Guided onboarding — `hermia setup`
+**Priority:** P3
+**Depends on:** VRAM-aware model recommendations
+**Permitted scope:** `src/hermia/setup.py` (NEW), `src/hermia/app.py`, tests
+**Acceptance (sketch):**
+- Interactive wizard (CLI, not TUI): detect hardware → show VRAM-aware recommendations → prompt to pull → run a single quick eval → print a human-readable summary
+- Each step is individually skippable (user already has models, etc.)
+- Exits with a summary: hardware detected, models pulled, eval passed/failed, recommended next step
+- Does not require Grafana or Postgres — designed for a fresh machine with only Ollama
+**Why:** "One stop shop" for a new local AI user. Sets the floor for what Hermia can do before any infrastructure is stood up.
+
+### Shareable performance report
+**Priority:** P3
+**Depends on:** —
+**Permitted scope:** `src/hermia/report.py` (NEW), `scripts/`, tests
+**Acceptance (sketch):**
+- `hermia-report` CLI command: reads `eval_*.jsonl` from a results dir, produces a self-contained HTML file
+- Contains: hardware summary, model × test pass rate table, t/s by model, failure breakdown
+- No external dependencies at render time — single file, no CDN, works offline
+- Designed to be attached to a forum post, GitHub issue, or vendor support ticket
+**Why:** JSONL and Grafana serve the operator; the report serves everyone else. The artifact that travels outside the lab.
+
 ### Sidecar aggregates file for fleet-scale repeat runs
 **Priority:** P2
 **Depends on:** Transport interface (fleet config)
@@ -433,6 +467,8 @@ Now that auth tokens are in scope (v0.2 OpenAI-compat), assert that bearer token
 
 Items that aren't milestone-bound. Keep them surfaced so they don't get forgotten, but don't commit to dates.
 
+- **Community benchmark submission.** Opt-in, anonymized upload of a completed eval run — hardware fingerprint (GPU model, VRAM, vendor), model name + quant, t/s, schema pass rate, Hermia version. Endpoint TBD; likely a simple append-only API backed by Postgres. Privacy model: no hostnames, no IP addresses, no user identifiers — hardware class only. The submission artifact is a subset of the existing JSONL export, so the client side is mostly plumbing. Requires backend infrastructure design before the bead can be written.
+- **Reference performance comparison ("you should be getting X").** Requires community benchmark database to have accumulated sufficient data per hardware class. Query: given `(gpu_model, vram_gb, model_name, quant)`, return the p25/p50/p75 t/s distribution from submitted runs. Surface in the shareable report and TUI as "compared to N similar systems." Normalization is the hard problem: quant level, context length, concurrent load, Ollama version, and CUDA/ROCm version all affect throughput. Need enough runs per cell before comparisons are meaningful. Strategically: this is the data asset nobody else has, and it requires neutral infrastructure to be credible — which Hermia is positioned to provide.
 - **Cross-backend divergence detection.** Same model + same prompt across CUDA / ROCm / Vulkan / Metal / CPU; flag output divergence beyond threshold. Requires multi-host orchestration. Genuine first-in-market capability.
 - **Backend-targeted vulnerability probes.** Tests for known stack failure modes: quant corruption, OOM behavior, sampler determinism, fp8 precision artifacts. Probe-style for the inference layer.
 - **Stack supply-chain analysis.** CVEs in the CUDA toolkit, ROCm, Vulkan drivers, llama.cpp builds the model is running on. Adjacent to standard SCA but framed for inference. Nobody does this.
