@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 import psutil
-import requests
 
 from hermia.metrics import get_gpu_stats
 
@@ -39,21 +38,27 @@ def _normalize_host(host: str) -> str:
 
 
 def _parse_version(v: str) -> tuple[int, ...]:
-    """Parse 'X.Y.Z' → (X, Y, Z). Returns (0,) on failure."""
+    """Parse 'X.Y.Z[-suffix]' → (X, Y, Z). Returns (0,) on failure."""
     try:
-        return tuple(int(x) for x in v.split(".")[:3])
+        base = v.split("-")[0] if v else ""
+        return tuple(int(x) for x in base.split(".")[:3])
     except (ValueError, AttributeError):
         return (0,)
 
 
+_MIN_SECURE_VERSION_TUPLE: tuple[int, ...] = _parse_version(OLLAMA_MIN_SECURE_VERSION)
+
+
 def check_ollama_security(host: str, fleet_mode: bool = False) -> list[str]:
     """Query /api/version and return SEC warning strings. Never raises."""
+    import requests  # local import — optional network check, avoid startup overhead
+
     warnings: list[str] = []
     try:
         resp = requests.get(f"{host}/api/version", timeout=3)
         if resp.ok:
             ver = resp.json().get("version", "")
-            if ver and _parse_version(ver) < _parse_version(OLLAMA_MIN_SECURE_VERSION):
+            if ver and _parse_version(ver) < _MIN_SECURE_VERSION_TUPLE:
                 warnings.append(
                     f"SEC ⚠ CVE-2026-7482 (CVSS 9.1): Ollama {ver} is vulnerable "
                     f"to heap memory disclosure — upgrade to {OLLAMA_MIN_SECURE_VERSION}+"

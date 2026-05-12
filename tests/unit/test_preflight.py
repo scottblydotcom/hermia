@@ -103,7 +103,7 @@ def _mock_version(version: str):
     resp = MagicMock()
     resp.ok = True
     resp.json.return_value = {"version": version}
-    return patch("hermia.preflight.requests.get", return_value=resp)
+    return patch("requests.get", return_value=resp)
 
 
 def test_ollama_security_vulnerable_version():
@@ -126,7 +126,7 @@ def test_ollama_security_newer_version():
 
 
 def test_ollama_security_version_unreachable():
-    with patch("hermia.preflight.requests.get", side_effect=Exception("connection refused")):
+    with patch("requests.get", side_effect=Exception("connection refused")):
         warns = check_ollama_security("http://localhost:11434", fleet_mode=False)
     assert not any("CVE-2026-7482" in w for w in warns)
     assert any("CVE-2026-5757" in w for w in warns)
