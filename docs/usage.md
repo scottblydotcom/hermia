@@ -201,8 +201,10 @@ python3 -c "
 import json, glob
 rows = []
 for f in sorted(glob.glob('results/eval_*.jsonl')):
-    rows += [json.loads(l) for l in open(f) if l.strip()]
-json.dump(rows, open('all-results.json', 'w'))
+    with open(f, encoding='utf-8') as fh:
+        rows.extend(json.loads(l) for l in fh if l.strip())
+with open('all-results.json', 'w', encoding='utf-8') as fh:
+    json.dump(rows, fh)
 "
 
 hermia-regression all-results.json
@@ -240,16 +242,16 @@ Install the Postgres extras:
 pip install -e ".[grafana]"
 ```
 
-Create the table (run once):
+Set your DSN and create the table (run once):
 
 ```bash
+export HERMIA_PG_DSN="postgresql://user:pass@localhost:5432/hermia"
 psql $HERMIA_PG_DSN -f scripts/add_framework_columns.sql
 ```
 
 ### Push results
 
 ```bash
-export HERMIA_PG_DSN="postgresql://user:pass@localhost:5432/hermia"
 hermia-push
 ```
 
@@ -278,7 +280,7 @@ hermia-push --results-dir /path/to/results
 - **Grafana dashboards** — if you have Grafana running, point it at the `hermia_results`
   table. The [Hermia Eval Leaderboard](https://github.com/scottblydotcom/hermia) dashboard
   JSON is in `docs/`.
-- **Roadmap** — see [docs/roadmap.md](roadmap.md) for v0.2 (multi-endpoint, fleet config)
+- **Roadmap** — see [Roadmap](roadmap.md) for v0.2 (multi-endpoint, fleet config)
   and v0.3 (eval bus, Garak/PyRIT adapters).
 - **Contributing** — see [AGENTS.md](../AGENTS.md) for the behavioral rules and module
   boundary table before opening a PR.
