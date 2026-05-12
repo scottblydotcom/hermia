@@ -38,10 +38,21 @@ def _normalize_host(host: str) -> str:
 
 
 def _parse_version(v: str) -> tuple[int, ...] | None:
-    """Parse 'X.Y.Z[-suffix]' → (X, Y, Z). Returns None on failure."""
+    """Parse 'vX.Y.Z[-pre][+build]' → (X, Y, Z, release_flag). Returns None on failure.
+
+    release_flag is 1 for release versions and 0 for pre-releases, so that
+    0.17.1-rc1 < 0.17.1 in tuple comparison (pre-release of the fix is still vulnerable).
+    Handles leading 'v' prefix and SemVer build metadata (+build.123).
+    """
     try:
-        base = v.split("-")[0] if v else ""
-        return tuple(int(x) for x in base.split(".")[:3])
+        v = v.lstrip("v") if v else ""
+        has_prerelease = "-" in v
+        base = v.split("-")[0].split("+")[0]
+        parts = [int(x) for x in base.split(".")[:3]]
+        while len(parts) < 3:
+            parts.append(0)
+        parts.append(0 if has_prerelease else 1)
+        return tuple(parts)
     except (ValueError, AttributeError):
         return None
 
