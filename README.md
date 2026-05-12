@@ -22,7 +22,7 @@ Because "how fast is it really" is a different question than "how fast is it aft
 already warm."
 
 **Current scope:** single-turn evaluation against Ollama-compatible local endpoints.
-Multi-endpoint and cloud API support (OpenAI, LiteLLM, Anthropic, Bedrock) land in v0.2.
+Multi-endpoint and cloud API support (OpenAI, LiteLLM, Anthropic, Google, Bedrock) land in v0.2.
 
 ---
 
@@ -99,10 +99,10 @@ No cloud API keys required. No data leaves your machine.
 | Platform | GPU | Status |
 |---|---|---|
 | Linux | AMD ROCm (gfx900 / RX series) | ✅ Tested |
-| Linux / Windows* | NVIDIA CUDA (sm_89 / RTX series) | ✅ Tested |
+| Linux | NVIDIA CUDA (sm_89 / RTX series) | ✅ Tested* |
 | macOS | Apple Silicon (M1 / M2 / M3 / M4) | ✅ Tested |
 | Linux | Intel iGPU | ⚠️ Best-effort |
-| Any | CPU-only (no discrete GPU) | ✅ Supported |
+| Linux / macOS | CPU-only (no discrete GPU) | ✅ Supported |
 | Windows | Any | ❌ Not yet |
 
 *NVIDIA metrics tested on Linux eval client. Windows Ollama servers are supported as fleet
