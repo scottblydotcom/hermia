@@ -66,10 +66,9 @@ _MIN_SECURE_VERSION_TUPLE: tuple[int, ...] = (
 
 def check_ollama_security(host: str, fleet_mode: bool = False) -> list[str]:
     """Query /api/version and return SEC warning strings. Never raises."""
-    import requests  # local import — optional network check, avoid startup overhead
-
     warnings: list[str] = []
     try:
+        import requests  # local import — optional network check, avoid startup overhead
         resp = requests.get(f"{host}/api/version", timeout=3)
         if resp.ok:
             ver = resp.json().get("version", "")
