@@ -17,10 +17,12 @@ def load_fleet_config(path: Path) -> list[dict[str, Any]]:
     if not isinstance(entries, list) or not entries:
         raise ValueError("Fleet config must contain at least one entry under 'fleet'")
     for i, entry in enumerate(entries):
-        if not entry.get("name"):
-            raise ValueError(f"Fleet entry [{i}] missing 'name'")
-        if not entry.get("host"):
-            raise ValueError(f"Fleet entry [{i}] missing 'host'")
+        if not isinstance(entry, dict):
+            raise ValueError(f"Fleet entry [{i}] must be a mapping, got {type(entry).__name__}")
+        if not isinstance(entry.get("name"), str) or not entry["name"]:
+            raise ValueError(f"Fleet entry [{i}] missing or invalid 'name'")
+        if not isinstance(entry.get("host"), str) or not entry["host"]:
+            raise ValueError(f"Fleet entry [{i}] missing or invalid 'host'")
     return entries
 
 
