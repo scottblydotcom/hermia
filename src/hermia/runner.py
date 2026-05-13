@@ -215,6 +215,8 @@ def run_test(
         "elapsed_sec": round(elapsed, 2),
         "tokens_per_sec": round(tps, 1),
         "output_preview": preview,
+        "raw_prompt": test["prompt"] or "",
+        "raw_response": "" if error_type else (output or ""),
         "peak_cpu_pct": round(peak.get("cpu_pct", 0), 1) if mode == "local" else None,
         "peak_ram_used_gb": round(peak.get("ram_used_gb", 0), 2) if mode == "local" else None,
         "peak_gpu_pct": round(peak.get("gpu_pct", 0), 1) if mode == "local" else None,

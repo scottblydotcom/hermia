@@ -538,3 +538,16 @@ def test_push_dry_run_includes_mode_and_vram_server_gb(tmp_path: Path, capsys) -
     push(rows, dsn="", dry_run=True)
     captured = capsys.readouterr()
     assert "Would process 1 row" in captured.out
+
+
+# ---------------------------------------------------------------------------
+# hermia-rpr: raw_prompt and raw_response columns
+# ---------------------------------------------------------------------------
+
+
+def test_pg_columns_includes_raw_prompt() -> None:
+    assert "raw_prompt" in _PG_COLUMNS
+
+
+def test_pg_columns_includes_raw_response() -> None:
+    assert "raw_response" in _PG_COLUMNS
