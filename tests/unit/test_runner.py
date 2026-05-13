@@ -485,7 +485,9 @@ def test_run_test_raw_response_empty_on_error() -> None:
 def test_run_test_raw_response_empty_on_ollama_error() -> None:
     """Ollama error in response body must zero out raw_response even if output is non-empty."""
     mock_resp = MagicMock()
-    mock_resp.json.return_value = {"response": "partial output", "eval_count": 0, "error": "model not found"}
+    mock_resp.json.return_value = {
+        "response": "partial output", "eval_count": 0, "error": "model not found"
+    }
     with patch("hermia.runner.requests.post", return_value=mock_resp):
         with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
             result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
