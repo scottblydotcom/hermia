@@ -19,7 +19,7 @@ Add two new keys:
 
 | Key | Value | On error/timeout |
 |---|---|---|
-| `raw_prompt` | `test["prompt"]` (the user-turn text) | `""` |
+| `raw_prompt` | `test["prompt"]` (the user-turn text) | `test["prompt"]` (always preserved) |
 | `raw_response` | Full `output` string (untruncated) | `""` |
 
 `raw_prompt` is the user-turn only. The system prompt is fixed per test ID and available
