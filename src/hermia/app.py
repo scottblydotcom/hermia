@@ -2,6 +2,8 @@
 
 import argparse
 import os
+import sys
+from pathlib import Path
 
 from textual.app import App
 
@@ -46,7 +48,24 @@ def main() -> None:
         metavar="N",
         help="Run each (model, test) pair N times (default: 1)",
     )
+    parser.add_argument(
+        "--fleet",
+        metavar="FILE",
+        help="YAML fleet config; runs headless eval against all hosts and exits",
+    )
     args = parser.parse_args()
+
+    if args.fleet:
+        from hermia.fleet import load_fleet_config, run_fleet
+        from hermia.screens import RESULTS_DIR
+
+        try:
+            entries = load_fleet_config(Path(args.fleet))
+            run_fleet(entries, repeat=args.repeat, results_dir=RESULTS_DIR)
+        except (ValueError, RuntimeError, OSError) as exc:
+            print(f"hermia: {exc}", file=sys.stderr)
+            sys.exit(1)
+        sys.exit(0)
 
     os.environ["HERMIA_HOST"] = args.host.rstrip("/")
     fleet_mode = detect_mode(args.host) == "fleet"
