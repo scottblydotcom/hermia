@@ -42,6 +42,8 @@ _PG_COLUMNS = (
     "judge_reasoning",
     "mode",
     "vram_server_gb",
+    "raw_prompt",
+    "raw_response",
 )
 
 _INSERT_SQL = (
