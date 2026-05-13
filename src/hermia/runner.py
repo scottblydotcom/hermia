@@ -34,10 +34,12 @@ def detect_mode(host: str) -> str:
     return "local" if hostname in ("localhost", "127.0.0.1", "::1") else "fleet"
 
 
-_vram_cache: dict[tuple[str, str], float | None] = {}
+_vram_cache: dict[tuple[Any, ...], float | None] = {}
 
 
-def fetch_server_vram(host: str, model: str) -> float | None:
+def fetch_server_vram(
+    host: str, model: str, headers: dict[str, str] | None = None
+) -> float | None:
     """Query /api/ps on host; return size_vram for model in GiB, or None.
 
     Caches the result (including None) on a successful response or a 404 —
@@ -45,11 +47,12 @@ def fetch_server_vram(host: str, model: str) -> float | None:
     responses are not cached so transient failures retry. Never raises.
     """
     host = _normalize_host(host)
-    key = (host, model)
+    headers_key = tuple(sorted(headers.items())) if headers else ()
+    key = (host, model, headers_key)
     if key in _vram_cache:
         return _vram_cache[key]
     try:
-        resp = requests.get(f"{host}/api/ps", timeout=2)
+        resp = requests.get(f"{host}/api/ps", timeout=2, headers=headers or {})
         if not resp.ok:
             if resp.status_code == 404:
                 _vram_cache[key] = None
@@ -71,10 +74,13 @@ def fetch_server_vram(host: str, model: str) -> float | None:
         return None
 
 
-def get_available_models() -> list[dict[str, Any]]:
-    host = get_ollama_host()
+def get_available_models(
+    host: str | None = None,
+    headers: dict[str, str] | None = None,
+) -> list[dict[str, Any]]:
+    _host = _normalize_host(host) if host is not None else get_ollama_host()
     try:
-        resp = requests.get(f"{host}/api/tags", timeout=5)
+        resp = requests.get(f"{_host}/api/tags", timeout=5, headers=headers or {})
         return resp.json().get("models", [])  # type: ignore[no-any-return]
     except Exception:
         return []
@@ -126,15 +132,23 @@ def prewarm_timed(model_name: str) -> tuple[float, float, float]:
     return load_time, vram_before, vram_after
 
 
-def load_tests(selected_ids: list[str]) -> list[dict[str, Any]]:
+def load_tests_all() -> list[dict[str, Any]]:
+    """Load all test cases from agentic-tasks.json (no ID filter)."""
     path = PROJECT_ROOT / "test-datasets" / "agentic-tasks.json"
-    with open(path) as f:
-        all_tests: list[dict[str, Any]] = json.load(f)["agentic_test_cases"]
-    return [t for t in all_tests if t["id"] in selected_ids]
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)["agentic_test_cases"]  # type: ignore[no-any-return]
+
+
+def load_tests(selected_ids: list[str]) -> list[dict[str, Any]]:
+    return [t for t in load_tests_all() if t["id"] in selected_ids]
 
 
 def run_test(
-    model: str, test: dict[str, Any], sampler: MetricsSampler, host: str | None = None
+    model: str,
+    test: dict[str, Any],
+    sampler: MetricsSampler,
+    host: str | None = None,
+    headers: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     _host = _normalize_host(host) if host is not None else get_ollama_host()
     mode = detect_mode(_host)
@@ -145,12 +159,15 @@ def run_test(
         "stream": False,
         "options": {"temperature": 0.1},
     }
+    req_headers = headers or {}
     if mode == "local":
         sampler.start()
     error_type: str = ""
     try:
         t0 = time.time()
-        resp = requests.post(f"{_host}/api/generate", json=payload, timeout=TEST_TIMEOUT)
+        resp = requests.post(
+            f"{_host}/api/generate", json=payload, headers=req_headers, timeout=TEST_TIMEOUT
+        )
         elapsed = time.time() - t0
         data = resp.json()
         ollama_error = data.get("error", "")
@@ -203,5 +220,6 @@ def run_test(
         "peak_gpu_pct": round(peak.get("gpu_pct", 0), 1) if mode == "local" else None,
         "peak_vram_used_gb": round(peak.get("vram_used_gb", 0), 2) if mode == "local" else None,
         "mode": mode,
-        "vram_server_gb": fetch_server_vram(_host, model),
+        "host": _host,
+        "vram_server_gb": fetch_server_vram(_host, model, headers=req_headers or None),
     }
