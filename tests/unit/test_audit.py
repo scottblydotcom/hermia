@@ -156,6 +156,12 @@ def test_render_html_escapes_xss() -> None:
     assert "&lt;script&gt;" in html
 
 
+def test_render_html_zero_numeric_fields_not_empty() -> None:
+    row = {**_ROW_WITH_SYSTEM, "elapsed_sec": 0, "tokens_per_sec": 0.0}
+    html = render_html([row])
+    assert ">0s<" in html or ">0<" in html
+
+
 def test_render_html_pass_badge() -> None:
     html = render_html([_ROW_WITH_SYSTEM])
     assert 'badge pass' in html or 'class="badge pass"' in html
