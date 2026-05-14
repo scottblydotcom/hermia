@@ -190,6 +190,16 @@ def test_run_audit_jsonl_to_stdout(tmp_path: Path, capsys: pytest.CaptureFixture
     assert parsed["test_id"] == "tool-calling-basic"
 
 
+def test_run_audit_jsonl_to_file(tmp_path: Path) -> None:
+    jl = tmp_path / "eval_20260513_120000.jsonl"
+    jl.write_text(json.dumps(_ROW_WITH_SYSTEM) + "\n", encoding="utf-8")
+    out_file = tmp_path / "audit.jsonl"
+    run_audit(jl, fmt="jsonl", output=out_file)
+    lines = [ln for ln in out_file.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    assert len(lines) == 1
+    assert json.loads(lines[0])["test_id"] == "tool-calling-basic"
+
+
 def test_run_audit_html_to_file(tmp_path: Path) -> None:
     jl = tmp_path / "eval_20260513_120000.jsonl"
     jl.write_text(json.dumps(_ROW_WITH_SYSTEM) + "\n", encoding="utf-8")
