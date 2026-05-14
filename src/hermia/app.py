@@ -53,7 +53,32 @@ def main() -> None:
         metavar="FILE",
         help="YAML fleet config; runs headless eval against all hosts and exits",
     )
+    parser.add_argument(
+        "--audit",
+        nargs="?",
+        const=True,
+        metavar="FILE",
+        help="Print audit report from FILE (or all results/) and exit",
+    )
+    parser.add_argument(
+        "--audit-format",
+        choices=["jsonl", "html"],
+        default="jsonl",
+        dest="audit_format",
+        help="Audit output format: jsonl (default) or html",
+    )
     args = parser.parse_args()
+
+    if args.audit is not None:
+        from hermia.audit import run_audit
+        from hermia.screens import RESULTS_DIR
+
+        source = RESULTS_DIR if args.audit is True else Path(args.audit)
+        if not source.exists():
+            print(f"hermia: audit source not found: {source}", file=sys.stderr)
+            sys.exit(1)
+        run_audit(source, fmt=args.audit_format)
+        sys.exit(0)
 
     if args.fleet:
         from hermia.fleet import load_fleet_config, run_fleet
