@@ -134,12 +134,26 @@ def run_audit(
     output: Path | None = None,
 ) -> None:
     """Read JSONL eval results and write a formatted audit to stdout or a file."""
-    rows = list(_enrich(_iter_rows(source)))
-    if not rows:
-        print(f"hermia: no results found in {source}", file=sys.stderr)
-        return
-    content = render_html(rows) if fmt == "html" else render_jsonl(rows)
-    if output is not None:
-        output.write_text(content, encoding="utf-8")
+    if fmt == "html":
+        rows = list(_enrich(_iter_rows(source)))
+        if not rows:
+            print(f"hermia: no results found in {source}", file=sys.stderr)
+            return
+        content = render_html(rows)
+        if output is not None:
+            output.write_text(content, encoding="utf-8")
+        else:
+            print(content)
     else:
-        print(content)
+        count = 0
+        if output is not None:
+            with output.open("w", encoding="utf-8") as f:
+                for row in _enrich(_iter_rows(source)):
+                    f.write(json.dumps(row) + "\n")
+                    count += 1
+        else:
+            for row in _enrich(_iter_rows(source)):
+                print(json.dumps(row))
+                count += 1
+        if count == 0:
+            print(f"hermia: no results found in {source}", file=sys.stderr)
