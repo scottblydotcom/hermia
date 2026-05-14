@@ -529,3 +529,27 @@ def test_run_test_local_mode_still_collects_metrics() -> None:
     assert result["peak_ram_used_gb"] == 16.5
     assert result["peak_gpu_pct"] == 90.0
     assert result["peak_vram_used_gb"] == 22.3
+
+
+# hermia-aud: raw_system capture + None-guard
+# ---------------------------------------------------------------------------
+
+
+def test_run_test_has_raw_system_equal_to_test_system() -> None:
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"response": '{"ok": true}', "eval_count": 5, "error": ""}
+    with patch("hermia.runner.requests.post", return_value=mock_resp):
+        with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
+            result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
+    assert result["raw_system"] == _BASE_TEST["system"]
+
+
+def test_run_test_response_null_coerced_to_empty_string() -> None:
+    """Ollama sends {"response": null} — must not crash; raw_response and output_preview are ""."""
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"response": None, "eval_count": 0, "error": ""}
+    with patch("hermia.runner.requests.post", return_value=mock_resp):
+        with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
+            result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
+    assert result["raw_response"] == ""
+    assert result["output_preview"] == ""
