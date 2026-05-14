@@ -47,34 +47,34 @@ _ROW_ERROR = {
 
 def test_enrich_leaves_row_with_raw_system_unchanged() -> None:
     rows = [dict(_ROW_WITH_SYSTEM)]
-    result = _enrich(rows)
+    result = list(_enrich(rows))
     assert result[0]["raw_system"] == "You are a helpful assistant."
 
 
 def test_enrich_adds_raw_system_from_dataset_when_missing() -> None:
     fake_tests = [{"id": "tool-calling-basic", "system": "System from dataset."}]
     with patch("hermia.audit.load_tests_all", return_value=fake_tests):
-        result = _enrich([dict(_ROW_WITHOUT_SYSTEM)])
+        result = list(_enrich([dict(_ROW_WITHOUT_SYSTEM)]))
     assert result[0]["raw_system"] == "System from dataset."
 
 
 def test_enrich_uses_empty_string_when_test_id_not_in_dataset() -> None:
     with patch("hermia.audit.load_tests_all", return_value=[]):
-        result = _enrich([dict(_ROW_WITHOUT_SYSTEM)])
+        result = list(_enrich([dict(_ROW_WITHOUT_SYSTEM)]))
     assert result[0]["raw_system"] == ""
 
 
 def test_enrich_does_not_call_dataset_when_all_rows_have_raw_system() -> None:
     rows = [dict(_ROW_WITH_SYSTEM)]
     with patch("hermia.audit.load_tests_all", side_effect=AssertionError("should not call")):
-        result = _enrich(rows)
+        result = list(_enrich(rows))
     assert result[0]["raw_system"] == "You are a helpful assistant."
 
 
 def test_enrich_does_not_mutate_original_row() -> None:
     original = dict(_ROW_WITHOUT_SYSTEM)
     with patch("hermia.audit.load_tests_all", return_value=[]):
-        _enrich([original])
+        list(_enrich([original]))
     assert "raw_system" not in original
 
 
