@@ -15,8 +15,8 @@ from hermia.runner import load_tests_all
 def _load_system_prompts() -> dict[str, str]:
     """Return {test_id: system_prompt} from the bundled test dataset."""
     try:
-        return {t["id"]: t.get("system", "") for t in load_tests_all()}
-    except (OSError, json.JSONDecodeError, KeyError):
+        return {t["id"]: t.get("system", "") for t in load_tests_all() if "id" in t}
+    except (OSError, json.JSONDecodeError):
         return {}
 
 
@@ -31,11 +31,12 @@ def _iter_rows(source: Path) -> Iterator[dict[str, Any]]:
 
 def _enrich(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Add raw_system to rows that lack it via dataset lookup (backward compat)."""
-    needs_lookup = any("raw_system" not in r for r in rows)
-    sys_map = _load_system_prompts() if needs_lookup else {}
+    sys_map: dict[str, str] | None = None
     enriched = []
     for row in rows:
         if "raw_system" not in row:
+            if sys_map is None:
+                sys_map = _load_system_prompts()
             row = {**row, "raw_system": sys_map.get(str(row.get("test_id", "")), "")}
         enriched.append(row)
     return enriched
