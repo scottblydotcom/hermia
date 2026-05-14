@@ -15,7 +15,7 @@ def _load_system_prompts() -> dict[str, str]:
     """Return {test_id: system_prompt} from the bundled test dataset."""
     try:
         return {t["id"]: t.get("system", "") for t in load_tests_all()}
-    except Exception:  # noqa: BLE001
+    except (OSError, json.JSONDecodeError, KeyError):
         return {}
 
 
@@ -50,7 +50,7 @@ def render_html(rows: list[dict[str, Any]]) -> str:
     passed = sum(1 for r in rows if r.get("schema_compliant"))
 
     def esc(v: object) -> str:
-        return _html.escape(str(v or ""))
+        return _html.escape(str(v)) if v is not None else ""
 
     cards: list[str] = []
     for r in rows:
@@ -91,14 +91,14 @@ def render_html(rows: list[dict[str, Any]]) -> str:
         "border-radius:6px;margin-bottom:2rem}",
         ".result{background:#161b22;border-radius:6px;padding:1.5rem;"
         "margin-bottom:1rem;border-left:4px solid #58a6ff}",
-        ".result.pass{border-left-color:#3fb950}"
-        ".result.fail{border-left-color:#f85149}"
+        ".result.pass{border-left-color:#3fb950}",
+        ".result.fail{border-left-color:#f85149}",
         ".result.error{border-left-color:#d29922}",
         ".badge{font-size:.75rem;padding:.2rem .5rem;border-radius:4px}",
-        ".badge.pass{background:#196c2e;color:#56d364}"
-        ".badge.fail{background:#67060c;color:#f85149}"
+        ".badge.pass{background:#196c2e;color:#56d364}",
+        ".badge.fail{background:#67060c;color:#f85149}",
         ".badge.error{background:#4d2d00;color:#e3b341}",
-        "h2{margin-top:0}"
+        "h2{margin-top:0}",
         "h3{color:#8b949e;font-size:.85rem;margin-bottom:.25rem}",
         "pre{background:#0d1117;padding:1rem;border-radius:4px;"
         "overflow-x:auto;white-space:pre-wrap;font-size:.85rem}",
