@@ -15,7 +15,7 @@ from hermia.runner import load_tests_all
 def _load_system_prompts() -> dict[str, str]:
     """Return {test_id: system_prompt} from the bundled test dataset."""
     try:
-        return {t["id"]: t.get("system", "") for t in load_tests_all() if "id" in t}
+        return {t["id"]: t.get("system") or "" for t in load_tests_all() if "id" in t}
     except (OSError, json.JSONDecodeError):
         return {}
 
