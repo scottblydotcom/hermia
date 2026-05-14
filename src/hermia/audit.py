@@ -3,7 +3,7 @@
 import html as _html
 import json
 import sys
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -29,17 +29,16 @@ def _iter_rows(source: Path) -> Iterator[dict[str, Any]]:
             yield from load_jsonl(p)
 
 
-def _enrich(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Add raw_system to rows that lack it via dataset lookup (backward compat)."""
+def _enrich(rows: Iterable[dict[str, Any]]) -> Iterator[dict[str, Any]]:
+    """Yield rows, adding raw_system via dataset lookup where absent (backward compat)."""
     sys_map: dict[str, str] | None = None
-    enriched = []
     for row in rows:
         if "raw_system" not in row:
             if sys_map is None:
                 sys_map = _load_system_prompts()
-            row = {**row, "raw_system": sys_map.get(str(row.get("test_id", "")), "")}
-        enriched.append(row)
-    return enriched
+            yield {**row, "raw_system": sys_map.get(str(row.get("test_id", "")), "")}
+        else:
+            yield row
 
 
 def render_jsonl(rows: list[dict[str, Any]]) -> str:
@@ -135,7 +134,7 @@ def run_audit(
     output: Path | None = None,
 ) -> None:
     """Read JSONL eval results and write a formatted audit to stdout or a file."""
-    rows = _enrich(list(_iter_rows(source)))
+    rows = list(_enrich(_iter_rows(source)))
     if not rows:
         print(f"hermia: no results found in {source}", file=sys.stderr)
         return
