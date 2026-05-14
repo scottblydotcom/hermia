@@ -2,6 +2,7 @@
 
 import html as _html
 import json
+import sys
 from collections.abc import Iterator
 from datetime import datetime
 from pathlib import Path
@@ -134,6 +135,9 @@ def run_audit(
 ) -> None:
     """Read JSONL eval results and write a formatted audit to stdout or a file."""
     rows = _enrich(list(_iter_rows(source)))
+    if not rows:
+        print(f"hermia: no results found in {source}", file=sys.stderr)
+        return
     content = render_html(rows) if fmt == "html" else render_jsonl(rows)
     if output is not None:
         output.write_text(content, encoding="utf-8")

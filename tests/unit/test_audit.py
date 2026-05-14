@@ -211,3 +211,23 @@ def test_run_audit_enriches_missing_raw_system(
     out = capsys.readouterr().out
     parsed = json.loads(out.strip())
     assert parsed["raw_system"] == "Enriched system."
+
+
+def test_run_audit_empty_directory_warns_to_stderr(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    run_audit(tmp_path, fmt="jsonl")
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "no results found" in captured.err
+
+
+def test_run_audit_empty_file_warns_to_stderr(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    jl = tmp_path / "eval_empty.jsonl"
+    jl.write_text("", encoding="utf-8")
+    run_audit(jl, fmt="jsonl")
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "no results found" in captured.err
