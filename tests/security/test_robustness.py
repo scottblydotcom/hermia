@@ -112,3 +112,76 @@ def test_custom_threshold():
 
     # Confirm default constant is still 0.8
     assert ROBUSTNESS_THRESHOLD == 0.8
+
+
+# ---------------------------------------------------------------------------
+# hermia-0ws: score_rows() tests
+# ---------------------------------------------------------------------------
+
+try:
+    from hermia.robustness import score_rows  # speculative — red until implemented
+except ImportError:
+    def score_rows(*_a, **_kw):  # type: ignore[misc]
+        raise NotImplementedError("score_rows not yet implemented")
+
+
+def _row(schema_compliant: bool, failure_reason: str = "") -> dict:
+    return {"schema_compliant": schema_compliant, "failure_reason": failure_reason}
+
+
+def test_score_rows_empty():
+    result = score_rows([])
+    assert result == RobustnessResult(
+        n=0, pass_count=0, refusal_count=0, consistency_pct=0.0, is_robust=False
+    )
+
+
+def test_score_rows_all_pass():
+    rows = [_row(True), _row(True), _row(True)]
+    result = score_rows(rows)
+    assert result.n == 3
+    assert result.pass_count == 3
+    assert result.consistency_pct == pytest.approx(1.0)
+
+
+def test_score_rows_all_fail_schema():
+    rows = [_row(False), _row(False), _row(False)]
+    result = score_rows(rows)
+    assert result.pass_count == 0
+    assert result.consistency_pct == pytest.approx(1.0)
+
+
+def test_score_rows_all_fail_error():
+    rows = [
+        _row(True, "TIMEOUT"),
+        _row(True, "TIMEOUT"),
+        _row(False, "TIMEOUT"),
+    ]
+    result = score_rows(rows)
+    assert result.pass_count == 0
+
+
+def test_score_rows_mixed():
+    rows = [_row(True), _row(True), _row(False)]
+    result = score_rows(rows)
+    assert result.pass_count == 2
+    assert result.consistency_pct == pytest.approx(2 / 3)
+    assert result.is_robust is False
+
+
+def test_score_rows_failure_reason_overrides():
+    # schema_compliant=True but failure_reason is non-empty → fail
+    row = _row(True, failure_reason="TIMEOUT: 90s exceeded")
+    result = score_rows([row])
+    assert result.pass_count == 0
+
+
+def test_score_rows_no_refusal_count():
+    # refusal_count must always be 0 regardless of content
+    rows = [
+        _row(True),
+        _row(False, "TIMEOUT"),
+        {"schema_compliant": False, "failure_reason": "refusal detected"},
+    ]
+    result = score_rows(rows)
+    assert result.refusal_count == 0

@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from hermia.export import collect_results, compute_score, main, push
+from hermia.export import _INSERT_SQL, _PG_COLUMNS, collect_results, compute_score, main, push
 from hermia.results import load_jsonl
 
 _ROW = {
@@ -286,3 +286,268 @@ def test_main_dsn_from_env(tmp_path: Path, monkeypatch) -> None:
         rc = main(results_dir=tmp_path, dry_run=False)
     assert rc == 0
     mock_pg.connect.assert_called_once_with("postgresql://envtest")
+
+
+# ---------------------------------------------------------------------------
+# hermia-36u: Framework field round-trips
+# ---------------------------------------------------------------------------
+
+_FW = {
+    "owasp_llm_top10_2025": ["LLM01:2025", "LLM07:2025"],
+    "mitre_atlas_v5_1": ["AML.T0100"],
+    "csa_maestro": [],
+    "nist_ai_rmf": [],
+}
+
+_ROW_WITH_FW = {**_ROW, "frameworks": _FW}
+
+
+def test_framework_field_survives_jsonl_round_trip(tmp_path: Path) -> None:
+    p = tmp_path / "eval_20260510_120000.jsonl"
+    _write_jsonl(p, [_ROW_WITH_FW])
+    rows = load_jsonl(p)
+    assert rows[0]["frameworks"] == _FW
+
+
+def test_push_dry_run_expands_framework_columns(capsys, tmp_path: Path) -> None:
+    push([_ROW_WITH_FW], dsn="", dry_run=True)
+    out = capsys.readouterr().out
+    assert "dry-run" in out
+    assert "Would process 1" in out
+
+
+def test_push_framework_columns_populated_from_nested_dict() -> None:
+    import sys
+
+    captured_records: list = []
+
+    mock_pg = MagicMock()
+    mock_extras = MagicMock()
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_cur.__enter__ = MagicMock(return_value=mock_cur)
+    mock_cur.__exit__ = MagicMock(return_value=False)
+    mock_conn.cursor.return_value = mock_cur
+    mock_pg.connect.return_value = mock_conn
+
+    def capture_batch(cur, sql, records):
+        captured_records.extend(records)
+
+    mock_extras.execute_batch.side_effect = capture_batch
+
+    with patch.dict(sys.modules, {"psycopg2": mock_pg, "psycopg2.extras": mock_extras}):
+        push([_ROW_WITH_FW], dsn="postgresql://test", dry_run=False)
+
+    assert len(captured_records) == 1
+    rec = captured_records[0]
+    assert rec["framework_owasp"] == ["LLM01:2025", "LLM07:2025"]
+    assert rec["framework_mitre"] == ["AML.T0100"]
+    assert rec["framework_maestro"] == []
+    assert rec["framework_nist"] == []
+
+
+# ---------------------------------------------------------------------------
+# hermia-0ws: new repeat/aggregate column tests
+# ---------------------------------------------------------------------------
+
+
+
+def test_pg_columns_includes_repeat_fields() -> None:
+    new_fields = {
+        "run_index",
+        "is_cold",
+        "cold_warm_delta_tps",
+        "consistency_pct",
+        "pass_count",
+        "robustness_n",
+    }
+    assert new_fields.issubset(set(_PG_COLUMNS)), (
+        f"Missing from _PG_COLUMNS: {new_fields - set(_PG_COLUMNS)}"
+    )
+
+
+def test_on_conflict_includes_run_index() -> None:
+    assert "run_index" in _INSERT_SQL, (
+        "ON CONFLICT clause must include run_index"
+    )
+
+
+def test_push_dry_run_new_fields() -> None:
+    """dry-run with rows containing new aggregate fields must not raise."""
+    row_with_new_fields = {
+        **_ROW,
+        "run_index": 1,
+        "is_cold": True,
+        "cold_warm_delta_tps": None,
+        "consistency_pct": 1.0,
+        "pass_count": 1,
+        "robustness_n": 1,
+    }
+    push([row_with_new_fields], dsn="", dry_run=True)  # must not raise
+
+
+def test_push_framework_columns_default_to_empty_for_old_rows() -> None:
+    import sys
+
+    captured_records: list = []
+
+    mock_pg = MagicMock()
+    mock_extras = MagicMock()
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_cur.__enter__ = MagicMock(return_value=mock_cur)
+    mock_cur.__exit__ = MagicMock(return_value=False)
+    mock_conn.cursor.return_value = mock_cur
+    mock_pg.connect.return_value = mock_conn
+
+    def capture_batch(cur, sql, records):
+        captured_records.extend(records)
+
+    mock_extras.execute_batch.side_effect = capture_batch
+
+    with patch.dict(sys.modules, {"psycopg2": mock_pg, "psycopg2.extras": mock_extras}):
+        push([_ROW], dsn="postgresql://test", dry_run=False)
+
+    assert len(captured_records) == 1
+    rec = captured_records[0]
+    assert rec["framework_owasp"] == []
+    assert rec["framework_mitre"] == []
+    assert rec["framework_maestro"] == []
+    assert rec["framework_nist"] == []
+
+
+# ---------------------------------------------------------------------------
+# hermia-1bf: SQL injection round-trip
+# ---------------------------------------------------------------------------
+
+
+def test_sql_injection_values_pass_through_verbatim() -> None:
+    """Hostile model/test_id strings must appear verbatim in the parameter dict
+    and must never be interpolated into the SQL template itself."""
+    import sys
+
+    hostile_model = "'; DROP TABLE hermia_results;--"
+    hostile_test_id = "<script>alert(1)</script>"
+
+    row = {
+        **_ROW,
+        "model": hostile_model,
+        "test_id": hostile_test_id,
+    }
+
+    captured_calls: list = []
+
+    mock_pg = MagicMock()
+    mock_extras = MagicMock()
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_cur.__enter__ = MagicMock(return_value=mock_cur)
+    mock_cur.__exit__ = MagicMock(return_value=False)
+    mock_conn.cursor.return_value = mock_cur
+    mock_pg.connect.return_value = mock_conn
+
+    def capture_batch(cur, sql, records):
+        assert hostile_model not in sql
+        assert hostile_test_id not in sql
+        captured_calls.append((sql, records))
+
+    mock_extras.execute_batch.side_effect = capture_batch
+
+    with patch.dict(sys.modules, {"psycopg2": mock_pg, "psycopg2.extras": mock_extras}):
+        push([row], dsn="postgresql://test", dry_run=False)
+
+    assert len(captured_calls) == 1
+    sql, records = captured_calls[0]
+    assert sql == _INSERT_SQL
+    assert records[0]["model"] == hostile_model
+    assert records[0]["test_id"] == hostile_test_id
+
+
+# ---------------------------------------------------------------------------
+# hermia-97t: judge_score / judge_reasoning columns
+# ---------------------------------------------------------------------------
+
+
+def test_pg_columns_includes_judge_fields() -> None:
+    assert "judge_score" in _PG_COLUMNS
+    assert "judge_reasoning" in _PG_COLUMNS
+
+
+def test_v01_rows_write_null_for_judge_fields() -> None:
+    """v0.1 result rows have no judge fields — both columns must be NULL in the
+    parameter dict so the DB receives NULL, not a missing-key error."""
+    import sys
+
+    captured_calls: list = []
+
+    mock_pg = MagicMock()
+    mock_extras = MagicMock()
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_cur.__enter__ = MagicMock(return_value=mock_cur)
+    mock_cur.__exit__ = MagicMock(return_value=False)
+    mock_conn.cursor.return_value = mock_cur
+    mock_pg.connect.return_value = mock_conn
+
+    def capture_batch(cur, sql, records):
+        captured_calls.append(records)
+
+    mock_extras.execute_batch.side_effect = capture_batch
+
+    with patch.dict(sys.modules, {"psycopg2": mock_pg, "psycopg2.extras": mock_extras}):
+        push([_ROW], dsn="postgresql://test", dry_run=False)
+
+    assert len(captured_calls) == 1
+    rec = captured_calls[0][0]
+    assert rec["judge_score"] is None
+    assert rec["judge_reasoning"] is None
+
+
+# ---------------------------------------------------------------------------
+# hermia-pg4: mode and vram_server_gb columns
+# ---------------------------------------------------------------------------
+
+
+def test_pg_columns_includes_mode() -> None:
+    assert "mode" in _PG_COLUMNS
+
+
+def test_pg_columns_includes_vram_server_gb() -> None:
+    assert "vram_server_gb" in _PG_COLUMNS
+
+
+def test_push_dry_run_includes_mode_and_vram_server_gb(tmp_path: Path, capsys) -> None:
+    """mode and vram_server_gb survive the push pipeline in dry-run."""
+    row = {
+        **_ROW,
+        "mode": "fleet",
+        "vram_server_gb": 18.5,
+        "frameworks": {},
+    }
+    p = tmp_path / "eval_20260509_120000.jsonl"
+    _write_jsonl(p, [row])
+    rows = collect_results(tmp_path)
+    push(rows, dsn="", dry_run=True)
+    captured = capsys.readouterr()
+    assert "Would process 1 row" in captured.out
+
+
+# ---------------------------------------------------------------------------
+# hermia-rpr: raw_prompt and raw_response columns
+# ---------------------------------------------------------------------------
+
+
+def test_pg_columns_includes_raw_prompt() -> None:
+    assert "raw_prompt" in _PG_COLUMNS
+
+
+def test_pg_columns_includes_raw_response() -> None:
+    assert "raw_response" in _PG_COLUMNS

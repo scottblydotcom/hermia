@@ -21,6 +21,9 @@ benchmarking measures actual model load time from a clean VRAM state, not cached
 Because "how fast is it really" is a different question than "how fast is it after it's
 already warm."
 
+**Current scope:** single-turn evaluation against Ollama-compatible local endpoints.
+Multi-endpoint and cloud API support (OpenAI, LiteLLM, Anthropic, Google, Bedrock) land in v0.2.
+
 ---
 
 ## Why Hermia Exists
@@ -30,7 +33,7 @@ currently valued at roughly the GDP of a medium-sized country. It has hundreds o
 years of community contributions, serious research backing, and a team of people whose
 full-time job is this. You should use it.
 
-Hermia is built in a homelab. Different scale. Genuinely different problem.
+Hermia is built in a consultancy lab. Different scale. Genuinely different problem.
 
 Garak asks: *is this model vulnerable to known attack patterns?*
 
@@ -91,6 +94,22 @@ No cloud API keys required. No data leaves your machine.
 
 ---
 
+## Hardware Support
+
+| Platform | GPU | Status |
+|---|---|---|
+| Linux | AMD ROCm (gfx900 / RX series) | ✅ Tested |
+| Linux | NVIDIA CUDA (sm_89 / RTX series) | ✅ Tested* |
+| macOS | Apple Silicon (M1 / M2 / M3 / M4) | ✅ Tested |
+| Linux | Intel iGPU | ⚠️ Best-effort |
+| Linux / macOS | CPU-only (no discrete GPU) | ✅ Supported |
+| Windows | Any | ❌ Not yet |
+
+*NVIDIA metrics tested on Linux eval client. Windows Ollama servers are supported as fleet
+targets via `--host`; running Hermia itself on Windows is not yet supported.
+
+---
+
 ## Install
 
 From source (pre-PyPI):
@@ -117,13 +136,27 @@ hermia
 ```
 
 Hermia opens a TUI. Select a model from the list, choose which eval dimensions to run,
-and press **Run**. Results appear live alongside system metrics.
+and press **Run**. Results appear live alongside system metrics. Each run writes
+`results/eval_TIMESTAMP.jsonl` and `results/eval_TIMESTAMP.csv`.
 
-To run the regression detection script against a saved results file:
+See the [Getting Started Guide](docs/usage.md) for a full walkthrough: result
+interpretation, `--repeat N` consistency scoring, fleet mode, regression detection,
+and Postgres export.
 
-```bash
-hermia-regression results/all-results.json
-```
+---
+
+## Roadmap
+
+**v0.2 — Endpoint Bus** (target ~2026-06-15): Hermia evaluates anything that speaks
+OpenAI-compatible — LiteLLM, OpenAI, Anthropic, Google, Bedrock, plus local Ollama. Fleet
+config file for multi-host runs; backend stack tagging by GPU arch and runtime version.
+
+**v0.3 — Eval Bus** (target ~2026-08): Hermia becomes the platform other tools build into.
+Probe adapters for Garak, PyRIT, and HarmBench pull their results into Hermia's
+hardware-correlated, framework-mapped view alongside Hermia's own probes. LLM-as-judge
+scoring; Sink interface for custom output destinations (Prometheus, webhook, S3).
+
+See [docs/roadmap.md](docs/roadmap.md) for the full plan.
 
 ---
 
@@ -132,12 +165,9 @@ hermia-regression results/all-results.json
 **Pre-release.** This is a working research project, not a polished product. The core eval
 suite is stable and passing. The security pipeline (gitleaks, trivy, bandit, pip-audit,
 ruff, mypy) is more rigorous than the author initially expected to need for a research tool.
-Active development continues.
+Active development continues toward the v0.1.0 release (target 2026-05-23).
 
-Pending before PyPI publication:
-- Grafana metrics exporter (eval pass rates as Prometheus gauges)
-- Expanded domain coverage (healthcare agent, financial agent, DevOps CI secrets)
-- Fleet output quality scoring
+PyPI publication is planned after v0.1.0 stabilizes.
 
 ---
 
@@ -147,6 +177,34 @@ Pending before PyPI publication:
 Apollo's cattle) + **Pythia** (the Oracle of Delphi, who spoke for Apollo).
 
 The tool steals answers from the Oracle and tells you which one to trust.
+
+---
+
+## Documentation
+
+- [Getting Started Guide](docs/usage.md) — install, run, interpret results, fleet mode, Postgres export
+- [Roadmap](docs/roadmap.md) — v0.2 endpoint bus, v0.3 eval bus, full backlog
+
+---
+
+## Security
+
+Hermia communicates with Ollama via `/api/tags`, `/api/generate`, and `/api/ps`.
+It never uploads model files and is not affected by model-upload CVEs
+(CVE-2026-7482, CVE-2026-5757).
+
+**Protect your Ollama instance:**
+
+- Run Ollama bound to `127.0.0.1` (the default) — never expose port 11434 publicly
+- Keep Ollama upgraded; 0.17.1+ patches CVE-2026-7482 (CVSS 9.1, heap memory
+  disclosure via crafted GGUF upload, nicknamed "Bleeding Llama")
+- CVE-2026-5757 (same attack class, no upstream patch as of May 2026) — restrict
+  `/api/create` access at the network or firewall layer
+- Fleet deployments: use `hermia-fleet.yaml` `auth` blocks or a Tailscale overlay
+  to prevent unauthenticated access to remote Ollama endpoints
+
+Hermia surfaces known Ollama version vulnerabilities at run time in the preflight
+log as `SEC ⚠` warnings.
 
 ---
 

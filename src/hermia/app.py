@@ -1,9 +1,15 @@
 """Hermia EvalApp — entry point."""
 
+import argparse
+import os
+import sys
+from datetime import date
+from pathlib import Path
+
 from textual.app import App
 
 from hermia.metrics import detect_gpu
-from hermia.runner import get_available_models
+from hermia.runner import detect_mode, get_available_models
 from hermia.screens import SelectionScreen
 
 
@@ -11,17 +17,90 @@ class EvalApp(App):  # type: ignore[type-arg]
     TITLE = "Hermia LLM Eval"
     BINDINGS = [("q", "quit", "Quit")]
 
-    def __init__(self) -> None:
+    def __init__(self, fleet_mode: bool = False, repeat: int = 1) -> None:
         super().__init__()
+        self.fleet_mode = fleet_mode
+        self.repeat = repeat
         self.model_list = get_available_models()
         self.gpu_info = detect_gpu()
 
     def on_mount(self) -> None:
-        self.push_screen(SelectionScreen())
+        self.push_screen(SelectionScreen(repeat=self.repeat))
+
+
+def _positive_int(value: str) -> int:
+    ivalue = int(value)
+    if ivalue < 1:
+        raise argparse.ArgumentTypeError(f"N must be >= 1, got {value}")
+    return ivalue
 
 
 def main() -> None:
-    EvalApp().run()
+    parser = argparse.ArgumentParser(description="Hermia LLM Eval")
+    parser.add_argument(
+        "--host",
+        default="http://localhost:11434",
+        help="Ollama base URL (default: http://localhost:11434)",
+    )
+    parser.add_argument(
+        "--repeat",
+        type=_positive_int,
+        default=1,
+        metavar="N",
+        help="Run each (model, test) pair N times (default: 1)",
+    )
+    parser.add_argument(
+        "--fleet",
+        metavar="FILE",
+        help="YAML fleet config; runs headless eval against all hosts and exits",
+    )
+    parser.add_argument(
+        "--audit",
+        nargs="?",
+        const=True,
+        metavar="FILE",
+        help="Print audit report from FILE (or all results/) and exit",
+    )
+    parser.add_argument(
+        "--audit-format",
+        choices=["jsonl", "html"],
+        default="jsonl",
+        dest="audit_format",
+        help="Audit output format: jsonl (default) or html",
+    )
+    args = parser.parse_args()
+
+    if args.audit is not None:
+        from hermia.audit import run_audit
+        from hermia.screens import RESULTS_DIR
+
+        source = RESULTS_DIR if args.audit is True else Path(args.audit)
+        if not source.exists():
+            print(f"hermia: audit source not found: {source}", file=sys.stderr)
+            sys.exit(1)
+        out_file: Path | None = None
+        if args.audit_format == "html" and sys.stdout.isatty():
+            out_file = Path(f"hermia-audit-{date.today().isoformat()}.html")
+            print(f"hermia: writing report to {out_file}", file=sys.stderr)
+        run_audit(source, fmt=args.audit_format, output=out_file)
+        sys.exit(0)
+
+    if args.fleet:
+        from hermia.fleet import load_fleet_config, run_fleet
+        from hermia.screens import RESULTS_DIR
+
+        try:
+            entries = load_fleet_config(Path(args.fleet))
+            run_fleet(entries, repeat=args.repeat, results_dir=RESULTS_DIR)
+        except (ValueError, RuntimeError, OSError) as exc:
+            print(f"hermia: {exc}", file=sys.stderr)
+            sys.exit(1)
+        sys.exit(0)
+
+    os.environ["HERMIA_HOST"] = args.host.rstrip("/")
+    fleet_mode = detect_mode(args.host) == "fleet"
+
+    EvalApp(fleet_mode=fleet_mode, repeat=args.repeat).run()
 
 
 if __name__ == "__main__":

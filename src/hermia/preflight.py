@@ -1,5 +1,6 @@
-"""Pre-run sanity checks: VRAM, system RAM, and disk space."""
+"""Pre-run sanity checks: VRAM, system RAM, disk space, and Ollama security posture."""
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,8 @@ from hermia.metrics import get_gpu_stats
 VRAM_OVERHEAD_GB = 0.75  # headroom reserved for Ollama runtime
 RAM_LOAD_MULTIPLIER = 1.5  # approximate RAM needed for CPU-only inference
 MIN_DISK_FREE_GB = 0.5
+DEFAULT_OLLAMA_HOST = "http://localhost:11434"
+OLLAMA_MIN_SECURE_VERSION = "0.17.1"  # fixes CVE-2026-7482 (CVSS 9.1, "Bleeding Llama")
 
 # Models confirmed incompatible with Ollama's Vulkan backend on gfx900 (Vega 64).
 # gemma2:9b falls back to CPU silently, produces garbled output, and fails all tests.
@@ -30,6 +33,62 @@ class ModelCheck:
     reason: str = ""
 
 
+def _normalize_host(host: str) -> str:
+    host = host.rstrip("/")
+    return host if "://" in host else f"http://{host}"
+
+
+def _parse_version(v: str) -> tuple[int, ...] | None:
+    """Parse 'vX.Y.Z[-pre][+build]' → (X, Y, Z, release_flag). Returns None on failure.
+
+    release_flag is 1 for release versions and 0 for pre-releases, so that
+    0.17.1-rc1 < 0.17.1 in tuple comparison (pre-release of the fix is still vulnerable).
+    Handles leading 'v' prefix and SemVer build metadata (+build.123).
+    """
+    try:
+        v = v.lstrip("v") if v else ""
+        has_prerelease = "-" in v.split("+")[0]
+        base = v.split("-")[0].split("+")[0]
+        parts = [int(x) for x in base.split(".")[:3]]
+        while len(parts) < 3:
+            parts.append(0)
+        parts.append(0 if has_prerelease else 1)
+        return tuple(parts)
+    except (ValueError, AttributeError):
+        return None
+
+
+_parsed_min = _parse_version(OLLAMA_MIN_SECURE_VERSION)
+_MIN_SECURE_VERSION_TUPLE: tuple[int, ...] = (
+    _parsed_min if _parsed_min is not None else (0, 17, 1, 1)
+)
+
+
+def check_ollama_security(host: str, fleet_mode: bool = False) -> list[str]:
+    """Query /api/version and return SEC warning strings. Never raises."""
+    warnings: list[str] = []
+    try:
+        import requests  # local import — optional network check, avoid startup overhead
+        resp = requests.get(f"{host}/api/version", timeout=3)
+        if resp.ok:
+            ver = resp.json().get("version", "")
+            v_tuple = _parse_version(ver)
+            if v_tuple is not None and v_tuple < _MIN_SECURE_VERSION_TUPLE:
+                warnings.append(
+                    f"SEC ⚠ CVE-2026-7482 (CVSS 9.1): Ollama {ver} is vulnerable "
+                    f"to heap memory disclosure — upgrade to {OLLAMA_MIN_SECURE_VERSION}+"
+                )
+    except Exception:  # noqa: BLE001
+        pass
+
+    if not fleet_mode:
+        warnings.append(
+            "SEC ⚠ CVE-2026-5757 (no patch): Ollama model upload endpoint is "
+            "unpatched — restrict /api/create to localhost or trusted networks"
+        )
+    return warnings
+
+
 @dataclass
 class PreflightReport:
     vram_total_gb: float
@@ -40,6 +99,7 @@ class PreflightReport:
     disk_free_gb: float
     disk_ok: bool
     models: list[ModelCheck] = field(default_factory=list)
+    security_warnings: list[str] = field(default_factory=list)
 
     @property
     def runnable_models(self) -> list[str]:
@@ -71,6 +131,7 @@ def run_preflight(
     selected_models: list[str],
     model_list: list[dict[str, Any]],
     results_dir: Path,
+    fleet_mode: bool = False,
 ) -> PreflightReport:
     _, vram_used, vram_total = get_gpu_stats()
     vram_available = max(0.0, vram_total - vram_used - VRAM_OVERHEAD_GB)
@@ -92,7 +153,7 @@ def run_preflight(
         fits_current_vram = size_gb <= vram_available
         fits_ram = (size_gb * RAM_LOAD_MULTIPLIER) <= ram_available_gb
 
-        if name in VULKAN_GFX900_BLOCKLIST:
+        if name in VULKAN_GFX900_BLOCKLIST and not fleet_mode:
             checks.append(ModelCheck(
                 name=name,
                 size_gb=size_gb,
@@ -104,18 +165,23 @@ def run_preflight(
             ))
             continue
 
-        skip = not fits_total_vram and not fits_ram
-        reason = ""
-        if not fits_total_vram and not fits_ram:
-            reason = (
-                f"{size_gb:.1f} GB exceeds total VRAM ({vram_total:.1f} GB) "
-                f"and available RAM ({ram_available_gb:.1f} GB)"
-            )
-        elif not fits_total_vram:
-            reason = (
-                f"{size_gb:.1f} GB exceeds total VRAM ({vram_total:.1f} GB) — "
-                f"CPU fallback possible but will be very slow"
-            )
+        # In fleet mode the remote server already has these models — trust it
+        if fleet_mode:
+            skip = False
+            reason = ""
+        else:
+            skip = not fits_total_vram and not fits_ram
+            reason = ""
+            if not fits_total_vram and not fits_ram:
+                reason = (
+                    f"{size_gb:.1f} GB exceeds total VRAM ({vram_total:.1f} GB) "
+                    f"and available RAM ({ram_available_gb:.1f} GB)"
+                )
+            elif not fits_total_vram:
+                reason = (
+                    f"{size_gb:.1f} GB exceeds total VRAM ({vram_total:.1f} GB) — "
+                    f"CPU fallback possible but will be very slow"
+                )
 
         checks.append(ModelCheck(
             name=name,
@@ -127,6 +193,9 @@ def run_preflight(
             reason=reason,
         ))
 
+    host = _normalize_host(os.environ.get("HERMIA_HOST", DEFAULT_OLLAMA_HOST))
+    sec = check_ollama_security(host, fleet_mode=fleet_mode)
+
     return PreflightReport(
         vram_total_gb=vram_total,
         vram_used_gb=vram_used,
@@ -136,4 +205,5 @@ def run_preflight(
         disk_free_gb=disk_free_gb,
         disk_ok=disk_free_gb >= MIN_DISK_FREE_GB,
         models=checks,
+        security_warnings=sec,
     )

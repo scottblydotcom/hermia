@@ -27,13 +27,30 @@ _PG_COLUMNS = (
     "peak_ram_used_gb",
     "peak_gpu_pct",
     "peak_vram_used_gb",
+    "framework_owasp",
+    "framework_mitre",
+    "framework_maestro",
+    "framework_nist",
     "score",
+    "run_index",
+    "is_cold",
+    "cold_warm_delta_tps",
+    "consistency_pct",
+    "pass_count",
+    "robustness_n",
+    "judge_score",
+    "judge_reasoning",
+    "mode",
+    "vram_server_gb",
+    "raw_system",
+    "raw_prompt",
+    "raw_response",
 )
 
 _INSERT_SQL = (
     f"INSERT INTO hermia_results ({', '.join(_PG_COLUMNS)}) "  # nosec B608 — columns from hardcoded tuple; values use psycopg2 %(name)s params
     f"VALUES ({', '.join(f'%({c})s' for c in _PG_COLUMNS)}) "
-    "ON CONFLICT (run_id, host, model, test_id) DO NOTHING"
+    "ON CONFLICT (run_id, host, model, test_id, run_index) DO NOTHING"
 )
 
 _REQUIRED_FIELDS = {"run_id", "host", "model", "test_id"}
@@ -70,10 +87,20 @@ def push(rows: list[dict[str, object]], dsn: str, dry_run: bool) -> None:
     if skipped:
         print(f"Skipped {skipped} row(s) missing mandatory fields (likely from older runs).")
 
+    fw_map = {
+        "framework_owasp": "owasp_llm_top10_2025",
+        "framework_mitre": "mitre_atlas_v5_1",
+        "framework_maestro": "csa_maestro",
+        "framework_nist": "nist_ai_rmf",
+    }
     records = []
     for row in valid_rows:
         rec = {c: row.get(c) for c in _PG_COLUMNS}
         rec["score"] = compute_score(row)
+        raw_fw = row.get("frameworks")
+        fw: dict[str, object] = raw_fw if isinstance(raw_fw, dict) else {}
+        for col, key in fw_map.items():
+            rec[col] = fw.get(key, [])
         records.append(rec)
 
     if dry_run:
