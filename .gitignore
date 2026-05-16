@@ -16,3 +16,4 @@ results/
 .env.*
 !.env.template
 session-notes/
+prompt.txt
