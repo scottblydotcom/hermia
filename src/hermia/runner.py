@@ -220,7 +220,7 @@ def run_test(
         failure_reason = "EMPTY_RESPONSE"
 
     tps = tokens / elapsed if elapsed > 0 and tokens > 0 else 0
-    preview = failure_reason if failure_reason else output[:120].replace("\n", " ")
+    preview = output[:120].replace("\n", " ") if output.strip() else failure_reason
     return {
         "model": model,
         "test_id": test["id"],

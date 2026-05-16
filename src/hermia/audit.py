@@ -216,7 +216,6 @@ def run_audit(
             output.write_text(content, encoding="utf-8")
         else:
             print(content)
-            return
     else:
         count = 0
         if output is not None:
