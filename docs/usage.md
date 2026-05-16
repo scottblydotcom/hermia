@@ -1,0 +1,300 @@
+# Getting Started with Hermia
+
+This guide walks you through installing Hermia, running your first eval, interpreting the
+results, and optionally exporting to Postgres for long-term tracking.
+
+---
+
+## Prerequisites
+
+- **Python 3.11+**
+- **[Ollama](https://ollama.ai) installed and running** — `ollama serve`
+- **At least one model pulled** — for example:
+
+  ```bash
+  ollama pull llama3.2
+  ```
+
+No cloud API keys required. No data leaves your machine.
+
+---
+
+## Install
+
+Clone and install in editable mode:
+
+```bash
+git clone https://github.com/scottblydotcom/hermia
+cd hermia
+pip install -e .
+```
+
+To verify the install:
+
+```bash
+hermia --help
+```
+
+Expected output:
+
+```
+usage: hermia [-h] [--host HOST] [--repeat N]
+```
+
+---
+
+## Run a local eval
+
+Make sure Ollama is running and has at least one model pulled, then launch the TUI:
+
+```bash
+hermia
+```
+
+### SelectionScreen
+
+Hermia opens the **SelectionScreen**. You'll see two columns:
+
+- **Models** — all models currently available via `ollama list`, pre-checked
+- **Eval dimensions** — `security`, `tool-use`, `reasoning`, `constraint`, `routing`,
+  `memory`, `domain`, pre-checked
+
+Use the checkboxes to select which models and dimensions to run. Press **Run** to start.
+
+If no models appear, Ollama is not running or has no models pulled. Start it with
+`ollama serve` and pull a model with `ollama pull llama3.2`.
+
+### RunnerScreen
+
+The **RunnerScreen** shows a live feed as each test runs:
+
+```
+Preflight  VRAM 18.2/18.2 GB free  RAM 10.4/18.0 GB free  Disk 124.3 GB free
+Cold-loading llama3.2...
+
+  ✅ security-direct-injection             42.3 t/s  GPU 82%  VRAM 4.2GB  CPU 18%
+  ✅ security-indirect-injection           39.1 t/s  GPU 79%  VRAM 4.2GB  CPU 16%
+  ⚠  tool-use-invalid-invocation          38.8 t/s  GPU 81%  VRAM 4.2GB  CPU 17%
+  ❌ reasoning-partial-failure             35.2 t/s  GPU 76%  VRAM 4.1GB  CPU 15%
+       output did not match expected schema
+```
+
+Icons mean:
+- `✅` — JSON valid **and** schema compliant (full pass)
+- `⚠` — JSON valid but schema non-compliant (partial pass)
+- `❌` — JSON invalid or error (full fail); preview of the failure reason shown below
+
+Per-test metrics: `t/s` = tokens per second, `GPU%` = peak GPU utilization,
+`VRAM` = peak VRAM used (GB), `CPU%` = peak CPU utilization.
+
+### Summary
+
+After all tests complete, the summary panel shows:
+
+```
+EVAL SUMMARY
+
+Model                        JSON%   Schema%   Agentic    t/s
+──────────────────────────────────────────────────────────────
+llama3.2                      95%      88%       91%     41.2
+qwen2.5:7b                    90%      82%       85%     38.6
+
+LOAD BENCHMARKS
+
+Model                        Size    Load    GB/s   VRAM Δ
+──────────────────────────────────────────────────────────────
+llama3.2                      2.0G    1.4s    1.43   +2.10 GB
+qwen2.5:7b                    4.7G    2.1s    2.24   +4.68 GB
+
+Best: llama3.2 (91/100)
+Saved: eval_20260511_143022.jsonl  | eval_20260511_143022.csv
+```
+
+**Agentic score** (summary table) = (JSON pass rate × 0.40) + (schema pass rate × 0.60).
+A model that produces well-structured, schema-compliant responses to agentic tasks scores
+higher than one that responds in free text, even if the free-text answer is "correct."
+
+Each individual result row also carries a per-row **score** (used in Postgres export):
+`100` = JSON valid + schema compliant, `60` = JSON valid but schema failed,
+`25` = response received but not valid JSON, `0` = error / timeout / no response.
+
+**Load benchmarks** measure cold-load time (from clean VRAM state) and model size. This is
+the actual load time a user or system experiences on first use, not cached inference.
+
+---
+
+## Result files
+
+Each run writes two files to `results/` in the project directory:
+
+| File | Format | Contents |
+|---|---|---|
+| `eval_TIMESTAMP.jsonl` | JSONL (one row per test) | Full result rows with all metrics |
+| `eval_TIMESTAMP.csv` | CSV | Same rows, spreadsheet-friendly |
+
+Each result row contains:
+
+| Field | Description |
+|---|---|
+| `model` | Model name |
+| `test_id` | Test identifier (e.g. `security-direct-injection`) |
+| `dimension` | Eval category |
+| `json_valid` | Boolean — did the model return valid JSON? |
+| `schema_compliant` | Boolean — did the response match the expected schema? |
+| `tokens_per_sec` | Inference throughput |
+| `elapsed_sec` | Wall time for this test |
+| `peak_gpu_pct` | Peak GPU utilization during the test |
+| `peak_vram_used_gb` | Peak VRAM consumed |
+| `peak_cpu_pct` | Peak CPU utilization |
+| `is_cold` | True for the first invocation of a model (from clean VRAM state) |
+| `failure_reason` | Error type or empty string on pass |
+| `output_preview` | First 120 chars of the raw model output |
+| `run_id` | UUID identifying this run |
+| `run_timestamp` | ISO 8601 timestamp |
+
+---
+
+## Repeat runs and consistency scoring
+
+Use `--repeat N` to run each (model, test) pair N times. This enables consistency scoring
+and cold-vs-warm delta measurement:
+
+```bash
+hermia --repeat 5
+```
+
+Additional fields populated when `--repeat N > 1`:
+
+| Field | Description |
+|---|---|
+| `run_index` | Which repetition this row is (1..N) |
+| `consistency_pct` | Fraction of N runs that produced the same pass/fail outcome |
+| `pass_count` | Number of runs that passed |
+| `cold_warm_delta_tps` | Cold-run t/s minus mean warm-run t/s (on `run_index=1` rows) |
+
+A model with 100% consistency is behaviorally stable. A model with 60% consistency is
+reward-hacking — it passes sometimes and fails sometimes on the same input.
+
+---
+
+## Run against a remote Ollama host
+
+Use `--host` to target any Ollama-compatible endpoint instead of localhost:
+
+```bash
+hermia --host http://192.168.10.50:11434
+```
+
+In fleet mode (any non-localhost host), local hardware metrics (GPU%, VRAM, CPU%) reflect
+the **inference server's** hardware via Ollama's `/api/ps` endpoint, not the eval client's
+idle laptop. The preflight check is also bypassed — resource checks run on the server side.
+
+This works with any host accessible over the network: a bare Ollama server, a LiteLLM
+gateway (in v0.1, use the Ollama-compatible endpoint), or a remote lab machine.
+
+---
+
+## Regression detection
+
+After accumulating multiple runs, use `hermia-regression` to detect behavioral drift —
+models that used to pass a test but now fail it:
+
+```bash
+# Merge all JSONL files into a single JSON array for the regression script
+python3 -c "
+import json, glob
+rows = []
+for f in sorted(glob.glob('results/eval_*.jsonl')):
+    with open(f, encoding='utf-8') as fh:
+        rows.extend(json.loads(l) for l in fh if l.strip())
+with open('all-results.json', 'w', encoding='utf-8') as fh:
+    json.dump(rows, fh)
+"
+
+hermia-regression all-results.json
+```
+
+Output:
+
+```
+=== Hermia Regression Report ===
+[SOFT] llama3.2 / security-direct-injection | baseline 100% → current 60%
+       llama3.2/security-direct-injection pass rate dropped 100% → 60% (Δ=40.0 pp).
+
+Summary: 0 hard failure(s), 1 soft alert(s)
+```
+
+`[HARD]` = complete failure (current rate 0%). `[SOFT]` = significant drop but still passing sometimes.
+
+Exit codes:
+- `0` — no regressions
+- `1` — one or more regressions detected
+- `2` — file not found or parse error
+
+You can wire this directly into CI after a nightly eval run.
+
+---
+
+## Export to Postgres
+
+`hermia-push` reads all `eval_*.jsonl` files from `results/` and inserts them into a
+`hermia_results` Postgres table. Results already in the table (matched on
+`run_id + host + model + test_id + run_index`) are skipped — safe to run repeatedly.
+
+### Setup
+
+Install the Postgres extras:
+
+```bash
+pip install -e ".[grafana]"
+```
+
+Set your DSN and create the table (run once):
+
+```bash
+export HERMIA_PG_DSN="postgresql://user:pass@localhost:5432/hermia"
+psql $HERMIA_PG_DSN -f scripts/create_table.sql
+psql $HERMIA_PG_DSN -f scripts/add_framework_columns.sql
+psql $HERMIA_PG_DSN -f scripts/add_judge_columns.sql
+```
+
+`create_table.sql` creates `hermia_results` with all columns and the unique conflict key.
+`add_framework_columns.sql` adds GIN indexes on the framework taxonomy arrays.
+`add_judge_columns.sql` adds `judge_score` and `judge_reasoning` for v0.3 LLM-as-judge.
+Run all three on a fresh install, or only the relevant migration scripts when upgrading.
+
+### Push results
+
+```bash
+hermia-push
+```
+
+Or pass the DSN directly:
+
+```bash
+hermia-push --dsn "postgresql://user:pass@localhost:5432/hermia"
+```
+
+Dry-run (prints rows without writing):
+
+```bash
+hermia-push --dry-run
+```
+
+Push from a specific directory:
+
+```bash
+hermia-push --results-dir /path/to/results
+```
+
+---
+
+## What's next
+
+- **Grafana dashboards** — if you have Grafana running, point it at the `hermia_results`
+  table. The [Hermia Eval Leaderboard](https://github.com/scottblydotcom/hermia) dashboard
+  JSON is in `docs/`.
+- **Roadmap** — see [Roadmap](roadmap.md) for v0.2 (multi-endpoint, fleet config)
+  and v0.3 (eval bus, Garak/PyRIT adapters).
+- **Contributing** — see [AGENTS.md](../AGENTS.md) for the behavioral rules and module
+  boundary table before opening a PR.

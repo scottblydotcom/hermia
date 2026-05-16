@@ -1,10 +1,14 @@
 """Textual screens: SelectionScreen and RunnerScreen."""
 
+import os
 import socket
+import statistics
 import time
 from datetime import UTC, datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from textual import work
 from textual.app import ComposeResult
@@ -12,9 +16,10 @@ from textual.containers import Horizontal, ScrollableContainer
 from textual.screen import Screen
 from textual.widgets import Button, Checkbox, Footer, Header, Label, ProgressBar, Static
 
-from hermia.metrics import MetricsSampler
-from hermia.preflight import run_preflight
-from hermia.results import append_result, open_run
+from hermia import robustness
+from hermia.metrics import NVIDIA_MIN_SUPPORTED_COMPUTE, MetricsSampler
+from hermia.preflight import DEFAULT_OLLAMA_HOST, run_preflight
+from hermia.results import append_result, open_run, patch_results
 from hermia.runner import (
     get_model_size_gb,
     load_tests,
@@ -23,6 +28,26 @@ from hermia.runner import (
     unload_model,
 )
 from hermia.schemas import TEST_IDS
+
+
+@lru_cache(maxsize=1)
+def _resolve_fleet_host(host_url: str) -> tuple[str, str | None]:
+    host_ip = urlparse(host_url).hostname
+    if not host_ip:
+        return host_url, None
+    try:
+        hostname = socket.gethostbyaddr(host_ip)[0]
+    except (socket.herror, OSError):
+        hostname = None
+    return host_url, hostname
+
+
+def _get_subtitle(fleet_mode: bool) -> str:
+    if not fleet_mode:
+        return "LOCAL"
+    host_url = os.environ.get("HERMIA_HOST", DEFAULT_OLLAMA_HOST)
+    _, hostname = _resolve_fleet_host(host_url)
+    return f"FLEET  {host_url}" + (f"  → {hostname}" if hostname else "")
 
 
 def _sanitize_model_id(name: str) -> str:
@@ -53,6 +78,29 @@ def _compute_scores(
     return scored
 
 
+def _backfill_aggregates(run_results: list[dict[str, Any]]) -> None:
+    """Compute cold_warm_delta_tps and robustness fields; stamp onto each row in-place."""
+    if not run_results:
+        return
+    if len(run_results) == 1 or not run_results[0].get("is_cold"):
+        delta: float | None = None
+    else:
+        cold_tps = float(run_results[0].get("tokens_per_sec", 0.0))
+        warm_tps_list = [float(r.get("tokens_per_sec", 0.0)) for r in run_results[1:]]
+        if cold_tps == 0.0 and all(t == 0.0 for t in warm_tps_list):
+            delta = None
+        else:
+            delta = cold_tps - statistics.mean(warm_tps_list)
+
+    result = robustness.score_rows(run_results)
+
+    for row in run_results:
+        row["cold_warm_delta_tps"] = delta
+        row["consistency_pct"] = result.consistency_pct
+        row["pass_count"] = result.pass_count
+        row["robustness_n"] = result.n
+
+
 PROJECT_ROOT = Path(__file__).parents[2]
 RESULTS_DIR = PROJECT_ROOT / "results"
 
@@ -70,6 +118,10 @@ class SelectionScreen(Screen):  # type: ignore[type-arg]
     #status { height: 1; content-align: center middle; color: $warning; }
     #gpu-info { height: 1; content-align: center middle; color: $accent; }
     """
+
+    def __init__(self, repeat: int = 1) -> None:
+        super().__init__()
+        self.repeat = repeat
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -92,12 +144,23 @@ class SelectionScreen(Screen):  # type: ignore[type-arg]
             yield Button("Run Selected", id="run_btn", variant="primary")
         gpu = self.app.gpu_info  # type: ignore[attr-defined]
         if gpu["found"]:
-            gpu_label = f"GPU: {gpu['card']}  ({gpu['vram_total_gb']:.1f} GB VRAM)"
+            vendor = gpu.get("vendor", "")
+            mem_label = "unified memory" if vendor == "apple" else "VRAM"
+            warn = ""
+            if vendor == "nvidia":
+                cc = gpu.get("compute_cap", 0.0)
+                if 0.0 < cc < NVIDIA_MIN_SUPPORTED_COMPUTE:
+                    min_cc = NVIDIA_MIN_SUPPORTED_COMPUTE
+                    warn = f"  ⚠ sm {cc} — Ollama may fall back to CPU (requires sm {min_cc}+)"
+            gpu_label = f"GPU: {gpu['card']}  ({gpu['vram_total_gb']:.1f} GB {mem_label}){warn}"
         else:
-            gpu_label = "GPU: no AMD GPU detected — VRAM metrics unavailable"
+            gpu_label = "GPU: not detected — VRAM metrics unavailable"
         yield Label(gpu_label, id="gpu-info")
         yield Label("", id="status")
         yield Footer()
+
+    def on_mount(self) -> None:
+        self.app.sub_title = _get_subtitle(self.app.fleet_mode)  # type: ignore[attr-defined]
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "all_models":
@@ -126,7 +189,7 @@ class SelectionScreen(Screen):  # type: ignore[type-arg]
         if not selected_tests:
             self.query_one("#status", Label).update("Select at least one test.")
             return
-        self.app.push_screen(RunnerScreen(selected_models, selected_tests))
+        self.app.push_screen(RunnerScreen(selected_models, selected_tests, repeat=self.repeat))
 
 
 class RunnerScreen(Screen):  # type: ignore[type-arg]
@@ -147,10 +210,11 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
 
     BINDINGS = [("b", "go_back", "Back to Selection")]
 
-    def __init__(self, models: list[str], test_ids: list[str]) -> None:
+    def __init__(self, models: list[str], test_ids: list[str], repeat: int = 1) -> None:
         super().__init__()
         self.models = models
         self.test_ids = test_ids
+        self.repeat = repeat
         self.all_results: list[dict[str, Any]] = []
         self._live_sampler = MetricsSampler()
 
@@ -158,7 +222,9 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
         yield Header()
         yield Static("Waiting to start...", id="metrics-bar")
         yield ProgressBar(
-            total=len(self.models) * len(self.test_ids), show_eta=True, id="progress-bar"
+            total=len(self.models) * len(self.test_ids) * self.repeat,
+            show_eta=True,
+            id="progress-bar",
         )
         with ScrollableContainer(id="log"):
             yield Static("", id="log-content")
@@ -167,7 +233,13 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
         yield Footer()
 
     def on_mount(self) -> None:
-        self.set_interval(2, self._refresh_metrics)
+        self.app.sub_title = _get_subtitle(self.app.fleet_mode)  # type: ignore[attr-defined]
+        if self.app.fleet_mode:  # type: ignore[attr-defined]
+            self.query_one("#metrics-bar", Static).update(
+                "FLEET  —  metrics suppressed (client-side only)"
+            )
+        else:
+            self.set_interval(2, self._refresh_metrics)
         self.run_evals()
 
     def _refresh_metrics(self) -> None:
@@ -198,7 +270,10 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
             self.app.call_from_thread(self.query_one("#log-content", Static).update, content)
 
         # ── Preflight ────────────────────────────────────────────────────────
-        pf = run_preflight(self.models, self.app.model_list, RESULTS_DIR)  # type: ignore[attr-defined]
+        app = self.app
+        pf = run_preflight(
+            self.models, app.model_list, RESULTS_DIR, fleet_mode=app.fleet_mode  # type: ignore[attr-defined]
+        )
         append_log(
             f"Preflight  VRAM {pf.vram_available_gb:.1f}/{pf.vram_total_gb:.1f} GB free  "
             f"RAM {pf.ram_available_gb:.1f}/{pf.ram_total_gb:.1f} GB free  "
@@ -208,6 +283,8 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
         for w in pf.warnings:
             style = "fail" if w.startswith("SKIP") or w.startswith("Low disk") else "warn"
             append_log(f"  {w}", style)
+        for sw in pf.security_warnings:
+            append_log(f"  {sw}", "warn")
 
         runnable = pf.runnable_models
         if not runnable:
@@ -260,14 +337,31 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
                 "info",
             )
 
+            model_first_call = True
             for test in tests:
-                result = run_test(model, test, sampler)
-                result["run_id"] = run_id
-                result["run_timestamp"] = datetime.now(UTC).isoformat()
-                result["host"] = run_host
-                self.all_results.append(result)
-                append_result(result, jsonl_path, csv_path)
+                run_results_for_test: list[dict[str, Any]] = []
+                for run_index in range(1, self.repeat + 1):
+                    result = run_test(model, test, sampler)
+                    result["run_id"] = run_id
+                    result["run_timestamp"] = datetime.now(UTC).isoformat()
+                    result["host"] = run_host
+                    result["run_index"] = run_index
+                    result["is_cold"] = model_first_call
+                    model_first_call = False
+                    self.all_results.append(result)
+                    append_result(result, jsonl_path, csv_path=None)
+                    run_results_for_test.append(result)
+                    self.app.call_from_thread(self.query_one(ProgressBar).advance, 1)
 
+                # Compute aggregates after all N runs, then patch the already-written
+                # rows in the JSONL. CSV written here so aggregate fields are included.
+                _backfill_aggregates(run_results_for_test)
+                patch_results(jsonl_path, run_results_for_test)
+                for result in run_results_for_test:
+                    append_result(result, jsonl_path=None, csv_path=csv_path)
+
+                # Log the last run's result for display
+                result = run_results_for_test[-1]
                 tps = result["tokens_per_sec"]
                 jv = result["json_valid"]
                 sc = result["schema_compliant"]
@@ -291,7 +385,6 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
                     preview = result.get("output_preview", "")
                     if preview:
                         append_log(f"       {preview[:80]}", "warn")
-                self.app.call_from_thread(self.query_one(ProgressBar).advance, 1)
 
         scored = _compute_scores(self.all_results)
 
