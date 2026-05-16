@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,14 @@ PROJECT_ROOT = Path(__file__).parents[2]
 
 TEST_TIMEOUT = 90    # seconds per individual test request
 LOAD_TIMEOUT = 120   # seconds for cold model load
+
+
+def _strip_fences(text: str) -> str:
+    """Remove leading/trailing markdown code fences from model output."""
+    text = text.strip()
+    text = re.sub(r'^```(?:json)?\s*\n?', '', text)
+    text = re.sub(r'\s*```\s*$', '', text)
+    return text.strip()
 
 
 def _normalize_host(host: str) -> str:
@@ -191,24 +200,34 @@ def run_test(
 
     json_valid = False
     schema_ok = False
+    had_markdown_fence = False
+    failure_reason = error_type  # network/Ollama errors; "" on clean path
+
     if output and not error_type:
+        cleaned = _strip_fences(output)
+        had_markdown_fence = cleaned != output.strip()
         try:
-            parsed = json.loads(output.strip())
+            parsed = json.loads(cleaned)
             json_valid = True
             checker = SCHEMA_CHECKS.get(test["id"])
             if checker:
                 schema_ok = bool(checker(parsed))
-        except Exception:
-            pass
+            if not schema_ok:
+                failure_reason = "SCHEMA_FAIL"
+        except json.JSONDecodeError:
+            failure_reason = "JSON_PARSE_ERROR"
+    elif not error_type:
+        failure_reason = "EMPTY_RESPONSE"
 
     tps = tokens / elapsed if elapsed > 0 and tokens > 0 else 0
-    preview = error_type if error_type else output[:120].replace("\n", " ")
+    preview = output[:120].replace("\n", " ") if output.strip() else failure_reason
     return {
         "model": model,
         "test_id": test["id"],
         "dimension": test.get("dimension", ""),
         "frameworks": test.get("frameworks", {}),
-        "failure_reason": error_type,
+        "failure_reason": failure_reason,
+        "had_markdown_fence": had_markdown_fence,
         "json_valid": json_valid,
         "schema_compliant": schema_ok,
         "tokens": tokens,

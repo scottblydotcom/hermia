@@ -45,7 +45,36 @@ def render_jsonl(rows: list[dict[str, Any]]) -> str:
     return "\n".join(json.dumps(r) for r in rows)
 
 
+def _host_label(rows: list[dict[str, Any]]) -> str:
+    """Return a human-readable label for a group of rows sharing a host."""
+    name = rows[0].get("fleet_host_name") if rows else None
+    host = rows[0].get("host", "") if rows else ""
+    if name:
+        return f"{name} — {host}"
+    return host
+
+
+def _host_duration(rows: list[dict[str, Any]]) -> str:
+    """Return 'Xm Ys' duration string derived from min/max run_timestamp in the group."""
+    timestamps = [r["run_timestamp"] for r in rows if r.get("run_timestamp")]
+    if len(timestamps) < 2:
+        return "—"
+    try:
+        t_start = datetime.fromisoformat(min(timestamps))
+        t_end = datetime.fromisoformat(max(timestamps))
+        secs = int((t_end - t_start).total_seconds())
+        return f"{secs // 60}m {secs % 60}s"
+    except (ValueError, TypeError):
+        return "—"
+
+
 def render_html(rows: list[dict[str, Any]]) -> str:
+    # Derive run date from result timestamps for historical accuracy
+    first_ts = rows[0].get("run_timestamp") if rows else None
+    try:
+        run_date = datetime.fromisoformat(first_ts).strftime("%Y-%m-%d") if first_ts else datetime.now().strftime("%Y-%m-%d")
+    except (ValueError, TypeError):
+        run_date = datetime.now().strftime("%Y-%m-%d")
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     total = len(rows)
     passed = sum(1 for r in rows if r.get("schema_compliant"))
@@ -53,36 +82,72 @@ def render_html(rows: list[dict[str, Any]]) -> str:
     def esc(v: object) -> str:
         return _html.escape(str(v)) if v is not None else ""
 
-    cards: list[str] = []
+    # Group rows by host URL, preserving order of first appearance
+    host_order: list[str] = []
+    host_groups: dict[str, list[dict[str, Any]]] = {}
     for r in rows:
-        if r.get("failure_reason"):
-            cls, label = "error", "ERROR"
-        elif r.get("schema_compliant"):
-            cls, label = "pass", "PASS"
-        else:
-            cls, label = "fail", "FAIL"
+        h = r.get("host", "")
+        if h not in host_groups:
+            host_order.append(h)
+            host_groups[h] = []
+        host_groups[h].append(r)
 
-        error_block = (
-            f'<p class="err">{esc(r.get("failure_reason"))}</p>'
-            if r.get("failure_reason")
-            else ""
+    sections: list[str] = []
+    for host_url in host_order:
+        group = host_groups[host_url]
+        label = _host_label(group)
+        g_total = len(group)
+        g_passed = sum(1 for r in group if r.get("schema_compliant"))
+        g_start = min((r["run_timestamp"] for r in group if r.get("run_timestamp")), default="—")
+        g_end = max((r["run_timestamp"] for r in group if r.get("run_timestamp")), default="—")
+        duration = _host_duration(group)
+
+        host_summary = (
+            f"Started: {esc(g_start)} &nbsp;|&nbsp; Finished: {esc(g_end)}"
+            f" &nbsp;|&nbsp; Duration: {duration}"
+            f" &nbsp;|&nbsp; Passed: {g_passed}/{g_total}"
         )
-        cards.append(
-            f'<section class="result {cls}">'
-            f'<h2>{esc(r.get("model"))} &mdash; {esc(r.get("test_id"))}'
-            f' <span class="badge {cls}">{label}</span></h2>'
-            f"<dl>"
-            f'<dt>Dimension</dt><dd>{esc(r.get("dimension"))}</dd>'
-            f'<dt>Elapsed</dt><dd>{esc(r.get("elapsed_sec"))}s</dd>'
-            f'<dt>tok/s</dt><dd>{esc(r.get("tokens_per_sec"))}</dd>'
-            f'<dt>Host</dt><dd>{esc(r.get("host"))}</dd>'
-            f"</dl>"
-            f"{error_block}"
-            f"<h3>System Prompt</h3><pre>{esc(r.get('raw_system'))}</pre>"
-            f"<h3>User Prompt</h3><pre>{esc(r.get('raw_prompt'))}</pre>"
-            f"<h3>Response</h3><pre>{esc(r.get('raw_response'))}</pre>"
-            f"</section>"
+        sections.append(
+            f'<div class="host-header">'
+            f'<h2 class="host-title">{esc(label)}</h2>'
+            f'<p class="host-meta">{host_summary}</p>'
+            f'</div>'
         )
+
+        for r in group:
+            if r.get("failure_reason"):
+                cls, badge_label = "error", "ERROR"
+            elif r.get("schema_compliant"):
+                cls, badge_label = "pass", "PASS"
+            else:
+                cls, badge_label = "fail", "FAIL"
+
+            fence_note = (
+                '<span class="fence-note" title="Model wrapped response in markdown fences">'
+                ' ⚠ fenced</span>'
+                if r.get("had_markdown_fence") else ""
+            )
+            error_block = (
+                f'<p class="err">{esc(r.get("failure_reason"))}</p>'
+                if r.get("failure_reason")
+                else ""
+            )
+            sections.append(
+                f'<section class="result {cls}">'
+                f'<h2>{esc(r.get("model"))} &mdash; {esc(r.get("test_id"))}'
+                f' <span class="badge {cls}">{badge_label}</span>{fence_note}</h2>'
+                f"<dl>"
+                f'<dt>Dimension</dt><dd>{esc(r.get("dimension"))}</dd>'
+                f'<dt>Elapsed</dt><dd>{esc(r.get("elapsed_sec"))}s</dd>'
+                f'<dt>tok/s</dt><dd>{esc(r.get("tokens_per_sec"))}</dd>'
+                f'<dt>Host</dt><dd>{esc(r.get("host"))}</dd>'
+                f"</dl>"
+                f"{error_block}"
+                f"<h3>System Prompt</h3><pre>{esc(r.get('raw_system'))}</pre>"
+                f"<h3>User Prompt</h3><pre>{esc(r.get('raw_prompt'))}</pre>"
+                f"<h3>Response</h3><pre>{esc(r.get('raw_response'))}</pre>"
+                f"</section>"
+            )
 
     css = "\n".join([
         "body{font-family:system-ui,sans-serif;max-width:1200px;"
@@ -90,6 +155,10 @@ def render_html(rows: list[dict[str, Any]]) -> str:
         "h1{color:#58a6ff}",
         ".summary{background:#161b22;padding:1rem;"
         "border-radius:6px;margin-bottom:2rem}",
+        ".host-header{background:#161b22;border-left:4px solid #58a6ff;"
+        "padding:1rem 1.5rem;margin:2rem 0 .5rem;border-radius:6px}",
+        ".host-title{color:#58a6ff;margin:0 0 .4rem}",
+        ".host-meta{margin:0;font-size:.85rem;color:#8b949e}",
         ".result{background:#161b22;border-radius:6px;padding:1.5rem;"
         "margin-bottom:1rem;border-left:4px solid #58a6ff}",
         ".result.pass{border-left-color:#3fb950}",
@@ -99,6 +168,7 @@ def render_html(rows: list[dict[str, Any]]) -> str:
         ".badge.pass{background:#196c2e;color:#56d364}",
         ".badge.fail{background:#67060c;color:#f85149}",
         ".badge.error{background:#4d2d00;color:#e3b341}",
+        ".fence-note{font-size:.75rem;color:#d29922;margin-left:.5rem}",
         "h2{margin-top:0}",
         "h3{color:#8b949e;font-size:.85rem;margin-bottom:.25rem}",
         "pre{background:#0d1117;padding:1rem;border-radius:4px;"
@@ -108,8 +178,10 @@ def render_html(rows: list[dict[str, Any]]) -> str:
         "dt{color:#8b949e}.err{color:#f85149;font-family:monospace}",
     ])
     summary = (
-        f"Generated: {now} &nbsp;|&nbsp; Results: {total}"
+        f"Date: {run_date} &nbsp;|&nbsp; Generated: {now}"
+        f" &nbsp;|&nbsp; Results: {total}"
         f" &nbsp;|&nbsp; Passed: {passed}/{total}"
+        f" &nbsp;|&nbsp; Hosts: {len(host_order)}"
     )
     return "\n".join([
         "<!DOCTYPE html>",
@@ -122,7 +194,7 @@ def render_html(rows: list[dict[str, Any]]) -> str:
         "<body>",
         "<h1>Hermia Audit Report</h1>",
         f'<div class="summary"><p>{summary}</p></div>',
-        *cards,
+        *sections,
         "</body>",
         "</html>",
     ])

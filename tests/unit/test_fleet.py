@@ -214,3 +214,81 @@ def test_fleet_flag_skips_tui(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     assert exc_info.value.code == 0
     mock_run_fleet.assert_called_once()
     mock_eval_app.assert_not_called()
+
+
+# hermia-qc: fleet_host_name and fleet_host_start in result rows
+# ---------------------------------------------------------------------------
+
+
+def _make_run_test_result(model: str = "qwen2.5:7b", test_id: str = "tool-calling-basic") -> dict:
+    return {
+        "model": model,
+        "test_id": test_id,
+        "dimension": "tool-use",
+        "frameworks": {},
+        "failure_reason": "",
+        "had_markdown_fence": False,
+        "json_valid": True,
+        "schema_compliant": True,
+        "tokens": 10,
+        "elapsed_sec": 1.0,
+        "tokens_per_sec": 10.0,
+        "output_preview": "...",
+        "raw_system": "sys",
+        "raw_prompt": "prompt",
+        "raw_response": "{}",
+        "peak_cpu_pct": None,
+        "peak_ram_used_gb": None,
+        "peak_gpu_pct": None,
+        "peak_vram_used_gb": None,
+        "mode": "fleet",
+        "host": "http://192.168.25.100:11434",
+        "vram_server_gb": None,
+    }
+
+
+def test_run_fleet_result_has_fleet_host_name(tmp_path: Path) -> None:
+    from hermia.fleet import run_fleet
+    entries = [{"name": "m1pro", "host": "http://192.168.25.100:11434"}]
+    fake_result = _make_run_test_result()
+
+    # run_fleet uses lazy imports inside the function body, so patch source modules
+    with (
+        patch("hermia.runner.get_available_models", return_value=[{"name": "qwen2.5:7b"}]),
+        patch("hermia.runner.load_tests_all", return_value=[{
+            "id": "tool-calling-basic", "system": "sys", "prompt": "p", "dimension": "tool-use",
+        }]),
+        patch("hermia.runner.run_test", return_value=fake_result),
+        patch("hermia.results.append_result"),
+        patch("hermia.results.open_run", return_value=(tmp_path / "eval.jsonl", tmp_path / "eval.csv")),
+        patch("hermia.metrics.MetricsSampler"),
+    ):
+        run_fleet(entries, repeat=1, results_dir=tmp_path)
+
+    # Verify fleet_host_name was injected (run_test result is mutated in-place)
+    assert fake_result["fleet_host_name"] == "m1pro"
+
+
+def test_run_fleet_result_has_fleet_host_start(tmp_path: Path) -> None:
+    from hermia.fleet import run_fleet
+    entries = [{"name": "m1pro", "host": "http://192.168.25.100:11434"}]
+    fake_result = _make_run_test_result()
+
+    # run_fleet uses lazy imports inside the function body, so patch source modules
+    with (
+        patch("hermia.runner.get_available_models", return_value=[{"name": "qwen2.5:7b"}]),
+        patch("hermia.runner.load_tests_all", return_value=[{
+            "id": "tool-calling-basic", "system": "sys", "prompt": "p", "dimension": "tool-use",
+        }]),
+        patch("hermia.runner.run_test", return_value=fake_result),
+        patch("hermia.results.append_result"),
+        patch("hermia.results.open_run", return_value=(tmp_path / "eval.jsonl", tmp_path / "eval.csv")),
+        patch("hermia.metrics.MetricsSampler"),
+    ):
+        run_fleet(entries, repeat=1, results_dir=tmp_path)
+
+    assert "fleet_host_start" in fake_result
+    # Should be a valid ISO timestamp string
+    from datetime import datetime
+    dt = datetime.fromisoformat(fake_result["fleet_host_start"])
+    assert dt.tzinfo is not None

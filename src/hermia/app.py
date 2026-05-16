@@ -3,6 +3,7 @@
 import argparse
 import os
 import sys
+from datetime import date
 from pathlib import Path
 
 from textual.app import App
@@ -77,7 +78,11 @@ def main() -> None:
         if not source.exists():
             print(f"hermia: audit source not found: {source}", file=sys.stderr)
             sys.exit(1)
-        run_audit(source, fmt=args.audit_format)
+        out_file: Path | None = None
+        if args.audit_format == "html" and sys.stdout.isatty():
+            out_file = Path(f"hermia-audit-{date.today().isoformat()}.html")
+            print(f"hermia: writing report to {out_file}", file=sys.stderr)
+        run_audit(source, fmt=args.audit_format, output=out_file)
         sys.exit(0)
 
     if args.fleet:
