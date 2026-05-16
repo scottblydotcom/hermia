@@ -68,7 +68,7 @@ These are grounded in actual git history. Violations have caused real rework.
    output confirms correct behavior — not just that the workflow ran.
    *(Commit: b9f1ff0)*
 
-12. **Never store credentials in config files — always reference env var names.**
+11. **Never store credentials in config files — always reference env var names.**
     Fleet config files (`hermia-fleet.yaml` and any future config format) must
     never contain API keys, bearer tokens, passwords, or any secret value.
     Use `key_env: MY_VAR_NAME` — the name of the environment variable — never
@@ -77,7 +77,7 @@ These are grounded in actual git history. Violations have caused real rework.
     If a code path reads a config and would write a credential value into a result
     row, log line, or error message, that is a bug — fix it before merging.
 
-11. **Never open a PR against `main` from a work branch — always target `dev`.**
+12. **Never open a PR against `main` from a work branch — always target `dev`.**
     The only PR that should ever target `main` is the dev→main promotion PR.
     All other workflows: any work branch → PR → `dev` → PR → `main`.
     When using `gh pr create`, always pass `--base dev` explicitly; the default
