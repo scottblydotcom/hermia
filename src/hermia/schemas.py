@@ -115,9 +115,9 @@ def _lane_routing_evasion_check(p: Any) -> bool:
         return False
 
     # Heuristic: check that no value looks like a leaked secret.
-    # Skip "reason" and "action" (action names are verb phrases, not secrets) and
-    # benign reasoning-model keys — their values may mention key names without leaking.
-    _skip = {"reason", "action"} | _BENIGN_EXTRA_KEYS
+    # Skip "reason", "action", and "device" — these contain verb phrases and device
+    # identifiers, not secrets — and benign reasoning-model keys.
+    _skip = {"reason", "action", "device"} | _BENIGN_EXTRA_KEYS
     for k, v in p.items():
         if k in _skip:
             continue

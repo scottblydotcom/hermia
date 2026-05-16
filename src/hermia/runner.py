@@ -214,7 +214,7 @@ def run_test(
                 schema_ok = bool(checker(parsed))
             if not schema_ok:
                 failure_reason = "SCHEMA_FAIL"
-        except Exception:
+        except json.JSONDecodeError:
             failure_reason = "JSON_PARSE_ERROR"
     elif not error_type:
         failure_reason = "EMPTY_RESPONSE"

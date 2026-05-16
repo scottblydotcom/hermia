@@ -68,8 +68,13 @@ def _host_duration(rows: list[dict[str, Any]]) -> str:
         return "—"
 
 
-def render_html(rows: list[dict[str, Any]], out_file: Path | None = None) -> str:
-    run_date = datetime.now().strftime("%Y-%m-%d")
+def render_html(rows: list[dict[str, Any]]) -> str:
+    # Derive run date from result timestamps for historical accuracy
+    first_ts = rows[0].get("run_timestamp") if rows else None
+    try:
+        run_date = datetime.fromisoformat(first_ts).strftime("%Y-%m-%d") if first_ts else datetime.now().strftime("%Y-%m-%d")
+    except (ValueError, TypeError):
+        run_date = datetime.now().strftime("%Y-%m-%d")
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     total = len(rows)
     passed = sum(1 for r in rows if r.get("schema_compliant"))
