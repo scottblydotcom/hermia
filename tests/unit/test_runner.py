@@ -8,6 +8,7 @@ import requests
 
 import hermia.runner as _runner_mod
 from hermia.runner import (
+    _strip_fences,
     get_available_models,
     get_model_size_gb,
     load_tests,
@@ -563,8 +564,6 @@ def test_run_test_response_null_coerced_to_empty_string() -> None:
 # hermia-qc: _strip_fences, had_markdown_fence, failure_reason codes
 # ---------------------------------------------------------------------------
 
-from hermia.runner import _strip_fences
-
 
 def test_strip_fences_json_block() -> None:
     assert _strip_fences('```json\n{"a": 1}\n```') == '{"a": 1}'
@@ -612,7 +611,9 @@ def test_had_markdown_fence_false() -> None:
 
 def test_failure_reason_json_parse_error() -> None:
     mock_resp = MagicMock()
-    mock_resp.json.return_value = {"response": "not valid json at all", "eval_count": 3, "error": ""}
+    mock_resp.json.return_value = {
+        "response": "not valid json at all", "eval_count": 3, "error": "",
+    }
     with patch("hermia.runner.requests.post", return_value=mock_resp):
         with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
             result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
@@ -623,7 +624,9 @@ def test_failure_reason_json_parse_error() -> None:
 def test_failure_reason_schema_fail() -> None:
     mock_resp = MagicMock()
     # Valid JSON but wrong schema for the test
-    mock_resp.json.return_value = {"response": '{"wrong_key": "value"}', "eval_count": 3, "error": ""}
+    mock_resp.json.return_value = {
+        "response": '{"wrong_key": "value"}', "eval_count": 3, "error": "",
+    }
     with patch("hermia.runner.requests.post", return_value=mock_resp):
         with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
             result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())

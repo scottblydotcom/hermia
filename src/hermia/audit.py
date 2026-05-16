@@ -72,7 +72,11 @@ def render_html(rows: list[dict[str, Any]]) -> str:
     # Derive run date from result timestamps for historical accuracy
     first_ts = rows[0].get("run_timestamp") if rows else None
     try:
-        run_date = datetime.fromisoformat(first_ts).strftime("%Y-%m-%d") if first_ts else datetime.now().strftime("%Y-%m-%d")
+        run_date = (
+            datetime.fromisoformat(first_ts).strftime("%Y-%m-%d")
+            if first_ts
+            else datetime.now().strftime("%Y-%m-%d")
+        )
     except (ValueError, TypeError):
         run_date = datetime.now().strftime("%Y-%m-%d")
     now = datetime.now().strftime("%Y-%m-%d %H:%M")

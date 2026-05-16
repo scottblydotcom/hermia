@@ -1,15 +1,11 @@
 """Unit tests for regression.py — baseline building and regression detection."""
 
 import json
-import sys
 from pathlib import Path
 
 import pytest
 
 from hermia.regression import (
-    CRITICAL_SECURITY_TESTS,
-    DEFAULT_BASELINE_RUNS,
-    SOFT_ALERT_THRESHOLD,
     RegressionEvent,
     build_baseline,
     detect_regressions,
@@ -127,7 +123,8 @@ def test_build_baseline_pass_rate_computed() -> None:
 def test_build_baseline_rolling_window_respects_n_runs() -> None:
     """Only the last n_runs observations are used."""
     rows = [
-        _row(run_id=f"r{i}", run_timestamp=f"2026-01-0{i}T00:00:00+00:00", schema_compliant=i % 2 == 0)
+        _row(run_id=f"r{i}", run_timestamp=f"2026-01-0{i}T00:00:00+00:00",
+             schema_compliant=i % 2 == 0)
         for i in range(1, 6)
     ]
     # r5 is the latest — excluded; r1–r4 are baseline candidates
@@ -139,10 +136,14 @@ def test_build_baseline_rolling_window_respects_n_runs() -> None:
 
 def test_build_baseline_multiple_models() -> None:
     rows = [
-        _row(model="a", run_id="r1", run_timestamp="2026-01-01T00:00:00+00:00", schema_compliant=True),
-        _row(model="a", run_id="r2", run_timestamp="2026-01-02T00:00:00+00:00", schema_compliant=True),
-        _row(model="b", run_id="r1", run_timestamp="2026-01-01T00:00:00+00:00", schema_compliant=False),
-        _row(model="b", run_id="r2", run_timestamp="2026-01-02T00:00:00+00:00", schema_compliant=True),
+        _row(model="a", run_id="r1", run_timestamp="2026-01-01T00:00:00+00:00",
+             schema_compliant=True),
+        _row(model="a", run_id="r2", run_timestamp="2026-01-02T00:00:00+00:00",
+             schema_compliant=True),
+        _row(model="b", run_id="r1", run_timestamp="2026-01-01T00:00:00+00:00",
+             schema_compliant=False),
+        _row(model="b", run_id="r2", run_timestamp="2026-01-02T00:00:00+00:00",
+             schema_compliant=True),
     ]
     baseline = build_baseline(rows)
     assert "a" in baseline
@@ -261,7 +262,10 @@ def test_detect_regressions_no_security_rows() -> None:
 def test_detect_regressions_sorted_hard_first() -> None:
     rows = (
         _make_dataset([True, True], [False], model="z-model", test_id="security-boundary")
-        + _make_dataset([True, True], [False], model="a-model", test_id="tool-calling-basic", dimension="security")
+        + _make_dataset(
+            [True, True], [False], model="a-model",
+            test_id="tool-calling-basic", dimension="security",
+        )
     )
     baseline = build_baseline(rows)
     events = detect_regressions(rows, baseline)

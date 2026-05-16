@@ -3,13 +3,10 @@
 import pytest
 
 from hermia.robustness import (
-    ROBUSTNESS_THRESHOLD,
-    RobustnessResult,
     run_n_times,
     score_rows,
 )
 from hermia.schemas import SCHEMA_CHECKS
-
 
 # ---------------------------------------------------------------------------
 # run_n_times
