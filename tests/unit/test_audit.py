@@ -241,3 +241,102 @@ def test_run_audit_empty_file_warns_to_stderr(
     captured = capsys.readouterr()
     assert captured.out == ""
     assert "no results found" in captured.err
+
+
+# hermia-qc: host grouping, per-host summary, dated output, fence badge
+# ---------------------------------------------------------------------------
+
+
+def _make_row(
+    host: str = "http://192.168.25.100:11434",
+    fleet_host_name: str | None = "node2",
+    schema_compliant: bool = True,
+    run_timestamp: str = "2026-05-15T16:00:00+00:00",
+    had_markdown_fence: bool = False,
+    failure_reason: str = "",
+) -> dict:
+    return {
+        "model": "qwen2.5:7b",
+        "test_id": "tool-calling-basic",
+        "dimension": "tool-use",
+        "elapsed_sec": 1.0,
+        "tokens_per_sec": 10.0,
+        "host": host,
+        "fleet_host_name": fleet_host_name,
+        "fleet_host_start": run_timestamp,
+        "run_timestamp": run_timestamp,
+        "schema_compliant": schema_compliant,
+        "failure_reason": failure_reason,
+        "had_markdown_fence": had_markdown_fence,
+        "raw_system": "sys",
+        "raw_prompt": "prompt",
+        "raw_response": "{}",
+    }
+
+
+def test_render_html_groups_by_host() -> None:
+    rows = [
+        _make_row(host="http://192.168.25.100:11434", fleet_host_name="node2",
+                  run_timestamp="2026-05-15T16:00:00+00:00"),
+        _make_row(host="http://192.168.25.10:11434", fleet_host_name="node3",
+                  run_timestamp="2026-05-15T17:00:00+00:00"),
+    ]
+    html = render_html(rows)
+    assert "node2" in html
+    assert "node3" in html
+    # Both host URLs should appear
+    assert "192.168.25.100" in html
+    assert "192.168.25.10" in html
+
+
+def test_render_html_per_host_pass_rate() -> None:
+    rows = [
+        _make_row(schema_compliant=True),
+        _make_row(schema_compliant=False, failure_reason="SCHEMA_FAIL"),
+    ]
+    html = render_html(rows)
+    assert "Passed: 1/2" in html
+
+
+def test_render_html_includes_date() -> None:
+    rows = [_make_row()]  # run_timestamp="2026-05-15T16:00:00+00:00"
+    html = render_html(rows)
+    assert "2026-05-15" in html  # derived from run_timestamp, not date.today()
+
+
+def test_render_html_out_file(tmp_path: Path) -> None:
+    rows = [_make_row()]
+    out = tmp_path / "report.html"
+    render_html(rows)  # no out_file — just verify it returns a string
+    content = render_html(rows)
+    out.write_text(content, encoding="utf-8")
+    assert out.exists()
+    assert "Hermia Audit Report" in out.read_text()
+
+
+def test_render_html_fence_note_shown() -> None:
+    rows = [_make_row(had_markdown_fence=True, schema_compliant=True)]
+    html = render_html(rows)
+    assert "fenced" in html
+
+
+def test_render_html_fence_note_absent_when_no_fence() -> None:
+    rows = [_make_row(had_markdown_fence=False)]
+    html = render_html(rows)
+    assert "⚠ fenced" not in html
+
+
+def test_render_html_host_label_falls_back_to_url() -> None:
+    """If fleet_host_name is absent, host URL is used as section label."""
+    rows = [_make_row(fleet_host_name=None)]
+    html = render_html(rows)
+    assert "192.168.25.100:11434" in html
+
+
+def test_render_html_host_duration_shown() -> None:
+    rows = [
+        _make_row(run_timestamp="2026-05-15T16:00:00+00:00"),
+        _make_row(run_timestamp="2026-05-15T16:05:30+00:00"),
+    ]
+    html = render_html(rows)
+    assert "5m 30s" in html

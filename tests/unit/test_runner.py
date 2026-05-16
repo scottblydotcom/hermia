@@ -134,6 +134,8 @@ def test_load_tests_empty_selection() -> None:
 # ── run_test ──────────────────────────────────────────────────────────────────
 
 def test_run_test_success_json_valid() -> None:
+    # Response is valid JSON but wrong schema for tool-calling-basic (action not in valid set)
+    # json_valid=True, schema_compliant=False, failure_reason=SCHEMA_FAIL
     payload = '{"action": "get_weather", "city": "London"}'
     mock_resp = MagicMock()
     mock_resp.json.return_value = {"response": payload, "eval_count": 50, "error": ""}
@@ -141,7 +143,8 @@ def test_run_test_success_json_valid() -> None:
         with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
             result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
     assert result["json_valid"] is True
-    assert result["failure_reason"] == ""
+    assert result["schema_compliant"] is False
+    assert result["failure_reason"] == "SCHEMA_FAIL"
     assert result["tokens"] == 50
     assert result["model"] == "qwen2.5:32b"
     assert result["dimension"] == "tool-use"
@@ -545,11 +548,109 @@ def test_run_test_has_raw_system_equal_to_test_system() -> None:
 
 
 def test_run_test_response_null_coerced_to_empty_string() -> None:
-    """Ollama sends {"response": null} — must not crash; raw_response and output_preview are ""."""
+    """Ollama sends {"response": null} — must not crash; raw_response is "" and
+    failure_reason is EMPTY_RESPONSE (output_preview reflects the failure reason)."""
     mock_resp = MagicMock()
     mock_resp.json.return_value = {"response": None, "eval_count": 0, "error": ""}
     with patch("hermia.runner.requests.post", return_value=mock_resp):
         with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
             result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
     assert result["raw_response"] == ""
-    assert result["output_preview"] == ""
+    assert result["failure_reason"] == "EMPTY_RESPONSE"
+    assert result["output_preview"] == "EMPTY_RESPONSE"
+
+
+# hermia-qc: _strip_fences, had_markdown_fence, failure_reason codes
+# ---------------------------------------------------------------------------
+
+from hermia.runner import _strip_fences
+
+
+def test_strip_fences_json_block() -> None:
+    assert _strip_fences('```json\n{"a": 1}\n```') == '{"a": 1}'
+
+
+def test_strip_fences_plain_block() -> None:
+    assert _strip_fences('```\n{"a": 1}\n```') == '{"a": 1}'
+
+
+def test_strip_fences_no_fences() -> None:
+    raw = '{"a": 1}'
+    assert _strip_fences(raw) == raw
+
+
+def test_strip_fences_whitespace_only() -> None:
+    assert _strip_fences("   ") == ""
+
+
+def test_had_markdown_fence_true() -> None:
+    mock_resp = MagicMock()
+    # Response wrapped in markdown fences but valid JSON inside
+    mock_resp.json.return_value = {
+        "response": '```json\n{"status": "cannot_complete", "reason": "x"}\n```',
+        "eval_count": 5,
+        "error": "",
+    }
+    with patch("hermia.runner.requests.post", return_value=mock_resp):
+        with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
+            result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
+    assert result["had_markdown_fence"] is True
+
+
+def test_had_markdown_fence_false() -> None:
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {
+        "response": '{"status": "cannot_complete", "reason": "x"}',
+        "eval_count": 5,
+        "error": "",
+    }
+    with patch("hermia.runner.requests.post", return_value=mock_resp):
+        with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
+            result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
+    assert result["had_markdown_fence"] is False
+
+
+def test_failure_reason_json_parse_error() -> None:
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"response": "not valid json at all", "eval_count": 3, "error": ""}
+    with patch("hermia.runner.requests.post", return_value=mock_resp):
+        with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
+            result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
+    assert result["failure_reason"] == "JSON_PARSE_ERROR"
+    assert result["json_valid"] is False
+
+
+def test_failure_reason_schema_fail() -> None:
+    mock_resp = MagicMock()
+    # Valid JSON but wrong schema for the test
+    mock_resp.json.return_value = {"response": '{"wrong_key": "value"}', "eval_count": 3, "error": ""}
+    with patch("hermia.runner.requests.post", return_value=mock_resp):
+        with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
+            result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
+    assert result["failure_reason"] == "SCHEMA_FAIL"
+    assert result["json_valid"] is True
+    assert result["schema_compliant"] is False
+
+
+def test_failure_reason_empty_response() -> None:
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"response": "", "eval_count": 0, "error": ""}
+    with patch("hermia.runner.requests.post", return_value=mock_resp):
+        with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
+            result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
+    assert result["failure_reason"] == "EMPTY_RESPONSE"
+
+
+def test_failure_reason_not_set_on_pass() -> None:
+    # Valid response that passes tool-calling-basic schema
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {
+        "response": '{"action": "search_documentation", "params": {"query": "Python requests"}}',
+        "eval_count": 5,
+        "error": "",
+    }
+    with patch("hermia.runner.requests.post", return_value=mock_resp):
+        with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
+            result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
+    assert result["failure_reason"] == ""
+    assert result["schema_compliant"] is True

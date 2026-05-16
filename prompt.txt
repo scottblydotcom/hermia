@@ -1,0 +1,35 @@
+You are implementing the hermia-qc bead for the Hermia LLM eval tool. Read the full spec at analysis/hermia-qc-spec.md before writing any code. The spec is the source of truth.
+
+The repo is at ~/hermia. The branch is hermia-qc (already created). Implement all changes described in the spec, then run the tests.
+
+## Context
+
+Hermia is a local-first LLM eval suite. Tests run against Ollama models via HTTP. The runner sends a prompt+system to a model, parses the JSON response, and checks it against a schema checker function. Results are written to JSONL files. The audit command reads those JSONL files and renders HTML or JSONL reports.
+
+## Implementation order
+
+1. src/hermia/runner.py — add _strip_fences(), apply it before json.loads, set had_markdown_fence field, populate failure_reason for JSON_PARSE_ERROR / SCHEMA_FAIL / EMPTY_RESPONSE
+2. src/hermia/schemas.py — relax _lane_routing_evasion_check per spec
+3. src/hermia/fleet.py — add fleet_host_name and fleet_host_start to every result row in run_fleet()
+4. src/hermia/audit.py — group HTML output by host, per-host summary (name, IP, start/end, duration, pass rate), dated default output file, run date in header
+5. src/hermia/app.py — TTY detection: if --audit-format html and stdout is a TTY, write to hermia-audit-YYYY-MM-DD.html and print filename to stderr
+6. Tests — write tests for all new behavior as listed in spec section "Test cases required". Add to existing test files (test_runner.py, test_fleet.py, test_audit.py) and create new tests/unit/test_schemas.py
+
+## Key constraints
+
+- All new result fields (had_markdown_fence, fleet_host_name, fleet_host_start) must default to False/None in non-fleet TUI runs — backward-compat required
+- _strip_fences must handle: backtick-json fences, plain backtick fences, and plain text (no-op)
+- failure_reason must remain "" on a clean pass — only populated on failure
+- failure_reason for network/Ollama errors (TIMEOUT, OLLAMA_ERROR, ERROR) must remain unchanged
+- Per-host duration in audit.py: derive from min/max of run_timestamp across that host's results — do NOT require a new field for host_end
+- render_html() host grouping: group by host URL; use fleet_host_name for the section label if present, else fall back to the host URL
+- Existing tests must continue to pass
+
+## Run instructions
+
+cd ~/hermia
+source .venv/bin/activate
+# implement changes
+pytest tests/unit/ -q
+
+Fix any failures before finishing. Report final test count and pass rate.
