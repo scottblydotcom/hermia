@@ -260,7 +260,10 @@ def test_run_fleet_result_has_fleet_host_name(tmp_path: Path) -> None:
         }]),
         patch("hermia.runner.run_test", return_value=fake_result),
         patch("hermia.results.append_result"),
-        patch("hermia.results.open_run", return_value=(tmp_path / "eval.jsonl", tmp_path / "eval.csv")),
+        patch(
+            "hermia.results.open_run",
+            return_value=(tmp_path / "eval.jsonl", tmp_path / "eval.csv"),
+        ),
         patch("hermia.metrics.MetricsSampler"),
     ):
         run_fleet(entries, repeat=1, results_dir=tmp_path)
@@ -282,7 +285,10 @@ def test_run_fleet_result_has_fleet_host_start(tmp_path: Path) -> None:
         }]),
         patch("hermia.runner.run_test", return_value=fake_result),
         patch("hermia.results.append_result"),
-        patch("hermia.results.open_run", return_value=(tmp_path / "eval.jsonl", tmp_path / "eval.csv")),
+        patch(
+            "hermia.results.open_run",
+            return_value=(tmp_path / "eval.jsonl", tmp_path / "eval.csv"),
+        ),
         patch("hermia.metrics.MetricsSampler"),
     ):
         run_fleet(entries, repeat=1, results_dir=tmp_path)

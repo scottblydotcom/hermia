@@ -1,11 +1,14 @@
 """Unit tests for app.py — CLI argument parsing and dispatch."""
 
+import argparse
+import json
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from hermia.app import _positive_int
 
 # ---------------------------------------------------------------------------
 # _positive_int
@@ -13,21 +16,16 @@ import pytest
 
 
 def test_positive_int_valid() -> None:
-    from hermia.app import _positive_int
     assert _positive_int("1") == 1
     assert _positive_int("10") == 10
 
 
 def test_positive_int_zero_raises() -> None:
-    import argparse
-    from hermia.app import _positive_int
     with pytest.raises(argparse.ArgumentTypeError, match=">="):
         _positive_int("0")
 
 
 def test_positive_int_negative_raises() -> None:
-    import argparse
-    from hermia.app import _positive_int
     with pytest.raises(argparse.ArgumentTypeError):
         _positive_int("-5")
 
@@ -48,7 +46,6 @@ def test_main_audit_missing_source_exits_1(tmp_path: Path, monkeypatch) -> None:
 def test_main_audit_jsonl_existing_file(tmp_path: Path, monkeypatch, capsys) -> None:
     """--audit FILE --audit-format jsonl should call run_audit and exit 0."""
     results_file = tmp_path / "eval_001.jsonl"
-    import json
     results_file.write_text(json.dumps({"model": "x", "test_id": "t"}) + "\n")
 
     monkeypatch.setattr(
@@ -71,7 +68,6 @@ def test_main_audit_jsonl_existing_file(tmp_path: Path, monkeypatch, capsys) -> 
 def test_main_audit_html_tty_writes_dated_file(tmp_path: Path, monkeypatch, capsys) -> None:
     """--audit-format html with a TTY should auto-name the output file."""
     results_file = tmp_path / "eval_001.jsonl"
-    import json
     results_file.write_text(json.dumps({"model": "x"}) + "\n")
 
     monkeypatch.setattr(
@@ -93,13 +89,12 @@ def test_main_audit_html_tty_writes_dated_file(tmp_path: Path, monkeypatch, caps
     # output kwarg should be a Path (not None) when writing to a dated file
     output_arg = mock_run_audit.call_args.kwargs.get("output")
     assert output_arg is not None
-    assert "2026-05-15" in str(output_arg)
+    assert str(output_arg).startswith("hermia-audit-")
 
 
 def test_main_audit_html_non_tty_no_file(tmp_path: Path, monkeypatch) -> None:
     """--audit-format html without a TTY should pass output=None."""
     results_file = tmp_path / "eval_001.jsonl"
-    import json
     results_file.write_text(json.dumps({"model": "x"}) + "\n")
 
     monkeypatch.setattr(
@@ -117,9 +112,7 @@ def test_main_audit_html_non_tty_no_file(tmp_path: Path, monkeypatch) -> None:
         main()
 
     assert exc.value.code == 0
-    # output kwarg should be None when not a TTY
-    call_args = mock_run_audit.call_args
-    output_arg = call_args.kwargs.get("output") or (call_args.args[2] if len(call_args.args) > 2 else None)
+    output_arg = mock_run_audit.call_args.kwargs.get("output")
     assert output_arg is None
 
 
