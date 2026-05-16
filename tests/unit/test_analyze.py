@@ -18,9 +18,7 @@ from hermia.analyze import (
     _detect_worst_performers,
     _persist,
     _resolve_run_ids,
-    run_analysis,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
