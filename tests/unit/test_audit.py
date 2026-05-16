@@ -299,11 +299,9 @@ def test_render_html_per_host_pass_rate() -> None:
 
 
 def test_render_html_includes_date() -> None:
-    from datetime import date
-    rows = [_make_row()]
+    rows = [_make_row()]  # run_timestamp="2026-05-15T16:00:00+00:00"
     html = render_html(rows)
-    today = date.today().isoformat()
-    assert today in html
+    assert "2026-05-15" in html  # derived from run_timestamp, not date.today()
 
 
 def test_render_html_out_file(tmp_path: Path) -> None:
