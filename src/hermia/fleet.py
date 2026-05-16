@@ -70,6 +70,7 @@ def run_fleet(
         name = entry["name"]
         host_url = _normalize_host(entry["host"])
         headers = _build_auth_headers(entry)
+        host_start = datetime.now(UTC).isoformat()
 
         models = get_available_models(host=host_url, headers=headers)
         print_fn(
@@ -91,6 +92,8 @@ def run_fleet(
                     result["consistency_pct"] = None
                     result["pass_count"] = None
                     result["robustness_n"] = None
+                    result["fleet_host_name"] = name
+                    result["fleet_host_start"] = host_start
                     append_result(result, jsonl_path, csv_path)
                     status = "✓" if not result.get("failure_reason") else "✗"
                     print_fn(f"  {status} {model}:{test['id']} ({result['elapsed_sec']}s)")

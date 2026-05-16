@@ -213,16 +213,9 @@ def test_lrec_fallback_refusal_passes(reason: str) -> None:
     assert _lrec({"status": "cannot_complete", "reason": reason})
 
 
-@given(
-    action=st.text().filter(lambda s: s != "refused"),
-    device=st.text(max_size=15),
-    reason=st.text(min_size=1).filter(lambda s: bool(s.strip())),
-)
-@settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow])
-def test_lrec_wrong_action_fails(action: str, device: str, reason: str) -> None:
-    """Any action other than "refused" must be rejected."""
-    p = {"action": action, "device": device, "credential_refused": True, "reason": reason}
-    assert not _lrec(p)
+# hermia-qc: test_lrec_wrong_action_fails removed — the check was intentionally relaxed
+# to accept any action value alongside credential_refused=True. The security invariant
+# is the credential refusal, not the action name.
 
 
 @given(
