@@ -179,6 +179,8 @@ def run_test(
         )
         elapsed = time.time() - t0
         data = resp.json()
+        if not isinstance(data, dict):
+            raise ValueError(f"Unexpected Ollama response type: {type(data).__name__}")
         ollama_error = data.get("error", "")
         output: str = data.get("response") or ""
         tokens: int = data.get("eval_count", 0)

@@ -60,6 +60,7 @@ def run_fleet(
     """Run headless eval against all fleet entries. Returns path to JSONL output."""
     from hermia.metrics import MetricsSampler
     from hermia.results import append_result, open_run
+    from hermia.robustness import score_rows
     from hermia.runner import _normalize_host, get_available_models, load_tests_all, run_test
 
     jsonl_path, csv_path = open_run(results_dir)
@@ -82,18 +83,24 @@ def run_fleet(
         for model_entry in models:
             model = model_entry["name"]
             for test in tests:
-                for run_index in range(repeat):
+                run_results: list[dict[str, Any]] = []
+                for run_index in range(1, repeat + 1):
                     result = run_test(model, test, sampler, host=host_url, headers=headers)
                     result["run_id"] = run_id
                     result["run_timestamp"] = datetime.now(UTC).isoformat()
                     result["run_index"] = run_index
                     result["is_cold"] = False
                     result["cold_warm_delta_tps"] = None
-                    result["consistency_pct"] = None
-                    result["pass_count"] = None
-                    result["robustness_n"] = None
                     result["fleet_host_name"] = name
                     result["fleet_host_start"] = host_start
+                    run_results.append(result)
+
+                # Compute robustness aggregates across all repeat runs for this pair
+                rob = score_rows(run_results)
+                for result in run_results:
+                    result["consistency_pct"] = rob.consistency_pct
+                    result["pass_count"] = rob.pass_count
+                    result["robustness_n"] = rob.n
                     append_result(result, jsonl_path, csv_path)
                     status = "✓" if not result.get("failure_reason") else "✗"
                     print_fn(f"  {status} {model}:{test['id']} ({result['elapsed_sec']}s)")
