@@ -12,12 +12,6 @@ import pytest
 
 from hermia.analyze import (
     Finding,
-    _FLEET_AVG_MAX,
-    _MIN_SAMPLES,
-    _MODEL_FAIL_PCT,
-    _UNIVERSAL_FAIL_PCT,
-    _UNIVERSAL_MODEL_FRAC,
-    _WORST_PERFORMER_N,
     _detect_model_failures,
     _detect_security_critical,
     _detect_universal_weaknesses,
