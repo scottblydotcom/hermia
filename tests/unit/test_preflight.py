@@ -146,7 +146,8 @@ def test_ollama_security_newer_version():
 
 
 def test_ollama_security_version_unreachable():
-    with patch("requests.get", side_effect=requests.exceptions.ConnectionError("connection refused")):
+    err = requests.exceptions.ConnectionError("connection refused")
+    with patch("requests.get", side_effect=err):
         warns = check_ollama_security("http://localhost:11434", fleet_mode=False)
     assert not any("CVE-2026-7482" in w for w in warns)
     assert any("CVE-2026-5757" in w for w in warns)
