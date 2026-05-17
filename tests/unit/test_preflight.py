@@ -3,6 +3,8 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import requests
+
 from hermia.preflight import OLLAMA_MIN_SECURE_VERSION, check_ollama_security, run_preflight
 
 MODEL_LIST = [
@@ -144,7 +146,7 @@ def test_ollama_security_newer_version():
 
 
 def test_ollama_security_version_unreachable():
-    with patch("requests.get", side_effect=Exception("connection refused")):
+    with patch("requests.get", side_effect=requests.exceptions.ConnectionError("connection refused")):
         warns = check_ollama_security("http://localhost:11434", fleet_mode=False)
     assert not any("CVE-2026-7482" in w for w in warns)
     assert any("CVE-2026-5757" in w for w in warns)
