@@ -11,8 +11,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from hermia.analyze import (
-    Finding,
     _SECURITY_TEST_IDS,
+    Finding,
     _detect_model_failures,
     _detect_security_critical,
     _detect_universal_weaknesses,
