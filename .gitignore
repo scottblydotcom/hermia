@@ -17,3 +17,4 @@ results/
 !.env.template
 session-notes/
 prompt.txt
+docs/talk-*.md
