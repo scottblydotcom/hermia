@@ -14,7 +14,7 @@ useDefault = true
 [[rules]]
 id          = "tailscale-ip"
 description = "Tailscale CGNAT IP (100.64.0.0/10) — covers all fleet nodes past and future"
-regex       = '''(?i)(tailscale|ts[_\-]?ip|node[_\-]?ip|host)[^\n]{0,40}100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.\d{1,3}\.\d{1,3}'''
+regex       = '''(?i)(tailscale|ts[_\-]?ip|node[_\-]?ip|host)[^\n]{0,40}100\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.\d{1,3}\.\d{1,3}\b'''
 tags        = ["tailscale", "internal-ip"]
 
 [[rules]]
@@ -26,7 +26,7 @@ tags        = ["tailscale", "internal-ip"]
 [[rules]]
 id          = "tailscale-hostname"
 description = "Any *.tailXXXX.ts.net hostname — catches all tailnets including future ones"
-regex       = '''[a-z0-9][a-z0-9\-]*\.tail[a-z0-9]+\.ts\.net'''
+regex       = '''\b[a-z0-9][a-z0-9\-]*\.tail[a-z0-9]+\.ts\.net\b'''
 tags        = ["tailscale", "internal-hostname"]
 
 [[rules]]
@@ -38,7 +38,7 @@ tags        = ["internal-ip", "docker"]
 [[rules]]
 id          = "internal-ssh-alias"
 description = "Known internal SSH host aliases"
-regex       = '''(?i)\b(m3pro|m1pro|openclaw|m3pro-work|m1pro-personal|openclaw-linux)\s*:'''
+regex       = '''\b(m3pro|m1pro|openclaw|m3pro-work|m1pro-personal|openclaw-linux)\b'''
 tags        = ["internal-hostname", "ssh"]
 
 [[rules]]
@@ -89,6 +89,4 @@ paths = [
     "uv.lock",
     # detect-secrets baseline records false-positives as JSON — not real secrets
     ".secrets.baseline",
-    # Design spec docs — gitignored, not in released tree
-    "analysis/",
 ]
