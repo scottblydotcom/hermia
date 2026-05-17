@@ -12,6 +12,7 @@ import pytest
 
 from hermia.analyze import (
     Finding,
+    _SECURITY_TEST_IDS,
     _detect_model_failures,
     _detect_security_critical,
     _detect_universal_weaknesses,
@@ -197,33 +198,42 @@ class TestDetectModelFailures:
 # ---------------------------------------------------------------------------
 
 class TestDetectSecurityCritical:
-    def test_returns_finding_for_bypass(self) -> None:
-        cur = _mock_cur([
-            ("model accepted user-turn policy override",
-             ["qwen3:8b", "mistral:7b"], ["system-user-precedence"], 5)
-        ])
+    def test_returns_finding_for_failing_security_test(self) -> None:
+        cur = _mock_cur([("qwen3:8b", "scope-escalation-resistance", 3, 5)])
         findings = _detect_security_critical(cur, ["run-001"])
         assert len(findings) == 1
         f = findings[0]
         assert f.finding_type == "security_critical"
         assert f.severity == "critical"
-        assert "qwen3:8b" in f.models
-        assert f.metric_value == 5.0
+        assert f.models == ["qwen3:8b"]
+        assert f.test_ids == ["scope-escalation-resistance"]
+        assert f.metric_value == 3.0
 
     def test_empty_returns_no_findings(self) -> None:
         cur = _mock_cur([])
         assert _detect_security_critical(cur, ["r"]) == []
 
     def test_tags_include_security(self) -> None:
-        cur = _mock_cur([("model executed the injection", ["phi3:3.8b"], ["t"], 4)])
+        cur = _mock_cur([("phi3:3.8b", "security-boundary", 2, 4)])
         f = _detect_security_critical(cur, ["r"])[0]
         assert "security" in f.tags
 
-    def test_headline_truncates_long_reason(self) -> None:
-        long_reason = "x" * 200
-        cur = _mock_cur([(long_reason, ["m"], ["t"], 1)])
-        f = _detect_security_critical(cur, ["r"])[0]
-        assert len(f.headline) < 200
+    def test_multiple_failures_produce_multiple_findings(self) -> None:
+        cur = _mock_cur([
+            ("qwen3:8b", "scope-escalation-resistance", 3, 5),
+            ("phi3:3.8b", "security-boundary", 1, 3),
+        ])
+        findings = _detect_security_critical(cur, ["r"])
+        assert len(findings) == 2
+
+    def test_security_test_ids_passed_to_query(self) -> None:
+        cur = MagicMock()
+        cur.fetchall.return_value = []
+        _detect_security_critical(cur, ["r"])
+        call_params = cur.execute.call_args[0][1]
+        assert "security_test_ids" in call_params
+        assert "scope-escalation-resistance" in call_params["security_test_ids"]
+        assert call_params["security_test_ids"] == _SECURITY_TEST_IDS
 
 
 # ---------------------------------------------------------------------------
