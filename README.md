@@ -5,24 +5,38 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-Interactive LLM security eval TUI for local models. Built in a distributed security research lab. Surprisingly rigorous.
+Structured behavioral eval for local LLMs. The model binary is not the unit of analysis — the inference stack is.
+
+---
+
+You selected a model by benchmark score. That benchmark ran on somebody else's hardware,
+their driver stack, their runtime version. Not yours.
+
+A ROCm update can flip a security test from PASS to FAIL. Hermia catches it — because it
+runs on your stack, not a cloud proxy.
+
+![Hermia — Goldilocks demo: llama3.2 fails injection resistance, qwen3:8b passes](assets/goldilocks.gif)
 
 ---
 
 ## What It Does
 
-Hermia runs structured agentic evaluation test cases against local Ollama models and scores
-them for behavioral correctness across security, reasoning, and tool-use dimensions. Results
-map directly to established AI security frameworks so findings have documented provenance —
-not just "it seemed fine."
+Hermia runs structured behavioral evaluation against local Ollama models and scores results
+for correctness across security, reasoning, and tool-use dimensions. Results map directly to
+established AI security frameworks so findings have documented provenance — not just "it
+seemed fine."
 
 Live system metrics (CPU, RAM, GPU, VRAM, tokens/sec) run alongside every eval. Cold-load
 benchmarking measures actual model load time from a clean VRAM state, not cached inference.
 Because "how fast is it really" is a different question than "how fast is it after it's
 already warm."
 
-**Current scope:** single-turn evaluation against Ollama-compatible local endpoints.
-Multi-endpoint and cloud API support (OpenAI, LiteLLM, Anthropic, Google, Bedrock) land in v0.2.
+**v0.1 scope:** single-turn, deterministic structural eval against Ollama-compatible local
+endpoints. Nuanced intent evaluation and multi-turn support land in v0.3.
+
+**Fleet mode** (`--fleet FILE`) runs headless multi-host eval from a YAML config — same
+test suite, multiple Ollama endpoints in parallel. Compare CUDA vs. Metal on the same
+model. See where your inference stack diverges.
 
 ---
 
@@ -37,11 +51,11 @@ Hermia is built in a consultancy lab. Different scale. Genuinely different probl
 
 Garak asks: *is this model vulnerable to known attack patterns?*
 
-Hermia asks: **does this model behave correctly as an agentic component in a structured
-workflow — and what is my hardware actually doing while it runs?**
+Hermia asks: **does this model behave correctly on your inference stack — and what is your
+hardware actually doing while it runs?**
 
 - Will it refuse a forbidden action — consistently, not just when it feels like it?
-- Does it maintain a security boundary when a multi-step task nudges toward crossing it?
+- Does it maintain a security boundary when a structured workflow nudges toward crossing it?
 - Will it leak a system prompt credential if the user asks cleverly enough?
 - Does it correctly route a request that looks safe but isn't?
 
@@ -162,12 +176,12 @@ See [docs/roadmap.md](docs/roadmap.md) for the full plan.
 
 ## Project Status
 
-**Pre-release.** This is a working research project, not a polished product. The core eval
-suite is stable and passing. The security pipeline (gitleaks, trivy, bandit, pip-audit,
-ruff, mypy) is more rigorous than the author initially expected to need for a research tool.
-Active development continues toward the v0.1.0 release (target 2026-05-23).
+**v0.1.0** — stable and tested. The core eval suite, fleet mode, audit trail, and findings
+analysis pipeline are all shipping. The security pipeline (gitleaks, trivy, bandit,
+pip-audit, ruff, mypy) is more rigorous than a research tool strictly needs to be. That
+was intentional.
 
-PyPI publication is planned after v0.1.0 stabilizes.
+PyPI publication is planned after v0.1.0 stabilizes in the wild.
 
 ---
 
