@@ -82,6 +82,9 @@ def run_fleet(
         if requested:
             requested_set = set(requested)
             models = [m for m in all_models if m["name"] in requested_set]
+            missing = requested_set - {m["name"] for m in models}
+            if missing:
+                print_fn(f"  WARNING: models not found on {name}: {', '.join(sorted(missing))}")
         else:
             models = all_models
         print_fn(
