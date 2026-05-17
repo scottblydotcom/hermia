@@ -393,7 +393,14 @@ class TestMain:
         mock_psycopg2.connect.return_value = mock_conn
         return mock_psycopg2
 
-    def test_dry_run_does_not_require_dsn(self, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_dry_run_requires_dsn(self) -> None:
+        with patch("sys.argv", ["hermia-analyze", "--dry-run"]):
+            with patch.dict("os.environ", {}, clear=True):
+                from hermia.analyze import main
+                with pytest.raises(SystemExit):
+                    main()
+
+    def test_dry_run_with_dsn_succeeds(self, capsys: pytest.CaptureFixture[str]) -> None:
         mock_psycopg2 = self._make_mock_pg([("run-001",)])
         with patch("sys.argv", ["hermia-analyze", "--dsn", "postgresql://fake/db", "--dry-run"]):
             with patch.dict(sys.modules, {"psycopg2": mock_psycopg2,
