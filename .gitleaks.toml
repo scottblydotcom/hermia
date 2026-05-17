@@ -48,21 +48,24 @@ regex       = '''/home/scott/[^\s"'`]+'''
 tags        = ["internal-path"]
 
 [[rules]]
-id          = "grafana-dashboard-uuid"
-description = "Grafana dashboard UID in URLs or config — internal dashboard reference"
-regex       = '''grafana[^\n]{0,80}[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'''
+id          = "grafana-dashboard-uid"
+description = "Grafana dashboard UID — full UUID or short UID (default 9-char) in URL or config"
+# Grafana native UIDs are typically 9-char alphanumeric (/d/<uid>/); full UUIDs also used
+regex       = '''grafana[^\n]{0,80}(/d/[A-Za-z0-9_-]{8,40}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})'''
 tags        = ["grafana", "internal-id"]
 
 [[rules]]
 id          = "litellm-dispatch-key"
 description = "LiteLLM dispatch/master key"
-regex       = '''(?i)(litellm[_\-]?(dispatch|master|api)[_\-]?key|LITELLM_[A-Z_]*KEY)\s*[=:]\s*["']?[A-Za-z0-9\-_]{20,}'''
+# Bridge pattern covers: env var assignments, Python dict literals, YAML config values
+regex       = '''(?i)(litellm[_\-]?(dispatch|master|api)[_\-]?key|LITELLM_[A-Z_]*KEY)[^\n]{0,40}["']?[A-Za-z0-9\-_]{20,}'''
 tags        = ["api-key", "litellm"]
 
 [[rules]]
 id          = "postgres-dsn"
 description = "PostgreSQL DSN with embedded credentials"
-regex       = '''postgresql://[^:]+:[^@]{6,}@[^\s"']+'''
+# Known gap: passwords containing raw '@' are missed; %40 (URL-encoded) is matched correctly
+regex       = '''postgresql://[^:/?#\s]+:(?:[^@\s"'`\\]|%40){6,}@\S+'''
 tags        = ["database", "credentials"]
 
 # ── Allowlist ─────────────────────────────────────────────────────────────────
