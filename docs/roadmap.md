@@ -321,14 +321,16 @@ Description of the work and the strategic intent. Bead breakdown happens when th
 - **Fleet config file** (`hermia-fleet.yaml`) introduced here:
   ```yaml
   fleet:
-    - name: "Eric 5090"
-      host: "http://192.0.2.1:11434"
+    - name: "GPU Node 1"
+      host: "http://192.0.2.1:11434"      # replace with your Ollama host IP/hostname
     - name: "LiteLLM Gateway"
-      host: "https://hermia.example.com:4000"
+      host: "https://hermia.example.com:4000"   # replace with your gateway URL
       auth:
         type: bearer
         key_env: LITELLM_DISPATCH_KEY   # env var name — never the value
   ```
+  > **Note:** `192.0.2.1` and `hermia.example.com` are documentation placeholders
+  > (RFC 5737 / RFC 2606). Replace them with your actual Ollama host addresses.
 - `--fleet hermia-fleet.yaml` flag runs the full eval suite against every host; results tagged with `host_name`
 - Each host entry gets its own optional `auth` block; Ollama nodes need none
 - Config file is safe to commit; credentials live only in the environment
