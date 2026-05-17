@@ -26,3 +26,7 @@ scripts/seed_findings.py
 analysis/*.md
 analysis/*.html
 docs/*.docx
+
+# Secret scanning
+# .secrets.baseline is intentionally tracked (audited false-positive list)
+# .gitleaks.toml is intentionally tracked (custom rules)
