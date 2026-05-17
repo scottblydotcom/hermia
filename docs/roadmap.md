@@ -322,9 +322,9 @@ Description of the work and the strategic intent. Bead breakdown happens when th
   ```yaml
   fleet:
     - name: "Eric 5090"
-      host: "http://100.71.60.30:11434"
+      host: "http://192.0.2.1:11434"
     - name: "LiteLLM Gateway"
-      host: "https://scottai.tailc7d860.ts.net:4000"
+      host: "https://hermia.example.com:4000"
       auth:
         type: bearer
         key_env: LITELLM_DISPATCH_KEY   # env var name — never the value

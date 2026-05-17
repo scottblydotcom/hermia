@@ -385,7 +385,7 @@ def _persist(
         sys.exit("psycopg2-binary is required — install with: pip install 'hermia[grafana]'")
 
     try:
-        conn = psycopg2.connect(dsn)
+        conn = psycopg2.connect(dsn, connect_timeout=10)
     except Exception as e:
         sys.exit(f"Failed to connect to Postgres: {e}")
 
@@ -399,6 +399,7 @@ def _persist(
         conn.close()
 
     if export_path is not None:
+        export_path.parent.mkdir(parents=True, exist_ok=True)
         with export_path.open("a") as fh:
             for f in findings:
                 fh.write(json.dumps(f.to_record()) + "\n")
@@ -424,7 +425,7 @@ def run_analysis(
         sys.exit("psycopg2-binary is required — install with: pip install 'hermia[grafana]'")
 
     try:
-        conn = psycopg2.connect(dsn)
+        conn = psycopg2.connect(dsn, connect_timeout=10)
     except Exception as e:
         sys.exit(f"Failed to connect to Postgres: {e}")
 
