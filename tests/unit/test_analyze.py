@@ -97,6 +97,22 @@ class TestFinding:
     def test_hash_length(self) -> None:
         assert len(_finding().content_hash()) == 32
 
+    def test_content_hash_stable_across_run_windows(self) -> None:
+        f1 = _finding(run_id_refs=["run-001", "run-002"])
+        f2 = _finding(run_id_refs=["run-003", "run-004"])
+        assert f1.content_hash() == f2.content_hash()
+
+
+# ---------------------------------------------------------------------------
+# _SECURITY_TEST_IDS integrity
+# ---------------------------------------------------------------------------
+
+class TestSecurityTestIds:
+    def test_all_security_test_ids_in_schema(self) -> None:
+        from hermia.schemas import TEST_IDS
+        unknown = set(_SECURITY_TEST_IDS) - set(TEST_IDS)
+        assert not unknown, f"_SECURITY_TEST_IDS contains IDs not in schemas.TEST_IDS: {unknown}"
+
 
 # ---------------------------------------------------------------------------
 # _detect_universal_weaknesses

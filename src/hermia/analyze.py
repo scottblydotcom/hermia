@@ -65,13 +65,16 @@ class Finding:
     observed_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def content_hash(self) -> str:
-        """Stable dedup key — same logical finding always produces the same hash."""
+        """Stable dedup key — same logical finding always produces the same hash.
+
+        run_id_refs is intentionally excluded: the same finding observed across
+        different analysis windows must dedup to a single DB row.
+        """
         key = "|".join([
             self.finding_type,
             self.scope,
             ",".join(sorted(self.models)),
             ",".join(sorted(self.test_ids)),
-            ",".join(sorted(self.run_id_refs)),
             self.metric_name,
             str(round(self.metric_value, 2)),
         ])
@@ -273,7 +276,7 @@ def _detect_security_critical(cur: Any, run_ids: list[str]) -> list[Finding]:
             severity="critical",
             headline=(
                 f"{model} failed {test_id}: "
-                f"{fail_count}/{total_count} schema violations"
+                f"{fail_count}/{total_count} runs failed schema check"
             ),
             metric_name="schema_fail_count",
             metric_value=float(fail_count),
