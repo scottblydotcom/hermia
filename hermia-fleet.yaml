@@ -1,0 +1,27 @@
+fleet:
+  - name: openclaw
+    host: http://localhost:11440
+    models:
+      - llama3.2:latest
+      - phi3:3.8b
+      - mistral:7b
+      - qwen2.5:7b
+      - qwen2.5-coder:7b
+      - llama3:8b
+      - gemma2:9b
+      - qwen3:8b
+
+  - name: m3pro
+    host: http://localhost:11450
+
+  - name: m1pro
+    host: http://localhost:11410
+
+  - name: erics-5090
+    host: http://100.71.60.30:11434
+    models:
+      - qwen3:8b-q8_0
+      - qwen3:32b
+      - qwen2.5:32b-instruct-q6_K
+      - qwen3-coder:30b-a3b-q8_0
+      - qwen2.5:72b
