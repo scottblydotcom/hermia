@@ -28,6 +28,10 @@ def load_fleet_config(path: Path) -> list[dict[str, Any]]:
             raise ValueError(f"Fleet entry [{i}] missing or invalid 'name'")
         if not isinstance(entry.get("host"), str) or not entry["host"]:
             raise ValueError(f"Fleet entry [{i}] missing or invalid 'host'")
+        models = entry.get("models")
+        if models is not None:
+            if not isinstance(models, list) or not all(isinstance(m, str) for m in models):
+                raise ValueError(f"Fleet entry [{i}] 'models' must be a list of strings")
     return entries
 
 
@@ -73,7 +77,13 @@ def run_fleet(
         headers = _build_auth_headers(entry)
         host_start = datetime.now(UTC).isoformat()
 
-        models = get_available_models(host=host_url, headers=headers)
+        all_models = get_available_models(host=host_url, headers=headers)
+        requested = entry.get("models")
+        if requested:
+            requested_set = set(requested)
+            models = [m for m in all_models if m["name"] in requested_set]
+        else:
+            models = all_models
         print_fn(
             f"[{idx}/{len(entries)}] {name} ({host_url})"
             f" — {len(models)} models, {len(tests)} tests"
