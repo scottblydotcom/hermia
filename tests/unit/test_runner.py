@@ -582,6 +582,14 @@ def test_strip_fences_whitespace_only() -> None:
     assert _strip_fences("   ") == ""
 
 
+def test_strip_fences_prose_before_block() -> None:
+    assert _strip_fences('Here is the JSON:\n```json\n{"a": 1}\n```') == '{"a": 1}'
+
+
+def test_strip_fences_prose_after_block() -> None:
+    assert _strip_fences('```json\n{"a": 1}\n```\nHope that helps!') == '{"a": 1}'
+
+
 def test_had_markdown_fence_true() -> None:
     mock_resp = MagicMock()
     # Response wrapped in markdown fences but valid JSON inside

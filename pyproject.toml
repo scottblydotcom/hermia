@@ -34,6 +34,7 @@ dev = [
 hermia = "hermia.app:main"
 hermia-regression = "hermia.regression:main"
 hermia-push = "hermia.export:main"
+hermia-analyze = "hermia.analyze:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/hermia"]
@@ -48,7 +49,8 @@ ignore = ["S603", "S607", "S110", "BLE001"]  # subprocess in metrics.py; bare ex
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101"]  # assert is idiomatic in pytest
-"src/hermia/export.py" = ["S608"]  # SQL built from hardcoded column tuple, not user input
+"src/hermia/export.py" = ["S608"]   # SQL built from hardcoded column tuple, not user input
+"src/hermia/analyze.py" = ["S608"]  # SQL built from hardcoded strings, not user input
 
 [tool.mypy]
 python_version = "3.11"

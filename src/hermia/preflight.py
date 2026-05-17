@@ -66,9 +66,9 @@ _MIN_SECURE_VERSION_TUPLE: tuple[int, ...] = (
 
 def check_ollama_security(host: str, fleet_mode: bool = False) -> list[str]:
     """Query /api/version and return SEC warning strings. Never raises."""
+    import requests  # local import — optional network check, avoid startup overhead
     warnings: list[str] = []
     try:
-        import requests  # local import — optional network check, avoid startup overhead
         resp = requests.get(f"{host}/api/version", timeout=3)
         if resp.ok:
             ver = resp.json().get("version", "")
@@ -78,7 +78,7 @@ def check_ollama_security(host: str, fleet_mode: bool = False) -> list[str]:
                     f"SEC ⚠ CVE-2026-7482 (CVSS 9.1): Ollama {ver} is vulnerable "
                     f"to heap memory disclosure — upgrade to {OLLAMA_MIN_SECURE_VERSION}+"
                 )
-    except Exception:  # noqa: BLE001
+    except requests.exceptions.RequestException:
         pass
 
     if not fleet_mode:
