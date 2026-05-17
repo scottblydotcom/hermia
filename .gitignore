@@ -18,3 +18,4 @@ results/
 session-notes/
 prompt.txt
 docs/talk-*.md
+analysis/*.jsonl
