@@ -239,6 +239,9 @@ ORDER BY occurrences DESC
 
 
 def _detect_security_critical(cur: Any, run_ids: list[str]) -> list[Finding]:
+    # TODO(v0.2): runner writes SCHEMA_FAIL/JSON_PARSE_ERROR, not semantic strings —
+    # this detector only matches manually-seeded findings until runner populates
+    # semantic failure_reason values (e.g. "executed the injection").
     cur.execute(_SQL_SECURITY_CRITICAL, {"run_ids": run_ids})
     findings = []
     for reason, models, test_ids, occurrences in cur.fetchall():
