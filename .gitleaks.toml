@@ -38,7 +38,7 @@ tags        = ["internal-ip", "docker"]
 [[rules]]
 id          = "internal-ssh-alias"
 description = "Original internal SSH host aliases — catch if accidentally re-introduced"
-regex       = '''\b(m3pro|m1pro|openclaw|m3pro-work|m1pro-personal|openclaw-linux)\b'''
+regex       = '''\b(m3pro-work|m3pro|m1pro-personal|m1pro|openclaw-linux|openclaw)\b'''
 tags        = ["internal-hostname", "ssh"]
 
 [[rules]]
