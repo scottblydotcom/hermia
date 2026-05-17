@@ -21,6 +21,25 @@ jobs:
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+  trufflehog:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: TruffleHog — entropy + credential scan
+        uses: trufflesecurity/trufflehog@main
+        with:
+          # Scan only commits introduced by this PR / since last push; full history on schedule
+          extra_args: >-
+            --only-verified=false
+            --fail
+            --json
 
   trivy:
     runs-on: ubuntu-latest
