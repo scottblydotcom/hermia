@@ -92,7 +92,9 @@ WITH model_stats AS (
     SELECT
         test_id,
         model,
-        COUNT(*) FILTER (WHERE failure_reason IS NULL OR failure_reason NOT LIKE 'TIMEOUT%%') AS non_timeout,
+        COUNT(*) FILTER (
+            WHERE failure_reason IS NULL OR failure_reason NOT LIKE 'TIMEOUT%%'
+        ) AS non_timeout,
         COUNT(*) FILTER (
             WHERE (schema_compliant = false OR json_valid = false)
               AND (failure_reason IS NULL OR failure_reason NOT LIKE 'TIMEOUT%%')
@@ -100,7 +102,9 @@ WITH model_stats AS (
     FROM hermia_results
     WHERE run_id = ANY(%(run_ids)s)
     GROUP BY test_id, model
-    HAVING COUNT(*) FILTER (WHERE failure_reason IS NULL OR failure_reason NOT LIKE 'TIMEOUT%%') >= %(min_samples)s
+    HAVING COUNT(*) FILTER (
+        WHERE failure_reason IS NULL OR failure_reason NOT LIKE 'TIMEOUT%%'
+    ) >= %(min_samples)s
 ),
 test_agg AS (
     SELECT
@@ -158,7 +162,9 @@ WITH model_stats AS (
     SELECT
         model,
         test_id,
-        COUNT(*) FILTER (WHERE failure_reason IS NULL OR failure_reason NOT LIKE 'TIMEOUT%%') AS non_timeout,
+        COUNT(*) FILTER (
+            WHERE failure_reason IS NULL OR failure_reason NOT LIKE 'TIMEOUT%%'
+        ) AS non_timeout,
         COUNT(*) FILTER (
             WHERE (schema_compliant = false OR json_valid = false)
               AND (failure_reason IS NULL OR failure_reason NOT LIKE 'TIMEOUT%%')
@@ -166,7 +172,9 @@ WITH model_stats AS (
     FROM hermia_results
     WHERE run_id = ANY(%(run_ids)s)
     GROUP BY model, test_id
-    HAVING COUNT(*) FILTER (WHERE failure_reason IS NULL OR failure_reason NOT LIKE 'TIMEOUT%%') >= %(min_samples)s
+    HAVING COUNT(*) FILTER (
+        WHERE failure_reason IS NULL OR failure_reason NOT LIKE 'TIMEOUT%%'
+    ) >= %(min_samples)s
 ),
 model_fail_pct AS (
     SELECT model, test_id,
@@ -280,16 +288,22 @@ _SQL_WORST_PERFORMERS = """
 SELECT
     model,
     COUNT(*) FILTER (WHERE schema_compliant = true) AS passes,
-    COUNT(*) FILTER (WHERE failure_reason IS NULL OR failure_reason NOT LIKE 'TIMEOUT%%') AS total,
+    COUNT(*) FILTER (
+        WHERE failure_reason IS NULL OR failure_reason NOT LIKE 'TIMEOUT%%'
+    ) AS total,
     ROUND(
         COUNT(*) FILTER (WHERE schema_compliant = true) * 100.0
-            / NULLIF(COUNT(*) FILTER (WHERE failure_reason IS NULL OR failure_reason NOT LIKE 'TIMEOUT%%'), 0),
+            / NULLIF(COUNT(*) FILTER (
+                WHERE failure_reason IS NULL OR failure_reason NOT LIKE 'TIMEOUT%%'
+            ), 0),
         1
     ) AS pass_pct
 FROM hermia_results
 WHERE run_id = ANY(%(run_ids)s)
 GROUP BY model
-HAVING COUNT(*) FILTER (WHERE failure_reason IS NULL OR failure_reason NOT LIKE 'TIMEOUT%%') >= %(min_samples)s
+HAVING COUNT(*) FILTER (
+    WHERE failure_reason IS NULL OR failure_reason NOT LIKE 'TIMEOUT%%'
+) >= %(min_samples)s
 ORDER BY pass_pct ASC
 LIMIT %(n)s
 """  # nosec B608
