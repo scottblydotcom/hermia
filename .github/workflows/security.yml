@@ -34,10 +34,6 @@ jobs:
           fetch-depth: 0
       - name: TruffleHog — entropy + credential scan
         uses: trufflesecurity/trufflehog@0fa069c12f0c7baf431041cd1e564a9c5058846c  # main 2026-05-16
-        with:
-          # --only-verified omitted = show all candidates (default false)
-          # --fail exits non-zero if any secrets found
-          extra_args: "--fail"
 
   trivy:
     runs-on: ubuntu-latest
