@@ -321,18 +321,36 @@ Description of the work and the strategic intent. Bead breakdown happens when th
 - **Fleet config file** (`hermia-fleet.yaml`) introduced here:
   ```yaml
   fleet:
-    - name: "Eric 5090"
-      host: "http://100.71.60.30:11434"
+    - name: "GPU Node 1"
+      host: "http://192.0.2.1:11434"      # replace with your Ollama host IP/hostname
     - name: "LiteLLM Gateway"
-      host: "https://scottai.tailc7d860.ts.net:4000"
+      host: "https://hermia.example.com:4000"   # replace with your gateway URL
       auth:
         type: bearer
         key_env: LITELLM_DISPATCH_KEY   # env var name — never the value
   ```
+  > **Note:** `192.0.2.1` and `hermia.example.com` are documentation placeholders
+  > (RFC 5737 / RFC 2606). Replace them with your actual Ollama host addresses.
 - `--fleet hermia-fleet.yaml` flag runs the full eval suite against every host; results tagged with `host_name`
 - Each host entry gets its own optional `auth` block; Ollama nodes need none
 - Config file is safe to commit; credentials live only in the environment
 **Why:** The architectural change that makes Hermia a bus instead of a tool. The fleet config is the user-facing expression of "run against all of these" without requiring SSH or sidecar deployment on inference nodes.
+
+### Fleet TUI — host discovery and model selection
+**Priority:** P1
+**Depends on:** Transport interface + OpenAI-compatible client
+**Permitted scope:** `src/hermia/screens.py`, `src/hermia/fleet.py`, tests
+**Acceptance (sketch):**
+- `hermia --fleet-tui` (or `hermia` with no `--fleet` file) opens a new `FleetSelectionScreen`
+- Screen pings known hosts from a saved `~/.hermia/hosts.yaml` or prompts for manual entry; shows reachable/unreachable + model count per host
+- Per-host model checkboxes (same pattern as current single-host `SelectionScreen`)
+- "Build YAML" button writes a `hermia-fleet.yaml` to the working directory and launches the headless runner, streaming output back into the TUI log pane
+- Concurrent host execution (step toward live fleet view); sequential per-host is acceptable for v0.2 if concurrency adds significant scope
+- Live fleet view with per-host progress (parallel runner threads + TUI worker updates) is a stretch goal; can ship as "headless runner output in TUI log" for v0.2 and full concurrent view in v0.3
+
+**Note (2026-05-16):** Current fleet headless runner is synchronous and sequential per host. TUI fleet view needs concurrent execution for useful live feedback — this is the main architectural lift. Split delivery: YAML builder TUI ships v0.2; concurrent live view ships v0.3.
+
+**Why:** Fleet mode requires hand-editing YAML today. A TUI host picker makes multi-host eval accessible without CLI knowledge and gives first-time users a visual onramp to fleet configuration.
 
 ### Backend stack tagging
 **Priority:** P1

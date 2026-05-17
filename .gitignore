@@ -17,3 +17,12 @@ results/
 !.env.template
 session-notes/
 prompt.txt
+docs/talk-*.md
+analysis/*.jsonl
+scripts/collect_and_push.sh
+scripts/run_analyze.sh
+scripts/seed_findings.py
+.claude/
+analysis/*.md
+analysis/*.html
+docs/*.docx

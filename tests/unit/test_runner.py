@@ -310,9 +310,9 @@ def test_get_ollama_host_default() -> None:
 
 
 def test_get_ollama_host_from_env() -> None:
-    with patch.dict(os.environ, {"HERMIA_HOST": "http://100.71.60.30:11434"}):
+    with patch.dict(os.environ, {"HERMIA_HOST": "http://192.0.2.1:11434"}):
         from hermia.runner import get_ollama_host
-        assert get_ollama_host() == "http://100.71.60.30:11434"
+        assert get_ollama_host() == "http://192.0.2.1:11434"
 
 
 # ── detect_mode ───────────────────────────────────────────────────────────────
@@ -329,7 +329,7 @@ def test_detect_mode_loopback() -> None:
 
 def test_detect_mode_remote_ip() -> None:
     from hermia.runner import detect_mode
-    assert detect_mode("http://100.71.60.30:11434") == "fleet"
+    assert detect_mode("http://192.0.2.1:11434") == "fleet"
 
 
 def test_detect_mode_remote_hostname() -> None:
@@ -382,7 +382,7 @@ def test_fetch_server_vram_empty_models() -> None:
 def test_fetch_server_vram_connection_error() -> None:
     from hermia.runner import fetch_server_vram
     with patch("hermia.runner.requests.get", side_effect=requests.exceptions.ConnectionError):
-        assert fetch_server_vram("http://100.71.60.30:11434", "qwen2.5:32b") is None
+        assert fetch_server_vram("http://192.0.2.1:11434", "qwen2.5:32b") is None
 
 
 def test_fetch_server_vram_missing_size_vram_key() -> None:
@@ -424,7 +424,7 @@ def test_run_test_fleet_mode_suppresses_local_metrics() -> None:
         with patch("hermia.runner.requests.get", return_value=mock_get):
             result = run_test(
                 "qwen2.5:32b", _BASE_TEST, _mock_sampler(),
-                host="http://100.71.60.30:11434"
+                host="http://192.0.2.1:11434"
             )
     assert result["mode"] == "fleet"
     assert result["peak_cpu_pct"] is None
@@ -440,7 +440,7 @@ def test_run_test_fleet_mode_sampler_not_started() -> None:
     sampler = _mock_sampler()
     with patch("hermia.runner.requests.post", return_value=mock_post):
         with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
-            run_test("qwen2.5:32b", _BASE_TEST, sampler, host="http://100.71.60.30:11434")
+            run_test("qwen2.5:32b", _BASE_TEST, sampler, host="http://192.0.2.1:11434")
     sampler.start.assert_not_called()
     sampler.stop.assert_not_called()
 
@@ -511,7 +511,7 @@ def test_run_test_fleet_mode_vram_server_gb_populated() -> None:
         with patch("hermia.runner.requests.get", return_value=mock_get):
             result = run_test(
                 "qwen2.5:32b", _BASE_TEST, _mock_sampler(),
-                host="http://100.71.60.30:11434"
+                host="http://192.0.2.1:11434"
             )
     assert result["vram_server_gb"] is not None
     assert abs(result["vram_server_gb"] - 10.0) < 0.01
@@ -580,6 +580,14 @@ def test_strip_fences_no_fences() -> None:
 
 def test_strip_fences_whitespace_only() -> None:
     assert _strip_fences("   ") == ""
+
+
+def test_strip_fences_prose_before_block() -> None:
+    assert _strip_fences('Here is the JSON:\n```json\n{"a": 1}\n```') == '{"a": 1}'
+
+
+def test_strip_fences_prose_after_block() -> None:
+    assert _strip_fences('```json\n{"a": 1}\n```\nHope that helps!') == '{"a": 1}'
 
 
 def test_had_markdown_fence_true() -> None:

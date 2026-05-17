@@ -152,5 +152,5 @@ def test_resolve_fleet_host_strips_port_before_lookup(monkeypatch) -> None:
 def test_resolve_fleet_host_returns_url_unchanged(monkeypatch) -> None:
     _resolve_fleet_host.cache_clear()
     monkeypatch.setattr(socket, "gethostbyaddr", lambda ip: ("gateway", [], []))
-    url, _ = _resolve_fleet_host("http://100.71.60.30:11434")
-    assert url == "http://100.71.60.30:11434"
+    url, _ = _resolve_fleet_host("http://192.0.2.1:11434")
+    assert url == "http://192.0.2.1:11434"

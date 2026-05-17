@@ -51,6 +51,32 @@ def test_load_fleet_config_empty_fleet(tmp_path: Path) -> None:
         load_fleet_config(cfg)
 
 
+def test_load_fleet_config_models_list(tmp_path: Path) -> None:
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: gateway\n"
+        "    host: http://host1:11434\n"
+        "    models:\n"
+        "      - qwen2.5:3b\n"
+        "      - phi3:3.8b\n"
+    )
+    entries = load_fleet_config(cfg)
+    assert entries[0]["models"] == ["qwen2.5:3b", "phi3:3.8b"]
+
+
+def test_load_fleet_config_models_invalid_type(tmp_path: Path) -> None:
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: gateway\n"
+        "    host: http://host1:11434\n"
+        "    models: not-a-list\n"
+    )
+    with pytest.raises(ValueError, match="list of strings"):
+        load_fleet_config(cfg)
+
+
 # ---------------------------------------------------------------------------
 # _build_auth_headers
 # ---------------------------------------------------------------------------
@@ -270,6 +296,54 @@ def test_run_fleet_result_has_fleet_host_name(tmp_path: Path) -> None:
 
     # Verify fleet_host_name was injected (run_test result is mutated in-place)
     assert fake_result["fleet_host_name"] == "m1pro"
+
+
+def test_run_fleet_model_filter_applied(tmp_path: Path) -> None:
+    """Models listed in fleet YAML are the only ones evaluated; others are skipped."""
+    from hermia.fleet import run_fleet
+
+    _tests = [{"id": "t1", "system": "s", "prompt": "p"}]
+    _all_models = [{"name": "qwen2.5:3b"}, {"name": "phi3:3.8b"}, {"name": "llama3.2:latest"}]
+    _run_files = (tmp_path / "out.jsonl", tmp_path / "out.csv")
+
+    entries = [{"name": "gateway", "host": "http://host1:11434", "models": ["qwen2.5:3b"]}]
+
+    with (
+        patch("hermia.runner.load_tests_all", return_value=_tests),
+        patch("hermia.runner.get_available_models", return_value=_all_models),
+        patch("hermia.runner.run_test", return_value=dict(_MINIMAL_RESULT)) as mock_run,
+        patch("hermia.results.open_run", return_value=_run_files),
+        patch("hermia.results.append_result"),
+        patch("hermia.metrics.MetricsSampler", return_value=MagicMock()),
+    ):
+        run_fleet(entries, repeat=1, results_dir=tmp_path)
+
+    called_models = {call.args[0] for call in mock_run.call_args_list}
+    assert called_models == {"qwen2.5:3b"}
+
+
+def test_run_fleet_no_model_filter_runs_all(tmp_path: Path) -> None:
+    """Omitting models in fleet YAML runs all models on the endpoint."""
+    from hermia.fleet import run_fleet
+
+    _tests = [{"id": "t1", "system": "s", "prompt": "p"}]
+    _all_models = [{"name": "qwen2.5:3b"}, {"name": "phi3:3.8b"}]
+    _run_files = (tmp_path / "out.jsonl", tmp_path / "out.csv")
+
+    entries = [{"name": "gateway", "host": "http://host1:11434"}]
+
+    with (
+        patch("hermia.runner.load_tests_all", return_value=_tests),
+        patch("hermia.runner.get_available_models", return_value=_all_models),
+        patch("hermia.runner.run_test", return_value=dict(_MINIMAL_RESULT)) as mock_run,
+        patch("hermia.results.open_run", return_value=_run_files),
+        patch("hermia.results.append_result"),
+        patch("hermia.metrics.MetricsSampler", return_value=MagicMock()),
+    ):
+        run_fleet(entries, repeat=1, results_dir=tmp_path)
+
+    called_models = {call.args[0] for call in mock_run.call_args_list}
+    assert called_models == {"qwen2.5:3b", "phi3:3.8b"}
 
 
 def test_run_fleet_result_has_fleet_host_start(tmp_path: Path) -> None:

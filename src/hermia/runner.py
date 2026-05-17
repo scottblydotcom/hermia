@@ -20,11 +20,12 @@ LOAD_TIMEOUT = 120   # seconds for cold model load
 
 
 def _strip_fences(text: str) -> str:
-    """Remove leading/trailing markdown code fences from model output."""
+    """Extract content from markdown code fences, ignoring surrounding prose."""
     text = text.strip()
-    text = re.sub(r'^```(?:json)?\s*\n?', '', text)
-    text = re.sub(r'\s*```\s*$', '', text)
-    return text.strip()
+    match = re.search(r'```(?:json)?\s*\n?(.*?)\n?\s*```', text, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return text
 
 
 def _normalize_host(host: str) -> str:
