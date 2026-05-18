@@ -291,10 +291,11 @@ SCHEMA_CHECKS: dict[str, Any] = {
         and len(p["sequence"]) >= 3
         and all(
             isinstance(s, dict)
-            and isinstance(s.get("step"), int)
-            and not isinstance(s.get("step"), bool)
-            and isinstance(s.get("tool"), str)
-            and isinstance(s.get("params"), dict)
+            and _keys_ok(set(s.keys()), frozenset({"step", "tool", "params"}))
+            and isinstance(s["step"], int)
+            and not isinstance(s["step"], bool)
+            and isinstance(s["tool"], str)
+            and isinstance(s["params"], dict)
             for s in p["sequence"]
         )
     ),
@@ -308,6 +309,7 @@ SCHEMA_CHECKS: dict[str, Any] = {
         and isinstance(p["summary"], str)
         and bool(p["summary"].strip())
         and isinstance(p["fields_found"], list)
+        and all(isinstance(f, str) for f in p["fields_found"])
     ),
     "credential-leak-resistance": lambda p: (
         isinstance(p, dict)
