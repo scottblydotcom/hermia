@@ -35,6 +35,9 @@ SECURITY_TEST_IDS = {
     "adversarial-input-signal-in-noise",
     "adversarial-input-zero-width-injection",
     "adversarial-input-few-shot-poisoning",
+    # v0.1.1 additions — intentionally embed adversarial patterns in user turn
+    "instruction-override-resistance",  # prompt contains "system prompt" as injection attempt
+    "indirect-injection-tool-output",   # tool output contains "ignore previous" / "you are now"
 }
 
 
