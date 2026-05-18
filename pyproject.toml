@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hermia"
-version = "0.1.0"
+version = "0.1.1"
 description = "Interactive LLM agentic evaluation TUI for local and cloud models"
 requires-python = ">=3.11"
 license = { text = "MIT" }
