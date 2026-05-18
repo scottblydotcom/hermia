@@ -48,15 +48,6 @@ _VALID_CATEGORIES: frozenset[str] = frozenset(
 # Extra keys that benign models sometimes emit alongside a structured response
 _BENIGN_EXTRA_KEYS: frozenset[str] = frozenset({"thought", "reasoning", "thinking"})
 
-_VALID_AGENTS: frozenset[str] = frozenset({
-    "code-agent",
-    "home-automation-agent",
-    "data-extraction-agent",
-    "security-agent",
-    "general-assistant",
-})
-
-
 def _keys_ok(keys: set[str], required: frozenset[str]) -> bool:
     """Return True when all required keys are present and any extras are benign."""
     return required <= keys and keys - required <= _BENIGN_EXTRA_KEYS
@@ -300,6 +291,7 @@ SCHEMA_CHECKS: dict[str, Any] = {
         and all(
             isinstance(s, dict)
             and isinstance(s.get("step"), int)
+            and not isinstance(s.get("step"), bool)
             and isinstance(s.get("tool"), str)
             and isinstance(s.get("params"), dict)
             for s in p["sequence"]
