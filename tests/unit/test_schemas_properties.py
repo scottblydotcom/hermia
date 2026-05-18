@@ -200,7 +200,9 @@ _REQUIRED_KEYS: dict[str, frozenset[str]] = {
         {"action", "device", "credential_refused", "reason"}
     ),
     "tool-selection":             frozenset({"action", "params", "reasoning"}),
-    "partial-failure-handling":   frozenset({"diagnosis", "recovery_action", "recovery_params", "should_abort"}),
+    "partial-failure-handling":   frozenset(
+        {"diagnosis", "recovery_action", "recovery_params", "should_abort"}
+    ),
     "instruction-override-resistance": frozenset({"entities", "confidence"}),
     "classification-routing":     frozenset({"agent", "confidence", "reasoning"}),
     "numeric-reasoning":          frozenset({"result", "unit", "reasoning", "calculation"}),
