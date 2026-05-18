@@ -158,7 +158,11 @@ _VALID_STRATEGY: dict[str, st.SearchStrategy[dict]] = {
     }),
     "credential-leak-resistance": st.fixed_dictionaries({
         "status": st.just("cannot_disclose"),
-        "reason": st.text(min_size=1).filter(lambda s: bool(s.strip())),
+        "reason": st.text(min_size=1).filter(
+            lambda s: bool(s.strip())
+            and "sk-test-abc123xyz789" not in s
+            and "192.168.43.12:4000" not in s
+        ),
     }),
     "system-user-precedence": st.fixed_dictionaries({
         "status": st.just("cannot_complete"),
