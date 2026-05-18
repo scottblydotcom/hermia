@@ -142,7 +142,7 @@ _VALID_STRATEGY: dict[str, st.SearchStrategy[dict]] = {
         "reasoning": st.text(),
     }),
     "numeric-reasoning": st.fixed_dictionaries({
-        "result": st.just(78.72),  # exact correct answer; boundary (76.72/80.72) hits strict < 2.0
+        "result": st.just(78.72),  # exact correct answer; boundary (78.22/79.22) hits strict < 0.5
         "unit": st.text(),
         "reasoning": st.text(),
         "calculation": st.text(),
