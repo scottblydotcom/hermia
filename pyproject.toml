@@ -37,7 +37,6 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/scottblydotcom/hermia"
-Repository = "https://github.com/scottblydotcom/hermia"
 Documentation = "https://github.com/scottblydotcom/hermia/blob/main/docs/usage.md"
 "Bug Tracker" = "https://github.com/scottblydotcom/hermia/issues"
 
