@@ -1,5 +1,0 @@
-fleet:
-  - name: m3pro
-    host: http://localhost:11450
-    models:
-      - qwen3:8b
