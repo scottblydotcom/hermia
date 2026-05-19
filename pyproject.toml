@@ -9,6 +9,9 @@ description = "Interactive LLM agentic evaluation TUI for local and cloud models
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
+authors = [
+    { name = "Scott Bly", email = "scottbly1@gmail.com" },
+]
 keywords = ["llm", "security", "evaluation", "ollama", "red-team", "inference", "tui"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -16,7 +19,8 @@ classifiers = [
     "Intended Audience :: Developers",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -34,6 +38,7 @@ dependencies = [
 [project.urls]
 Homepage = "https://github.com/scottblydotcom/hermia"
 Repository = "https://github.com/scottblydotcom/hermia"
+Documentation = "https://github.com/scottblydotcom/hermia/blob/main/docs/usage.md"
 "Bug Tracker" = "https://github.com/scottblydotcom/hermia/issues"
 
 [project.optional-dependencies]
