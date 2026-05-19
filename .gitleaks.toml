@@ -92,6 +92,9 @@ paths = [
     "uv.lock",
     # detect-secrets baseline records false-positives as JSON — not real secrets
     ".secrets.baseline",
-    # Fleet config — intentionally contains fleet node IPs (Tailscale) and hostnames
+    # Fleet configs — intentionally contain fleet node hostnames and example labels
     "hermia-fleet.yaml",
+    "fleet-.*\\.yaml",
+    "marcus-only.yaml",
+    "overnight.sh",
 ]

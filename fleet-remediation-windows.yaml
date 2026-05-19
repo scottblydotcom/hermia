@@ -1,0 +1,13 @@
+fleet:
+  - name: windows-7800xt
+    host: http://localhost:11430
+    models:
+      # Previously killed/incomplete
+      - deepseek-r1:latest
+      - qwen3:14b
+      # ROCm timeout candidates — retrying after possible transient failure
+      - gemma2:9b
+      - llama3:8b
+      - qwen2.5-coder:7b
+      - qwen2.5:7b
+      - mistral:7b
