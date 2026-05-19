@@ -1,0 +1,11 @@
+fleet:
+  - name: m1pro
+    host: http://localhost:11410
+    models:
+      - phi4:14b
+      - qwen3:8b-q8_0
+      - qwen3:8b
+      - llama3.1:8b-instruct-q8_0
+      - qwen2.5:7b
+      - qwen2.5-coder:7b
+      # gemma3:27b removed — OOM on 16GB M1 Pro (all 28 tests timed out 2026-05-18)

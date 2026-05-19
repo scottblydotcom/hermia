@@ -1,0 +1,11 @@
+fleet:
+  - name: marcus-3090
+    host: http://YOUR_FLEET_NODE:11434  # replace with your Ollama endpoint
+    models:
+      - qwen3-coder:30b-a3b-q8_0
+      - qwen2.5:32b-instruct-q4_K_M
+      - qwen3:8b-q8_0
+      - qwen3:14b-q8_0
+      - qwen3:32b
+      - qwen2.5:7b-instruct-q8_0
+      - qwen2.5:14b-instruct-q6_K

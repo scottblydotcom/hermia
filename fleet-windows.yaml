@@ -1,0 +1,16 @@
+fleet:
+  - name: windows-7800xt
+    host: http://localhost:11430
+    models:
+      # Parity with openclaw
+      - llama3.2:latest
+      - phi3:3.8b
+      - mistral:7b
+      - qwen2.5:7b
+      - qwen2.5-coder:7b
+      - llama3:8b
+      - gemma2:9b
+      - qwen3:8b
+      # 14B models — fit within 16GB VRAM
+      - qwen2.5-coder:14b
+      - qwen3:14b

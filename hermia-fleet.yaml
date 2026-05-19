@@ -18,7 +18,7 @@ fleet:
     host: http://localhost:11410
 
   - name: erics-5090
-    host: http://100.71.60.30:11434
+    host: http://YOUR_FLEET_NODE:11434  # replace with your Ollama endpoint
     models:
       - qwen3:8b-q8_0
       - qwen3:32b
