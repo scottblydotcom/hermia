@@ -15,7 +15,7 @@ their driver stack, their runtime version. Not yours.
 A ROCm update can flip a security test from PASS to FAIL. Hermia catches it — because it
 runs on your stack, not a cloud proxy.
 
-![Hermia — Goldilocks demo: llama3.2 fails injection resistance, qwen3:8b passes](assets/goldilocks.gif)
+<video src="assets/demo.mp4" autoplay loop muted playsinline aria-label="Hermia demo: running structured behavioral evaluations across models including llama3.2 and qwen3:8b, comparing pass/fail results per test on a local Ollama fleet">Download the <a href="assets/demo.mp4">demo video</a>.</video>
 
 ---
 
