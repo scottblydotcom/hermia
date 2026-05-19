@@ -1,0 +1,14 @@
+fleet:
+  - name: m3pro
+    host: http://localhost:11450
+    models:
+      - gemma3:27b
+      - llama3.1:8b-instruct-q8_0
+      - mistral-small:22b
+      - phi4:14b
+      - qwen2.5-coder:32b
+      - qwen2.5:14b-instruct-q8_0
+      - qwen3-coder:30b-a3b-q8_0
+      - qwen3:32b
+      - qwen3:8b-q8_0
+      - qwen3:8b
