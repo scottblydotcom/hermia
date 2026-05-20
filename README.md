@@ -127,7 +127,8 @@ targets via `--host`; running Hermia itself on Windows is not yet supported.
 ## Install
 
 ```bash
-pip install hermia
+pipx install hermia  # recommended for CLI tools
+# or: pip install hermia
 ```
 
 Or from source:
@@ -178,12 +179,12 @@ See [docs/roadmap.md](docs/roadmap.md) for the full plan.
 
 ## Project Status
 
-**v0.1.0** — stable and tested. The core eval suite, fleet mode, audit trail, and findings
+**v0.1.1** — stable and tested. The core eval suite, fleet mode, audit trail, and findings
 analysis pipeline are all shipping. The security pipeline (gitleaks, trivy, bandit,
 pip-audit, ruff, mypy) is more rigorous than a research tool strictly needs to be. That
 was intentional.
 
-Available on PyPI: `pip install hermia`
+Available on [PyPI](https://pypi.org/project/hermia/): `pip install hermia`
 
 ---
 
