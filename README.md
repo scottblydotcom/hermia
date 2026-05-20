@@ -128,7 +128,6 @@ targets via `--host`; running Hermia itself on Windows is not yet supported.
 
 ```bash
 pip install hermia
-hermia
 ```
 
 Or from source:
