@@ -52,4 +52,6 @@ jobs:
         run: python -m build
 
       - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@7f25271a4aa483500f742f9492b2ab5648d61011  # v1.12.4
+        # SHA pinning not supported: pypa/gh-action-pypi-publish is a Docker container action;
+        # GHCR does not publish images tagged by commit SHA. release/v1 is the pypa-maintained stable ref.
+        uses: pypa/gh-action-pypi-publish@release/v1
