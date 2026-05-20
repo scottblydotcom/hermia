@@ -126,7 +126,12 @@ targets via `--host`; running Hermia itself on Windows is not yet supported.
 
 ## Install
 
-From source (pre-PyPI):
+```bash
+pip install hermia
+hermia
+```
+
+Or from source:
 
 ```bash
 git clone https://github.com/scottblydotcom/hermia
@@ -134,8 +139,6 @@ cd hermia
 pip install -e .
 hermia
 ```
-
-PyPI publication is on the roadmap. See [project status](#project-status).
 
 ---
 
@@ -181,7 +184,7 @@ analysis pipeline are all shipping. The security pipeline (gitleaks, trivy, band
 pip-audit, ruff, mypy) is more rigorous than a research tool strictly needs to be. That
 was intentional.
 
-PyPI publication is planned after v0.1.0 stabilizes in the wild.
+Available on PyPI: `pip install hermia`
 
 ---
 
