@@ -126,6 +126,8 @@ targets via `--host`; running Hermia itself on Windows is not yet supported.
 
 ## Install
 
+Recommended (via pipx):
+
 ```bash
 pipx install hermia
 ```
