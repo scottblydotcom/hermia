@@ -144,7 +144,6 @@ Or from source:
 git clone https://github.com/scottblydotcom/hermia
 cd hermia
 pip install -e .
-hermia
 ```
 
 ---
