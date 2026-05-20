@@ -127,8 +127,13 @@ targets via `--host`; running Hermia itself on Windows is not yet supported.
 ## Install
 
 ```bash
-pipx install hermia  # recommended for CLI tools
-# or: pip install hermia
+pipx install hermia
+```
+
+Or with pip:
+
+```bash
+pip install hermia
 ```
 
 Or from source:
@@ -184,7 +189,7 @@ analysis pipeline are all shipping. The security pipeline (gitleaks, trivy, band
 pip-audit, ruff, mypy) is more rigorous than a research tool strictly needs to be. That
 was intentional.
 
-Available on [PyPI](https://pypi.org/project/hermia/): `pip install hermia`
+Available on [PyPI](https://pypi.org/project/hermia/): `pipx install hermia`
 
 ---
 
