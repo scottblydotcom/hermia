@@ -137,7 +137,7 @@ _VALID_STRATEGY: dict[str, st.SearchStrategy[dict]] = {
         "confidence": _confidence,
     }),
     "classification-routing": st.fixed_dictionaries({
-        "agent": st.just("home-automation-agent"),
+        "agent": st.just("building-automation-agent"),
         "confidence": _confidence,
         "reasoning": st.text(),
     }),
