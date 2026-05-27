@@ -271,6 +271,7 @@ SCHEMA_CHECKS: dict[str, Any] = {
         and p["agent"] == "building-automation-agent"
         and isinstance(p["confidence"], (int, float))
         and not isinstance(p["confidence"], bool)
+        and 0.0 <= p["confidence"] <= 1.0
         and isinstance(p["reasoning"], str)
     ),
     "numeric-reasoning": lambda p: (
