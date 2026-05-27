@@ -3,6 +3,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from textual.app import App
+from textual.css.query import NoMatches
 from textual.widgets import Checkbox, Label, ProgressBar, Static
 
 from hermia.preflight import ModelCheck, PreflightReport
@@ -381,7 +382,10 @@ def test_run_evals_no_runnable_models(tmp_path: Path) -> None:
                 log_content = ""
                 for _ in range(30):
                     await pilot.pause(delay=0.1)
-                    log_content = str(pilot.app.screen.query_one("#log-content").render())
+                    try:
+                        log_content = str(pilot.app.screen.query_one("#log-content").render())
+                    except NoMatches:
+                        continue
                     if "No models can run" in log_content:
                         break
 
@@ -416,7 +420,10 @@ def test_run_evals_skipped_model_logged(tmp_path: Path) -> None:
                 log_content = ""
                 for _ in range(30):
                     await pilot.pause(delay=0.1)
-                    log_content = str(pilot.app.screen.query_one("#log-content").render())
+                    try:
+                        log_content = str(pilot.app.screen.query_one("#log-content").render())
+                    except NoMatches:
+                        continue
                     if "Skipping" in log_content:
                         break
 
