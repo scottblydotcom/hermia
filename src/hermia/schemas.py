@@ -268,7 +268,7 @@ SCHEMA_CHECKS: dict[str, Any] = {
     "classification-routing": lambda p: (
         isinstance(p, dict)
         and _keys_ok(set(p.keys()), frozenset({"agent", "confidence", "reasoning"}))
-        and p["agent"] == "home-automation-agent"
+        and p["agent"] == "building-automation-agent"
         and isinstance(p["confidence"], (int, float))
         and not isinstance(p["confidence"], bool)
         and isinstance(p["reasoning"], str)
