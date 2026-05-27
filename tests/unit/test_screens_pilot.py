@@ -351,7 +351,10 @@ def test_run_evals_happy_path(tmp_path: Path) -> None:
                 summary = ""
                 for _ in range(30):
                     await pilot.pause(delay=0.1)
-                    summary = str(pilot.app.screen.query_one("#summary-content").render())
+                    try:
+                        summary = str(pilot.app.screen.query_one("#summary-content").render())
+                    except NoMatches:
+                        continue
                     if "EVAL SUMMARY" in summary:
                         break
 
