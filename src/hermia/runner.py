@@ -221,7 +221,10 @@ def run_test(
             else:
                 extractor = SIGNAL_EXTRACTORS.get(test["id"])
                 if extractor:
-                    signals = extractor(parsed)
+                    try:
+                        signals = extractor(parsed)
+                    except Exception:  # noqa: BLE001
+                        signals = {}
         except json.JSONDecodeError:
             failure_reason = "JSON_PARSE_ERROR"
     elif not error_type:
