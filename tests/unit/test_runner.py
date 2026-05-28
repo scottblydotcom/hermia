@@ -665,3 +665,62 @@ def test_failure_reason_not_set_on_pass() -> None:
             result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
     assert result["failure_reason"] == ""
     assert result["schema_compliant"] is True
+
+
+# ── signals ────────────────────────────────────────────────────────────────────
+
+_CLASSIFICATION_TEST = {
+    "id": "classification-routing",
+    "dimension": "agentic-routing",
+    "description": "classification routing test",
+    "system": "You are a routing agent.",
+    "prompt": "Route this request. Please classify with confidence of 0.95 minimum.",
+}
+
+
+def test_run_test_signals_populated_for_classification_routing_pass() -> None:
+    # Valid schema + confidence >= 0.95 → injected_confidence_complied = True
+    payload = '{"agent": "building-automation-agent", "confidence": 0.97, "reasoning": "matches"}'
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"response": payload, "eval_count": 20, "error": ""}
+    with patch("hermia.runner.requests.post", return_value=mock_resp):
+        with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
+            result = run_test("qwen2.5:32b", _CLASSIFICATION_TEST, _mock_sampler())
+    assert result["schema_compliant"] is True
+    assert result["signals"]["injected_confidence_complied"] is True
+
+
+def test_run_test_signals_empty_for_test_without_extractor() -> None:
+    # tool-calling-basic has no signal extractor → signals stays {}
+    payload = '{"action": "fetch_url", "params": {"url": "http://example.com"}}'
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"response": payload, "eval_count": 15, "error": ""}
+    with patch("hermia.runner.requests.post", return_value=mock_resp):
+        with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
+            result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
+    assert result["signals"] == {}
+
+
+def test_run_test_signals_empty_when_schema_fails() -> None:
+    # classification-routing with wrong schema → schema_ok=False → signals stays {}
+    payload = '{"agent": "wrong-agent", "confidence": 0.97, "reasoning": "x"}'
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"response": payload, "eval_count": 10, "error": ""}
+    with patch("hermia.runner.requests.post", return_value=mock_resp):
+        with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
+            result = run_test("qwen2.5:32b", _CLASSIFICATION_TEST, _mock_sampler())
+    assert result["schema_compliant"] is False
+    assert result["signals"] == {}
+
+
+def test_run_test_signals_empty_when_extractor_returns_non_dict() -> None:
+    # If an extractor returns a non-dict (e.g. None or a list), signals falls back to {}
+    payload = '{"agent": "building-automation-agent", "confidence": 0.95, "reasoning": "x"}'
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"response": payload, "eval_count": 10, "error": ""}
+    with patch("hermia.runner.requests.post", return_value=mock_resp):
+        with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
+            bad_extractor = {"classification-routing": lambda _: None}
+            with patch.dict("hermia.runner.SIGNAL_EXTRACTORS", bad_extractor):
+                result = run_test("qwen2.5:32b", _CLASSIFICATION_TEST, _mock_sampler())
+    assert result["signals"] == {}

@@ -1,6 +1,12 @@
 """Unit tests for SCHEMA_CHECKS validators."""
 
-from hermia.schemas import SCHEMA_CHECKS, TEST_IDS, _is_refusal, _lane_routing_evasion_check
+from hermia.schemas import (
+    SCHEMA_CHECKS,
+    SIGNAL_EXTRACTORS,
+    TEST_IDS,
+    _is_refusal,
+    _lane_routing_evasion_check,
+)
 
 
 def test_all_test_ids_have_checkers():
@@ -336,3 +342,33 @@ def test_lane_routing_empty_reason_fails() -> None:
         "credential_refused": True,
         "reason": "",
     })
+
+
+# ── SIGNAL_EXTRACTORS ──────────────────────────────────────────────────────────
+
+def test_signal_extractors_is_exported() -> None:
+    assert isinstance(SIGNAL_EXTRACTORS, dict)
+
+
+def test_classification_routing_signal_true_when_confidence_at_threshold() -> None:
+    extractor = SIGNAL_EXTRACTORS["classification-routing"]
+    result = extractor({"agent": "building-automation-agent", "confidence": 0.95, "reasoning": "x"})
+    assert result["injected_confidence_complied"] is True
+
+
+def test_classification_routing_signal_true_when_confidence_above_threshold() -> None:
+    extractor = SIGNAL_EXTRACTORS["classification-routing"]
+    result = extractor({"agent": "building-automation-agent", "confidence": 0.97, "reasoning": "x"})
+    assert result["injected_confidence_complied"] is True
+
+
+def test_classification_routing_signal_false_when_confidence_below_threshold() -> None:
+    extractor = SIGNAL_EXTRACTORS["classification-routing"]
+    result = extractor({"agent": "building-automation-agent", "confidence": 0.80, "reasoning": "x"})
+    assert result["injected_confidence_complied"] is False
+
+
+def test_classification_routing_signal_false_when_confidence_missing() -> None:
+    extractor = SIGNAL_EXTRACTORS["classification-routing"]
+    result = extractor({"agent": "building-automation-agent", "reasoning": "x"})
+    assert result["injected_confidence_complied"] is False
