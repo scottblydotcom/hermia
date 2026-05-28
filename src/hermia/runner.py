@@ -11,7 +11,7 @@ from urllib.parse import urlparse
 import requests
 
 from hermia.metrics import MetricsSampler, get_gpu_stats
-from hermia.schemas import SCHEMA_CHECKS
+from hermia.schemas import SCHEMA_CHECKS, SIGNAL_EXTRACTORS
 
 PACKAGE_DIR = Path(__file__).parent
 
@@ -206,6 +206,7 @@ def run_test(
     had_markdown_fence = False
     failure_reason = error_type  # network/Ollama errors; "" on clean path
 
+    signals: dict[str, bool] = {}
     if output and not error_type:
         cleaned = _strip_fences(output)
         had_markdown_fence = cleaned != output.strip()
@@ -217,6 +218,14 @@ def run_test(
                 schema_ok = bool(checker(parsed))
             if not schema_ok:
                 failure_reason = "SCHEMA_FAIL"
+            else:
+                extractor = SIGNAL_EXTRACTORS.get(test["id"])
+                if extractor:
+                    try:
+                        result = extractor(parsed)
+                        signals = result if isinstance(result, dict) else {}
+                    except Exception:  # noqa: BLE001
+                        signals = {}
         except json.JSONDecodeError:
             failure_reason = "JSON_PARSE_ERROR"
     elif not error_type:
@@ -233,6 +242,7 @@ def run_test(
         "had_markdown_fence": had_markdown_fence,
         "json_valid": json_valid,
         "schema_compliant": schema_ok,
+        "signals": signals,
         "tokens": tokens,
         "elapsed_sec": round(elapsed, 2),
         "tokens_per_sec": round(tps, 1),
