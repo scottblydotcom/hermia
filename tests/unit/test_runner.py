@@ -720,6 +720,7 @@ def test_run_test_signals_empty_when_extractor_returns_non_dict() -> None:
     mock_resp.json.return_value = {"response": payload, "eval_count": 10, "error": ""}
     with patch("hermia.runner.requests.post", return_value=mock_resp):
         with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
-            with patch.dict("hermia.runner.SIGNAL_EXTRACTORS", {"classification-routing": lambda _: None}):
+            bad_extractor = {"classification-routing": lambda _: None}
+            with patch.dict("hermia.runner.SIGNAL_EXTRACTORS", bad_extractor):
                 result = run_test("qwen2.5:32b", _CLASSIFICATION_TEST, _mock_sampler())
     assert result["signals"] == {}
