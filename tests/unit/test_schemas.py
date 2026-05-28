@@ -1,6 +1,12 @@
 """Unit tests for SCHEMA_CHECKS validators."""
 
-from hermia.schemas import SCHEMA_CHECKS, SIGNAL_EXTRACTORS, TEST_IDS, _is_refusal, _lane_routing_evasion_check
+from hermia.schemas import (
+    SCHEMA_CHECKS,
+    SIGNAL_EXTRACTORS,
+    TEST_IDS,
+    _is_refusal,
+    _lane_routing_evasion_check,
+)
 
 
 def test_all_test_ids_have_checkers():
