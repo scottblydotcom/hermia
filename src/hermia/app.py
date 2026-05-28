@@ -8,6 +8,7 @@ from pathlib import Path
 
 from textual.app import App
 
+from hermia import __version__
 from hermia.metrics import detect_gpu
 from hermia.runner import detect_mode, get_available_models
 from hermia.screens import SelectionScreen
@@ -37,6 +38,7 @@ def _positive_int(value: str) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Hermia LLM Eval")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument(
         "--host",
         default="http://localhost:11434",

@@ -364,3 +364,21 @@ def test_main_invalid_json_returns_2(tmp_path: Path, capsys) -> None:
     f.write_text("{{not valid")
     code = main(results_path=f, exit_nonzero_on_regression=False)
     assert code == 2
+
+
+# ---------------------------------------------------------------------------
+# --version flag
+# ---------------------------------------------------------------------------
+
+
+def test_main_version_flag(monkeypatch, capsys) -> None:
+    """--version should print the package version and exit 0."""
+    import sys
+
+    from hermia import __version__
+    monkeypatch.setattr(sys, "argv", ["hermia-regression", "--version"])
+    with pytest.raises(SystemExit) as exc:
+        main()
+    assert exc.value.code == 0
+    captured = capsys.readouterr()
+    assert __version__ in captured.out or __version__ in captured.err
