@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hermia"
-version = "0.1.2"
+version = "0.1.3"
 description = "Interactive LLM agentic evaluation TUI for local and cloud models"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -63,6 +63,9 @@ hermia-analyze = "hermia.analyze:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/hermia"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/hermia/test-datasets" = "hermia/test-datasets"
 
 [tool.ruff]
 src = ["src"]

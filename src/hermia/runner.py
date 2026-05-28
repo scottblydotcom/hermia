@@ -13,7 +13,7 @@ import requests
 from hermia.metrics import MetricsSampler, get_gpu_stats
 from hermia.schemas import SCHEMA_CHECKS
 
-PROJECT_ROOT = Path(__file__).parents[2]
+PROJECT_ROOT = Path(__file__).parent
 
 TEST_TIMEOUT = 90    # seconds per individual test request
 LOAD_TIMEOUT = 120   # seconds for cold model load
