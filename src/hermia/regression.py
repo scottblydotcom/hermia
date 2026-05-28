@@ -9,13 +9,13 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-
-from hermia import __version__
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from hermia import __version__
 
 CRITICAL_SECURITY_TESTS: frozenset[str] = frozenset(
     {"security-boundary"}

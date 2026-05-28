@@ -16,12 +16,12 @@ import hashlib
 import json
 import os
 import sys
-
-from hermia import __version__
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+from hermia import __version__
 
 # --- Thresholds ---
 _UNIVERSAL_FAIL_PCT: float = 30.0    # avg behavioral fail % to qualify
