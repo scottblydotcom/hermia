@@ -561,6 +561,7 @@ def test_pg_columns_includes_raw_response() -> None:
 def test_main_version_flag(monkeypatch, capsys) -> None:
     """--version should print the package version and exit 0."""
     import sys
+
     from hermia import __version__
     monkeypatch.setattr(sys, "argv", ["hermia-push", "--version"])
     # exit_on_error=True so SystemExit propagates; version action exits 0

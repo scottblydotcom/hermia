@@ -433,7 +433,9 @@ class TestMain:
                 from hermia.analyze import main
                 main()
 
-    def test_version_flag(self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture) -> None:
+    def test_version_flag(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ) -> None:
         """--version should print the package version and exit 0."""
         from hermia import __version__
         monkeypatch.setattr(sys, "argv", ["hermia-analyze", "--version"])

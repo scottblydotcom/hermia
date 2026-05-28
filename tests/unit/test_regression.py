@@ -374,6 +374,7 @@ def test_main_invalid_json_returns_2(tmp_path: Path, capsys) -> None:
 def test_main_version_flag(monkeypatch, capsys) -> None:
     """--version should print the package version and exit 0."""
     import sys
+
     from hermia import __version__
     monkeypatch.setattr(sys, "argv", ["hermia-regression", "--version"])
     with pytest.raises(SystemExit) as exc:
