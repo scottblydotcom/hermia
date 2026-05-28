@@ -102,8 +102,7 @@ def _backfill_aggregates(run_results: list[dict[str, Any]]) -> None:
         row["robustness_n"] = result.n
 
 
-PROJECT_ROOT = Path(__file__).parents[2]
-RESULTS_DIR = PROJECT_ROOT / "results"
+RESULTS_DIR = Path("results")
 
 
 class SelectionScreen(Screen):  # type: ignore[type-arg]
