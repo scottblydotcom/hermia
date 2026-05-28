@@ -284,13 +284,14 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
         sampler = MetricsSampler()
         self._live_sampler = sampler
 
+        app = self.app
+
         def append_log(line: str, style: str = "") -> None:
             log_lines.append((line, style))
             content = "\n".join(f"[{s}]{ln}[/{s}]" if s else ln for ln, s in log_lines[-100:])
-            self.app.call_from_thread(self._safe_update_log, content)
+            app.call_from_thread(self._safe_update_log, content)
 
         # ── Preflight ────────────────────────────────────────────────────────
-        app = self.app
         pf = run_preflight(
             self.models, app.model_list, RESULTS_DIR, fleet_mode=app.fleet_mode  # type: ignore[attr-defined]
         )
@@ -371,7 +372,7 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
                     self.all_results.append(result)
                     append_result(result, jsonl_path, csv_path=None)
                     run_results_for_test.append(result)
-                    self.app.call_from_thread(self._safe_advance_progress)
+                    app.call_from_thread(self._safe_advance_progress)
 
                 # Compute aggregates after all N runs, then patch the already-written
                 # rows in the JSONL. CSV written here so aggregate fields are included.
@@ -433,5 +434,5 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
         lines.append(f"Saved: {jsonl_path.name}  |  {csv_path.name}")
 
         summary_text = "\n".join(lines)
-        self.app.call_from_thread(self._safe_update_summary, summary_text)
+        app.call_from_thread(self._safe_update_summary, summary_text)
         append_log("\nDone! See summary below.", "pass")
