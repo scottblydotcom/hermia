@@ -3,8 +3,8 @@
 import json
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).parents[2]
-TASKS_FILE = PROJECT_ROOT / "test-datasets" / "agentic-tasks.json"
+PACKAGE_DIR = Path(__file__).parents[2] / "src" / "hermia"
+TASKS_FILE = PACKAGE_DIR / "test-datasets" / "agentic-tasks.json"
 
 INJECTION_PATTERNS = [
     "ignore previous",
