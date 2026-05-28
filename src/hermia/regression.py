@@ -9,6 +9,8 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+
+from hermia import __version__
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -244,6 +246,7 @@ def main(
     """
     if results_path is None:
         parser = argparse.ArgumentParser(prog="hermia-regression")
+        parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
         parser.add_argument(
             "results_path",
             nargs="?",

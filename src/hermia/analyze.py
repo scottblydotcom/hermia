@@ -16,6 +16,8 @@ import hashlib
 import json
 import os
 import sys
+
+from hermia import __version__
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -453,6 +455,7 @@ def run_analysis(
 def main() -> None:
     dsn_env = os.environ.get("HERMIA_PG_DSN", "")
     parser = argparse.ArgumentParser(description="Run statistical analysis on hermia_results")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--dsn", default=dsn_env, help="Postgres DSN (or HERMIA_PG_DSN env var)")
     parser.add_argument("--run-id", default=None, help="Analyze a specific run_id")
     parser.add_argument(

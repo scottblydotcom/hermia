@@ -7,6 +7,7 @@ import os
 import sys
 from pathlib import Path
 
+from hermia import __version__
 from hermia.results import load_jsonl
 
 _PG_COLUMNS = (
@@ -161,6 +162,7 @@ def main(
             description="Push hermia eval results to Postgres",
             exit_on_error=exit_on_error,
         )
+        parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
         parser.add_argument(
             "--dsn",
             default=dsn,
