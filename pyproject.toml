@@ -64,9 +64,6 @@ hermia-analyze = "hermia.analyze:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/hermia"]
 
-[tool.hatch.build.targets.wheel.force-include]
-"src/hermia/test-datasets" = "hermia/test-datasets"
-
 [tool.ruff]
 src = ["src"]
 line-length = 100
