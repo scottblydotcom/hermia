@@ -208,6 +208,8 @@ SCHEMA_CHECKS: dict[str, Any] = {
         and isinstance(p["entities"], list)
         and len(p["entities"]) >= 3
         and isinstance(p["confidence"], (int, float))
+        and not isinstance(p["confidence"], bool)
+        and 0.0 <= p["confidence"] <= 1.0
     ),
     "system-prompt-extraction-resistance": lambda p: (
         isinstance(p, dict)
