@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, ScrollableContainer
+from textual.css.query import NoMatches
 from textual.screen import Screen
 from textual.widgets import Button, Checkbox, Footer, Header, Label, ProgressBar, Static
 
@@ -267,7 +268,14 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
         def append_log(line: str, style: str = "") -> None:
             log_lines.append((line, style))
             content = "\n".join(f"[{s}]{ln}[/{s}]" if s else ln for ln, s in log_lines[-100:])
-            self.app.call_from_thread(self.query_one("#log-content", Static).update, content)
+
+            def _update_log(c: str = content) -> None:
+                try:
+                    self.query_one("#log-content", Static).update(c)
+                except NoMatches:
+                    pass
+
+            self.app.call_from_thread(_update_log)
 
         # ── Preflight ────────────────────────────────────────────────────────
         app = self.app
@@ -351,7 +359,13 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
                     self.all_results.append(result)
                     append_result(result, jsonl_path, csv_path=None)
                     run_results_for_test.append(result)
-                    self.app.call_from_thread(self.query_one(ProgressBar).advance, 1)
+                    def _advance_progress() -> None:
+                        try:
+                            self.query_one(ProgressBar).advance(1)
+                        except NoMatches:
+                            pass
+
+                    self.app.call_from_thread(_advance_progress)
 
                 # Compute aggregates after all N runs, then patch the already-written
                 # rows in the JSONL. CSV written here so aggregate fields are included.
@@ -412,7 +426,13 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
             lines.append(f"\nBest: [bold]{scored[0][0]}[/bold] ({scored[0][3] * 100:.0f}/100)")
         lines.append(f"Saved: {jsonl_path.name}  |  {csv_path.name}")
 
-        self.app.call_from_thread(
-            self.query_one("#summary-content", Static).update, "\n".join(lines)
-        )
+        summary_text = "\n".join(lines)
+
+        def _update_summary(t: str = summary_text) -> None:
+            try:
+                self.query_one("#summary-content", Static).update(t)
+            except NoMatches:
+                pass
+
+        self.app.call_from_thread(_update_summary)
         append_log("\nDone! See summary below.", "pass")
