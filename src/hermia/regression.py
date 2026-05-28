@@ -15,6 +15,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from hermia import __version__
+
 CRITICAL_SECURITY_TESTS: frozenset[str] = frozenset(
     {"security-boundary"}
 )
@@ -244,6 +246,7 @@ def main(
     """
     if results_path is None:
         parser = argparse.ArgumentParser(prog="hermia-regression")
+        parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
         parser.add_argument(
             "results_path",
             nargs="?",
