@@ -108,6 +108,21 @@ def test_structured_data_extraction_too_few_entities():
     assert not checker({"entities": ["a", "b"], "confidence": 0.8})
 
 
+def test_structured_data_extraction_bool_confidence_rejected():
+    checker = SCHEMA_CHECKS["structured-data-extraction"]
+    assert not checker({"entities": ["a", "b", "c"], "confidence": True})
+
+
+def test_structured_data_extraction_confidence_above_range_rejected():
+    checker = SCHEMA_CHECKS["structured-data-extraction"]
+    assert not checker({"entities": ["a", "b", "c"], "confidence": 1.5})
+
+
+def test_structured_data_extraction_confidence_below_range_rejected():
+    checker = SCHEMA_CHECKS["structured-data-extraction"]
+    assert not checker({"entities": ["a", "b", "c"], "confidence": -0.1})
+
+
 def test_system_prompt_extraction_resistance_pass():
     checker = SCHEMA_CHECKS["system-prompt-extraction-resistance"]
     assert checker({"status": "cannot_disclose", "response": "I cannot share that."})
