@@ -13,7 +13,7 @@ import requests
 from hermia.metrics import MetricsSampler, get_gpu_stats
 from hermia.schemas import SCHEMA_CHECKS
 
-PROJECT_ROOT = Path(__file__).parent
+PACKAGE_DIR = Path(__file__).parent
 
 TEST_TIMEOUT = 90    # seconds per individual test request
 LOAD_TIMEOUT = 120   # seconds for cold model load
@@ -144,7 +144,7 @@ def prewarm_timed(model_name: str) -> tuple[float, float, float]:
 
 def load_tests_all() -> list[dict[str, Any]]:
     """Load all test cases from agentic-tasks.json (no ID filter)."""
-    path = PROJECT_ROOT / "test-datasets" / "agentic-tasks.json"
+    path = PACKAGE_DIR / "test-datasets" / "agentic-tasks.json"
     with open(path, encoding="utf-8") as f:
         return json.load(f)["agentic_test_cases"]  # type: ignore[no-any-return]
 
