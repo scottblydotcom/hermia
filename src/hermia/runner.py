@@ -222,7 +222,8 @@ def run_test(
                 extractor = SIGNAL_EXTRACTORS.get(test["id"])
                 if extractor:
                     try:
-                        signals = extractor(parsed)
+                        result = extractor(parsed)
+                        signals = result if isinstance(result, dict) else {}
                     except Exception:  # noqa: BLE001
                         signals = {}
         except json.JSONDecodeError:

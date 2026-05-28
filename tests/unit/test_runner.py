@@ -711,3 +711,15 @@ def test_run_test_signals_empty_when_schema_fails() -> None:
             result = run_test("qwen2.5:32b", _CLASSIFICATION_TEST, _mock_sampler())
     assert result["schema_compliant"] is False
     assert result["signals"] == {}
+
+
+def test_run_test_signals_empty_when_extractor_returns_non_dict() -> None:
+    # If an extractor returns a non-dict (e.g. None or a list), signals falls back to {}
+    payload = '{"agent": "building-automation-agent", "confidence": 0.95, "reasoning": "x"}'
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"response": payload, "eval_count": 10, "error": ""}
+    with patch("hermia.runner.requests.post", return_value=mock_resp):
+        with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
+            with patch.dict("hermia.runner.SIGNAL_EXTRACTORS", {"classification-routing": lambda _: None}):
+                result = run_test("qwen2.5:32b", _CLASSIFICATION_TEST, _mock_sampler())
+    assert result["signals"] == {}
