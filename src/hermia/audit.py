@@ -2,6 +2,7 @@
 
 import html as _html
 import json
+import statistics
 import sys
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator
@@ -30,7 +31,7 @@ def _dominant_execution_path(group: list[dict[str, Any]]) -> str:
         if r.get("execution_path") and r["execution_path"] != "unknown"
     ]
     if known:
-        return Counter(known).most_common(1)[0][0]
+        return str(Counter(known).most_common(1)[0][0])
     # Backward compat: derive from vram_server_gb
     vram_vals = [r["vram_server_gb"] for r in group if r.get("vram_server_gb") is not None]
     if not vram_vals:
@@ -73,7 +74,7 @@ def render_spill(rows: list[dict[str, Any]]) -> str:
         pass_pct = 100.0 * passed / total
 
         tps_vals = [r["tokens_per_sec"] for r in group if r.get("tokens_per_sec") is not None]
-        med_tps = sorted(tps_vals)[len(tps_vals) // 2] if tps_vals else 0.0
+        med_tps = statistics.median(tps_vals) if tps_vals else 0.0
 
         vram_vals = [r["vram_server_gb"] for r in group if r.get("vram_server_gb") is not None]
         avg_vram = sum(vram_vals) / len(vram_vals) if vram_vals else 0.0

@@ -4,9 +4,10 @@
 Usage: python3 scripts/analyze_spill.py results/eval_YYYYMMDD_HHMMSS.jsonl
 """
 import json
+import statistics
 import sys
-from pathlib import Path
 from collections import defaultdict
+from pathlib import Path
 
 MIN_ACCEPTABLE_TPS = 5.0  # below this = delete
 BORDERLINE_TPS = 9.0      # below this = flag for review
@@ -26,8 +27,8 @@ def analyze(rows: list[dict]) -> None:
     # Group by (fleet_host_name, model)
     groups: dict[tuple, list[dict]] = defaultdict(list)
     for r in rows:
-        host = r.get("fleet_host_name") or r.get("host", "unknown")
-        model = r.get("model", "unknown")
+        host = str(r.get("fleet_host_name") or r.get("host") or "unknown")
+        model = str(r.get("model") or "unknown")
         groups[(host, model)].append(r)
 
     print(f"\n{'HOST':<30} {'MODEL':<45} {'PASS%':>6} {'MED t/s':>8} {'VRAM GB':>8} {'VERDICT'}")
@@ -39,7 +40,7 @@ def analyze(rows: list[dict]) -> None:
         pass_pct = 100.0 * passed / total if total else 0
 
         tps_vals = [r["tokens_per_sec"] for r in group if r.get("tokens_per_sec") is not None]
-        med_tps = sorted(tps_vals)[len(tps_vals) // 2] if tps_vals else 0.0
+        med_tps = statistics.median(tps_vals) if tps_vals else 0.0
 
         vram_vals = [r["vram_server_gb"] for r in group if r.get("vram_server_gb") is not None]
         avg_vram = sum(vram_vals) / len(vram_vals) if vram_vals else 0.0
