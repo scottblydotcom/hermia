@@ -9,6 +9,8 @@ import requests
 import hermia.runner as _runner_mod
 from hermia.runner import (
     _strip_fences,
+    compute_execution_path,
+    fetch_server_ps_data,
     get_available_models,
     get_model_size_gb,
     load_tests,
@@ -18,10 +20,10 @@ from hermia.runner import (
 
 
 @pytest.fixture(autouse=True)
-def _clear_vram_cache() -> None:
-    _runner_mod._vram_cache.clear()
+def _clear_ps_cache() -> None:
+    _runner_mod._ps_cache.clear()
     yield
-    _runner_mod._vram_cache.clear()
+    _runner_mod._ps_cache.clear()
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -393,6 +395,86 @@ def test_fetch_server_vram_missing_size_vram_key() -> None:
         assert fetch_server_vram("http://localhost:11434", "qwen2.5:32b") is None
 
 
+# ── fetch_server_ps_data ──────────────────────────────────────────────────────
+
+def test_fetch_server_ps_data_returns_both_fields() -> None:
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {
+        "models": [
+            {"name": "qwen2.5:32b", "size_vram": 18 * 1024**3, "size": 20 * 1024**3},
+        ]
+    }
+    with patch("hermia.runner.requests.get", return_value=mock_resp):
+        data = fetch_server_ps_data("http://localhost:11434", "qwen2.5:32b")
+    assert abs(data["vram_server_gb"] - 18.0) < 0.01
+    assert abs(data["model_size_server_gb"] - 20.0) < 0.01
+
+
+def test_fetch_server_ps_data_model_not_found_returns_nones() -> None:
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"models": [{"name": "other:7b", "size_vram": 5 * 1024**3}]}
+    with patch("hermia.runner.requests.get", return_value=mock_resp):
+        data = fetch_server_ps_data("http://localhost:11434", "qwen2.5:32b")
+    assert data["vram_server_gb"] is None
+    assert data["model_size_server_gb"] is None
+
+
+def test_fetch_server_ps_data_missing_size_vram_key() -> None:
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {
+        "models": [{"name": "qwen2.5:32b", "size": 20 * 1024**3}]  # no size_vram
+    }
+    with patch("hermia.runner.requests.get", return_value=mock_resp):
+        data = fetch_server_ps_data("http://localhost:11434", "qwen2.5:32b")
+    assert data["vram_server_gb"] is None
+    assert abs(data["model_size_server_gb"] - 20.0) < 0.01
+
+
+def test_fetch_server_ps_data_connection_error_returns_nones() -> None:
+    with patch("hermia.runner.requests.get", side_effect=requests.exceptions.ConnectionError):
+        data = fetch_server_ps_data("http://192.0.2.1:11434", "qwen2.5:32b")
+    assert data["vram_server_gb"] is None
+    assert data["model_size_server_gb"] is None
+
+
+# ── compute_execution_path ────────────────────────────────────────────────────
+
+def test_compute_execution_path_gpu_full_offload() -> None:
+    assert compute_execution_path(18.0, 18.0) == "gpu"
+
+
+def test_compute_execution_path_gpu_near_full() -> None:
+    assert compute_execution_path(19.1, 20.0) == "gpu"
+
+
+def test_compute_execution_path_cpu_zero_vram() -> None:
+    assert compute_execution_path(0.0, 20.0) == "cpu"
+
+
+def test_compute_execution_path_cpu_near_zero() -> None:
+    assert compute_execution_path(0.8, 20.0) == "cpu"
+
+
+def test_compute_execution_path_partial_spill() -> None:
+    assert compute_execution_path(10.0, 20.0) == "partial"
+
+
+def test_compute_execution_path_unknown_when_vram_none() -> None:
+    assert compute_execution_path(None, 20.0) == "unknown"
+
+
+def test_compute_execution_path_unknown_when_size_none() -> None:
+    assert compute_execution_path(18.0, None) == "unknown"
+
+
+def test_compute_execution_path_unknown_when_both_none() -> None:
+    assert compute_execution_path(None, None) == "unknown"
+
+
+def test_compute_execution_path_unknown_when_size_zero() -> None:
+    assert compute_execution_path(0.0, 0.0) == "unknown"
+
+
 # ── run_test — mode and vram_server_gb fields ─────────────────────────────────
 
 def test_run_test_has_mode_field_local() -> None:
@@ -724,3 +806,56 @@ def test_run_test_signals_empty_when_extractor_returns_non_dict() -> None:
             with patch.dict("hermia.runner.SIGNAL_EXTRACTORS", bad_extractor):
                 result = run_test("qwen2.5:32b", _CLASSIFICATION_TEST, _mock_sampler())
     assert result["signals"] == {}
+
+
+# ── run_test — execution_path and model_size_server_gb ────────────────────────
+
+def _mock_ps_with_sizes(vram_bytes: int, total_bytes: int) -> MagicMock:
+    m = MagicMock()
+    m.json.return_value = {
+        "models": [{"name": "qwen2.5:32b", "size_vram": vram_bytes, "size": total_bytes}]
+    }
+    return m
+
+
+def test_run_test_execution_path_gpu_when_fully_loaded() -> None:
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"response": "{}", "eval_count": 10, "error": ""}
+    total = 20 * 1024**3
+    ps_mock = _mock_ps_with_sizes(vram_bytes=total, total_bytes=total)
+    with patch("hermia.runner.requests.post", return_value=mock_resp):
+        with patch("hermia.runner.requests.get", return_value=ps_mock):
+            result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
+    assert result["execution_path"] == "gpu"
+    assert abs(result["model_size_server_gb"] - 20.0) < 0.01
+
+
+def test_run_test_execution_path_cpu_when_zero_vram() -> None:
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"response": "{}", "eval_count": 10, "error": ""}
+    ps_mock = _mock_ps_with_sizes(vram_bytes=0, total_bytes=20 * 1024**3)
+    with patch("hermia.runner.requests.post", return_value=mock_resp):
+        with patch("hermia.runner.requests.get", return_value=ps_mock):
+            result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
+    assert result["execution_path"] == "cpu"
+    assert result["vram_server_gb"] == 0.0
+
+
+def test_run_test_execution_path_partial_when_spilled() -> None:
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"response": "{}", "eval_count": 10, "error": ""}
+    ps_mock = _mock_ps_with_sizes(vram_bytes=10 * 1024**3, total_bytes=20 * 1024**3)
+    with patch("hermia.runner.requests.post", return_value=mock_resp):
+        with patch("hermia.runner.requests.get", return_value=ps_mock):
+            result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
+    assert result["execution_path"] == "partial"
+
+
+def test_run_test_execution_path_unknown_when_ps_unavailable() -> None:
+    mock_resp = MagicMock()
+    mock_resp.json.return_value = {"response": "{}", "eval_count": 10, "error": ""}
+    with patch("hermia.runner.requests.post", return_value=mock_resp):
+        with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
+            result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
+    assert result["execution_path"] == "unknown"
+    assert result["model_size_server_gb"] is None

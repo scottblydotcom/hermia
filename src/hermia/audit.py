@@ -3,6 +3,7 @@
 import html as _html
 import json
 import sys
+from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator
 from datetime import datetime
 from pathlib import Path
@@ -10,6 +11,83 @@ from typing import Any
 
 from hermia.results import load_jsonl
 from hermia.runner import load_tests_all
+
+# ── Spill / fleet-health analysis ─────────────────────────────────────────────
+
+_MIN_ACCEPTABLE_TPS: float = 5.0   # below → DELETE
+_BORDERLINE_TPS: float = 9.0       # below → REVIEW
+
+
+def _dominant_execution_path(group: list[dict[str, Any]]) -> str:
+    """Return the dominant execution path for a (host, model) group.
+
+    Uses the ``execution_path`` field when present; falls back to
+    ``vram_server_gb`` heuristics for rows written before v0.2.
+    """
+    known = [
+        r["execution_path"]
+        for r in group
+        if r.get("execution_path") and r["execution_path"] != "unknown"
+    ]
+    if known:
+        return Counter(known).most_common(1)[0][0]
+    # Backward compat: derive from vram_server_gb
+    vram_vals = [r["vram_server_gb"] for r in group if r.get("vram_server_gb") is not None]
+    if not vram_vals:
+        return "unknown"
+    return "cpu" if sum(vram_vals) / len(vram_vals) == 0.0 else "probable_gpu"
+
+
+def _spill_verdict(path: str, med_tps: float) -> str:
+    if path == "cpu":
+        return "DELETE — CPU fallback"
+    if med_tps < _MIN_ACCEPTABLE_TPS:
+        return f"DELETE — {med_tps:.1f} t/s (< {_MIN_ACCEPTABLE_TPS})"
+    if med_tps < _BORDERLINE_TPS:
+        return f"REVIEW  — {med_tps:.1f} t/s (borderline)"
+    return "KEEP"
+
+
+def render_spill(rows: list[dict[str, Any]]) -> str:
+    """Render a fleet health / VRAM-spill analysis table.
+
+    Groups results by (host_label, model) and emits a KEEP / REVIEW / DELETE
+    verdict per group based on execution path, pass rate, and throughput.
+    """
+    groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for r in rows:
+        name = r.get("fleet_host_name") or r.get("host", "unknown")
+        model = r.get("model", "unknown")
+        groups[(name, model)].append(r)
+
+    header = (
+        f"{'HOST':<32} {'MODEL':<40} {'N':>4} {'PASS%':>6}"
+        f"  {'MED t/s':>8}  {'VRAM GB':>8}  {'PATH':<12}  VERDICT"
+    )
+    sep = "─" * 130
+    lines = [header, sep]
+
+    for (host, model), group in sorted(groups.items()):
+        total = len(group)
+        passed = sum(1 for r in group if r.get("schema_compliant"))
+        pass_pct = 100.0 * passed / total
+
+        tps_vals = [r["tokens_per_sec"] for r in group if r.get("tokens_per_sec")]
+        med_tps = sorted(tps_vals)[len(tps_vals) // 2] if tps_vals else 0.0
+
+        vram_vals = [r["vram_server_gb"] for r in group if r.get("vram_server_gb") is not None]
+        avg_vram = sum(vram_vals) / len(vram_vals) if vram_vals else 0.0
+
+        path = _dominant_execution_path(group)
+        verdict = _spill_verdict(path, med_tps)
+
+        lines.append(
+            f"{host:<32.32} {model:<40.40} {total:>4}  {pass_pct:>5.1f}%"
+            f"  {med_tps:>8.1f}  {avg_vram:>8.2f}  {path:<12}  {verdict}"
+        )
+
+    lines.append("")
+    return "\n".join(lines)
 
 
 def _load_system_prompts() -> dict[str, str]:
@@ -216,6 +294,16 @@ def run_audit(
             print(f"hermia: no results found in {source}", file=sys.stderr)
             return
         content = render_html(rows)
+        if output is not None:
+            output.write_text(content, encoding="utf-8")
+        else:
+            print(content)
+    elif fmt == "spill":
+        rows = list(_iter_rows(source))
+        if not rows:
+            print(f"hermia: no results found in {source}", file=sys.stderr)
+            return
+        content = render_spill(rows)
         if output is not None:
             output.write_text(content, encoding="utf-8")
         else:
