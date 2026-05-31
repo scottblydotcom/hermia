@@ -38,7 +38,7 @@ def analyze(rows: list[dict]) -> None:
         total = len(group)
         pass_pct = 100.0 * passed / total if total else 0
 
-        tps_vals = [r["tokens_per_sec"] for r in group if r.get("tokens_per_sec")]
+        tps_vals = [r["tokens_per_sec"] for r in group if r.get("tokens_per_sec") is not None]
         med_tps = sorted(tps_vals)[len(tps_vals) // 2] if tps_vals else 0.0
 
         vram_vals = [r["vram_server_gb"] for r in group if r.get("vram_server_gb") is not None]

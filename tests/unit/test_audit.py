@@ -498,6 +498,32 @@ def test_render_spill_backward_compat_old_rows_no_execution_path() -> None:
     assert "CPU fallback" in out
 
 
+def test_render_spill_zero_tps_rows_included_in_median() -> None:
+    """0.0 t/s (timeouts) must be included in median — not silently dropped."""
+    # 4 timeout rows (0.0 t/s) + 1 fast row (100.0 t/s).
+    # If 0.0 is dropped, median = 100.0 → KEEP (wrong).
+    # If 0.0 is included, median = 0.0 → DELETE (correct).
+    rows = [_spill_row(execution_path="gpu", tokens_per_sec=0.0)] * 4
+    rows += [_spill_row(execution_path="gpu", tokens_per_sec=100.0)]
+    out = render_spill(rows)
+    assert "DELETE" in out
+
+
+def test_render_spill_none_host_and_model_do_not_crash() -> None:
+    """Rows with None host/model must not raise TypeError in format specifier."""
+    rows = [{
+        "fleet_host_name": None,
+        "host": None,
+        "model": None,
+        "tokens_per_sec": 10.0,
+        "schema_compliant": True,
+        "vram_server_gb": 8.0,
+        "execution_path": "gpu",
+    }]
+    out = render_spill(rows)  # must not raise
+    assert "unknown" in out
+
+
 # ── run_audit spill format ────────────────────────────────────────────────────
 
 
