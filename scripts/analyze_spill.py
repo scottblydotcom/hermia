@@ -44,7 +44,9 @@ def analyze(rows: list[dict]) -> None:
         vram_vals = [r["vram_server_gb"] for r in group if r.get("vram_server_gb") is not None]
         avg_vram = sum(vram_vals) / len(vram_vals) if vram_vals else 0.0
 
-        if avg_vram == 0.0:
+        if not vram_vals:
+            verdict = "REVIEW  — unknown VRAM"
+        elif avg_vram == 0.0:
             verdict = "DELETE — CPU fallback (vram=0)"
         elif med_tps < MIN_ACCEPTABLE_TPS:
             verdict = f"DELETE — t/s {med_tps:.1f} below {MIN_ACCEPTABLE_TPS}"

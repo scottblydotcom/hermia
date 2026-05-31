@@ -35,7 +35,7 @@ def _dominant_execution_path(group: list[dict[str, Any]]) -> str:
     vram_vals = [r["vram_server_gb"] for r in group if r.get("vram_server_gb") is not None]
     if not vram_vals:
         return "unknown"
-    return "cpu" if sum(vram_vals) / len(vram_vals) == 0.0 else "probable_gpu"
+    return "cpu" if sum(vram_vals) == 0.0 else "probable_gpu"
 
 
 def _spill_verdict(path: str, med_tps: float) -> str:
@@ -82,7 +82,7 @@ def render_spill(rows: list[dict[str, Any]]) -> str:
         verdict = _spill_verdict(path, med_tps)
 
         lines.append(
-            f"{host:<32.32} {model:<40.40} {total:>4}  {pass_pct:>5.1f}%"
+            f"{host:<32.32} {model:<40.40} {total:>4} {pass_pct:>5.1f}%"
             f"  {med_tps:>8.1f}  {avg_vram:>8.2f}  {path:<12}  {verdict}"
         )
 
