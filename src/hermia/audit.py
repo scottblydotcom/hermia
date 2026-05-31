@@ -71,7 +71,7 @@ def render_spill(rows: list[dict[str, Any]]) -> str:
     for (host, model), group in sorted(groups.items()):
         total = len(group)
         passed = sum(1 for r in group if r.get("schema_compliant"))
-        pass_pct = 100.0 * passed / total
+        pass_pct = 100.0 * passed / total if total else 0.0
 
         tps_vals = [r["tokens_per_sec"] for r in group if r.get("tokens_per_sec") is not None]
         med_tps = statistics.median(tps_vals) if tps_vals else 0.0

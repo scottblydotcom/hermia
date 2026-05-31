@@ -403,7 +403,7 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
                 append_log(main_line, style)
                 if result.get("execution_path") == "cpu":
                     append_log(
-                        "       ⚠ CPU fallback detected (vram_server_gb=0)"
+                        "       ⚠ CPU fallback detected (vram_server_gb near zero)"
                         " — results may be timeout artifacts",
                         "warn",
                     )
