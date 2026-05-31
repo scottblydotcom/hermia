@@ -129,8 +129,8 @@ def run_fleet(
                         status = "✓" if not result.get("failure_reason") else "✗"
                         line = f"  {status} {model}:{test['id']} ({result['elapsed_sec']}s)"
                         if verbosity >= 1:
-                            tps = result.get("tokens_per_sec", 0.0)
-                            reason = result.get("failure_reason", "")
+                            tps = result.get("tokens_per_sec") or 0.0
+                            reason = result.get("failure_reason") or ""
                             line += f"  {tps:.1f} t/s"
                             if reason:
                                 line += f"  [{reason}]"
