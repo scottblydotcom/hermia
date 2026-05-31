@@ -60,8 +60,15 @@ def run_fleet(
     repeat: int,
     results_dir: Path,
     print_fn: Callable[[str], None] = print,
+    verbosity: int = 0,
 ) -> Path:
-    """Run headless eval against all fleet entries. Returns path to JSONL output."""
+    """Run headless eval against all fleet entries. Returns path to JSONL output.
+
+    verbosity:
+        -1  quiet   — suppress all progress; print only ``Saved: <path>`` on completion
+         0  normal  — host headers + per-test pass/fail lines  (default)
+         1  verbose — normal output + t/s and failure_reason detail per test
+    """
     from hermia.metrics import MetricsSampler
     from hermia.results import append_result, open_run
     from hermia.robustness import score_rows
@@ -83,14 +90,16 @@ def run_fleet(
             requested_set = set(requested)
             models = [m for m in all_models if m["name"] in requested_set]
             missing = requested_set - {m["name"] for m in models}
-            if missing:
+            if missing and verbosity >= 0:
                 print_fn(f"  WARNING: models not found on {name}: {', '.join(sorted(missing))}")
         else:
             models = all_models
-        print_fn(
-            f"[{idx}/{len(entries)}] {name} ({host_url})"
-            f" — {len(models)} models, {len(tests)} tests"
-        )
+
+        if verbosity >= 0:
+            print_fn(
+                f"[{idx}/{len(entries)}] {name} ({host_url})"
+                f" — {len(models)} models, {len(tests)} tests"
+            )
 
         sampler = MetricsSampler()
         for model_entry in models:
@@ -115,7 +124,17 @@ def run_fleet(
                     result["pass_count"] = rob.pass_count
                     result["robustness_n"] = rob.n
                     append_result(result, jsonl_path, csv_path)
-                    status = "✓" if not result.get("failure_reason") else "✗"
-                    print_fn(f"  {status} {model}:{test['id']} ({result['elapsed_sec']}s)")
 
+                    if verbosity >= 0:
+                        status = "✓" if not result.get("failure_reason") else "✗"
+                        line = f"  {status} {model}:{test['id']} ({result['elapsed_sec']}s)"
+                        if verbosity >= 1:
+                            tps = result.get("tokens_per_sec", 0.0)
+                            reason = result.get("failure_reason", "")
+                            line += f"  {tps:.1f} t/s"
+                            if reason:
+                                line += f"  [{reason}]"
+                        print_fn(line)
+
+    print_fn(f"Saved: {jsonl_path}")
     return jsonl_path
