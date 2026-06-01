@@ -76,10 +76,10 @@ def main() -> None:
     )
     parser.add_argument(
         "--audit-format",
-        choices=["jsonl", "html"],
+        choices=["jsonl", "html", "spill"],
         default="jsonl",
         dest="audit_format",
-        help="Audit output format: jsonl (default) or html",
+        help="Audit output format: jsonl (default), html, or spill (fleet health table)",
     )
     args = parser.parse_args()
 

@@ -7,10 +7,13 @@ from unittest.mock import patch
 import pytest
 
 from hermia.audit import (
+    _dominant_execution_path,
     _enrich,
     _iter_rows,
+    _spill_verdict,
     render_html,
     render_jsonl,
+    render_spill,
     run_audit,
 )
 
@@ -340,3 +343,220 @@ def test_render_html_host_duration_shown() -> None:
     ]
     html = render_html(rows)
     assert "5m 30s" in html
+
+
+# ── _dominant_execution_path ──────────────────────────────────────────────────
+
+
+def _spill_row(
+    host: str = "node1",
+    model: str = "qwen2.5:32b",
+    execution_path: str | None = "gpu",
+    vram_server_gb: float | None = 18.0,
+    tokens_per_sec: float = 12.0,
+    schema_compliant: bool = True,
+) -> dict:
+    r: dict = {
+        "fleet_host_name": host,
+        "model": model,
+        "tokens_per_sec": tokens_per_sec,
+        "schema_compliant": schema_compliant,
+        "vram_server_gb": vram_server_gb,
+    }
+    if execution_path is not None:
+        r["execution_path"] = execution_path
+    return r
+
+
+def test_dominant_path_gpu_from_execution_path_field() -> None:
+    group = [_spill_row(execution_path="gpu")] * 3
+    assert _dominant_execution_path(group) == "gpu"
+
+
+def test_dominant_path_cpu_from_execution_path_field() -> None:
+    group = [_spill_row(execution_path="cpu", vram_server_gb=0.0)] * 3
+    assert _dominant_execution_path(group) == "cpu"
+
+
+def test_dominant_path_partial_majority() -> None:
+    group = [
+        _spill_row(execution_path="partial"),
+        _spill_row(execution_path="partial"),
+        _spill_row(execution_path="gpu"),
+    ]
+    assert _dominant_execution_path(group) == "partial"
+
+
+def test_dominant_path_falls_back_to_vram_zero_when_no_field() -> None:
+    group = [_spill_row(execution_path=None, vram_server_gb=0.0)]
+    assert _dominant_execution_path(group) == "cpu"
+
+
+def test_dominant_path_falls_back_to_probable_gpu_when_vram_nonzero() -> None:
+    group = [_spill_row(execution_path=None, vram_server_gb=18.0)]
+    assert _dominant_execution_path(group) == "probable_gpu"
+
+
+def test_dominant_path_unknown_when_no_field_and_no_vram() -> None:
+    group = [_spill_row(execution_path=None, vram_server_gb=None)]
+    assert _dominant_execution_path(group) == "unknown"
+
+
+def test_dominant_path_ignores_unknown_values() -> None:
+    group = [
+        _spill_row(execution_path="unknown"),
+        _spill_row(execution_path="gpu"),
+    ]
+    assert _dominant_execution_path(group) == "gpu"
+
+
+# ── _spill_verdict ────────────────────────────────────────────────────────────
+
+
+def test_spill_verdict_delete_cpu_fallback() -> None:
+    assert _spill_verdict("cpu", 3.3) == "DELETE — CPU fallback"
+
+
+def test_spill_verdict_delete_low_tps() -> None:
+    v = _spill_verdict("gpu", 2.0)
+    assert v.startswith("DELETE")
+    assert "t/s" in v
+
+
+def test_spill_verdict_review_borderline_tps() -> None:
+    v = _spill_verdict("gpu", 7.5)
+    assert v.startswith("REVIEW")
+    assert "t/s" in v
+
+
+def test_spill_verdict_keep() -> None:
+    assert _spill_verdict("gpu", 12.0) == "KEEP"
+
+
+def test_spill_verdict_keep_partial_spill_fast_enough() -> None:
+    assert _spill_verdict("partial", 10.0) == "KEEP"
+
+
+# ── render_spill ──────────────────────────────────────────────────────────────
+
+
+def test_render_spill_contains_header() -> None:
+    rows = [_spill_row()]
+    out = render_spill(rows)
+    assert "HOST" in out
+    assert "MODEL" in out
+    assert "VERDICT" in out
+
+
+def test_render_spill_keep_verdict_for_gpu_fast_node() -> None:
+    rows = [_spill_row(execution_path="gpu", tokens_per_sec=12.0, schema_compliant=True)] * 5
+    out = render_spill(rows)
+    assert "KEEP" in out
+
+
+def test_render_spill_delete_verdict_for_cpu_fallback() -> None:
+    rows = [_spill_row(execution_path="cpu", vram_server_gb=0.0, tokens_per_sec=3.3)] * 5
+    out = render_spill(rows)
+    assert "DELETE" in out
+    assert "CPU fallback" in out
+
+
+def test_render_spill_review_verdict_for_borderline_tps() -> None:
+    rows = [_spill_row(execution_path="gpu", tokens_per_sec=7.5)] * 5
+    out = render_spill(rows)
+    assert "REVIEW" in out
+
+
+def test_render_spill_groups_by_host_and_model() -> None:
+    rows = [
+        _spill_row(host="node-a", model="qwen2.5:32b", execution_path="gpu"),
+        _spill_row(host="node-b", model="qwen2.5:14b", execution_path="cpu", vram_server_gb=0.0),
+    ]
+    out = render_spill(rows)
+    assert "node-a" in out
+    assert "node-b" in out
+    assert "qwen2.5:32b" in out
+    assert "qwen2.5:14b" in out
+
+
+def test_render_spill_shows_pass_pct() -> None:
+    rows = [
+        _spill_row(schema_compliant=True),
+        _spill_row(schema_compliant=True),
+        _spill_row(schema_compliant=False),
+        _spill_row(schema_compliant=False),
+    ]
+    out = render_spill(rows)
+    assert "50.0%" in out
+
+
+def test_render_spill_backward_compat_old_rows_no_execution_path() -> None:
+    """Rows without execution_path field fall back to vram heuristic."""
+    rows = [_spill_row(execution_path=None, vram_server_gb=0.0, tokens_per_sec=3.3)] * 3
+    out = render_spill(rows)
+    assert "DELETE" in out
+    assert "CPU fallback" in out
+
+
+def test_render_spill_zero_tps_rows_included_in_median() -> None:
+    """0.0 t/s (timeouts) must be included in median — not silently dropped."""
+    # 4 timeout rows (0.0 t/s) + 1 fast row (100.0 t/s).
+    # If 0.0 is dropped, median = 100.0 → KEEP (wrong).
+    # If 0.0 is included, median = 0.0 → DELETE (correct).
+    rows = [_spill_row(execution_path="gpu", tokens_per_sec=0.0)] * 4
+    rows += [_spill_row(execution_path="gpu", tokens_per_sec=100.0)]
+    out = render_spill(rows)
+    assert "DELETE" in out
+
+
+def test_render_spill_none_host_and_model_do_not_crash() -> None:
+    """Rows with None host/model must not raise TypeError in format specifier."""
+    rows = [{
+        "fleet_host_name": None,
+        "host": None,
+        "model": None,
+        "tokens_per_sec": 10.0,
+        "schema_compliant": True,
+        "vram_server_gb": 8.0,
+        "execution_path": "gpu",
+    }]
+    out = render_spill(rows)  # must not raise
+    assert "unknown" in out
+
+
+# ── run_audit spill format ────────────────────────────────────────────────────
+
+
+def test_run_audit_spill_to_stdout(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
+    jl = tmp_path / "eval_20260531_120000.jsonl"
+    row = {
+        **_make_row(),
+        "execution_path": "gpu",
+        "vram_server_gb": 18.0,
+        "model_size_server_gb": 20.0,
+        "tokens_per_sec": 12.0,
+    }
+    jl.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    run_audit(jl, fmt="spill")
+    out = capsys.readouterr().out
+    assert "HOST" in out
+    assert "KEEP" in out
+
+
+def test_run_audit_spill_to_file(tmp_path: Path) -> None:
+    jl = tmp_path / "eval_20260531_120000.jsonl"
+    row = {**_make_row(), "execution_path": "cpu", "vram_server_gb": 0.0, "tokens_per_sec": 3.3}
+    jl.write_text(json.dumps(row) + "\n", encoding="utf-8")
+    out_file = tmp_path / "spill.txt"
+    run_audit(jl, fmt="spill", output=out_file)
+    content = out_file.read_text(encoding="utf-8")
+    assert "DELETE" in content
+
+
+def test_run_audit_spill_empty_warns_stderr(
+    tmp_path: Path, capsys: pytest.CaptureFixture
+) -> None:
+    run_audit(tmp_path, fmt="spill")
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "no results found" in captured.err

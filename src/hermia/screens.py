@@ -401,6 +401,12 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
                     f"GPU {gpu:.0f}%  VRAM {vram:.1f}GB  CPU {cpu:.0f}%"
                 )
                 append_log(main_line, style)
+                if result.get("execution_path") == "cpu":
+                    append_log(
+                        "       ⚠ CPU fallback detected (vram_server_gb near zero)"
+                        " — results may be timeout artifacts",
+                        "warn",
+                    )
                 if style == "fail":
                     preview = result.get("output_preview", "")
                     if preview:
