@@ -43,6 +43,8 @@ _PG_COLUMNS = (
     "judge_reasoning",
     "mode",
     "vram_server_gb",
+    "model_size_server_gb",
+    "execution_path",
     "raw_system",
     "raw_prompt",
     "raw_response",

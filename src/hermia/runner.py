@@ -44,44 +44,81 @@ def detect_mode(host: str) -> str:
     return "local" if hostname in ("localhost", "127.0.0.1", "::1") else "fleet"
 
 
-_vram_cache: dict[tuple[Any, ...], float | None] = {}
+_ps_cache: dict[tuple[Any, ...], dict[str, float | None]] = {}
+_vram_cache = _ps_cache  # backward-compat alias
+
+
+def fetch_server_ps_data(
+    host: str, model: str, headers: dict[str, str] | None = None
+) -> dict[str, float | None]:
+    """Query /api/ps; return vram_server_gb and model_size_server_gb for model in GiB.
+
+    Both values are None when the model is not found or the request fails.
+    Caches on successful response or 404. Network errors are not cached.
+    Never raises.
+    """
+    host = _normalize_host(host)
+    headers_key = tuple(sorted(headers.items())) if headers else ()
+    key = (host, model, headers_key)
+    if key in _ps_cache:
+        return _ps_cache[key]
+
+    empty: dict[str, float | None] = {"vram_server_gb": None, "model_size_server_gb": None}
+    try:
+        resp = requests.get(f"{host}/api/ps", timeout=2, headers=headers or {})
+        if not resp.ok:
+            if resp.status_code == 404:
+                _ps_cache[key] = dict(empty)
+            return dict(empty)
+
+        result = dict(empty)
+        data = resp.json()
+        if isinstance(data, dict):
+            models_list = data.get("models")
+            for m in (models_list if isinstance(models_list, list) else []):
+                if not isinstance(m, dict):
+                    continue
+                if m.get("name") == model:
+                    sv = m.get("size_vram")
+                    st = m.get("size")
+                    if sv is not None:
+                        result["vram_server_gb"] = float(sv) / (1024 ** 3)
+                    if st is not None:
+                        result["model_size_server_gb"] = float(st) / (1024 ** 3)
+                    break
+
+        _ps_cache[key] = result
+        return result
+    except Exception:  # noqa: BLE001
+        return dict(empty)
 
 
 def fetch_server_vram(
     host: str, model: str, headers: dict[str, str] | None = None
 ) -> float | None:
-    """Query /api/ps on host; return size_vram for model in GiB, or None.
+    """Return size_vram for model in GiB from /api/ps, or None."""
+    return fetch_server_ps_data(host, model, headers=headers)["vram_server_gb"]
 
-    Caches the result (including None) on a successful response or a 404 —
-    both are stable within a session. Network errors and other non-2xx
-    responses are not cached so transient failures retry. Never raises.
+
+def compute_execution_path(
+    vram_server_gb: float | None, model_size_server_gb: float | None
+) -> str:
+    """Classify inference execution path from /api/ps VRAM fields.
+
+    Returns: "gpu", "cpu", "partial", or "unknown".
+    "gpu"     — >=95% of model loaded in VRAM
+    "cpu"     — <=5% of model in VRAM (CPU fallback)
+    "partial" — spill: some layers on CPU, some on GPU
+    "unknown" — data unavailable
     """
-    host = _normalize_host(host)
-    headers_key = tuple(sorted(headers.items())) if headers else ()
-    key = (host, model, headers_key)
-    if key in _vram_cache:
-        return _vram_cache[key]
-    try:
-        resp = requests.get(f"{host}/api/ps", timeout=2, headers=headers or {})
-        if not resp.ok:
-            if resp.status_code == 404:
-                _vram_cache[key] = None
-            return None
-
-        found_vram = None
-        data = resp.json()
-        if isinstance(data, dict):
-            for m in data.get("models") or []:
-                if m.get("name") == model:
-                    size = m.get("size_vram")
-                    if size is not None:
-                        found_vram = float(size) / (1024 ** 3)
-                    break
-
-        _vram_cache[key] = found_vram
-        return found_vram
-    except Exception:  # noqa: BLE001
-        return None
+    if vram_server_gb is None or model_size_server_gb is None or model_size_server_gb <= 0:
+        return "unknown"
+    ratio = vram_server_gb / model_size_server_gb
+    if ratio >= 0.95:
+        return "gpu"
+    if ratio <= 0.05:
+        return "cpu"
+    return "partial"
 
 
 def get_available_models(
@@ -105,6 +142,10 @@ def get_model_size_gb(model_name: str, model_list: list[dict[str, Any]]) -> floa
 
 def unload_model(model_name: str) -> None:
     """Evict model from VRAM."""
+    # Invalidate cached /api/ps data so next load gets fresh VRAM stats
+    keys_to_remove = [k for k in list(_ps_cache) if k[1] == model_name]
+    for k in keys_to_remove:
+        _ps_cache.pop(k, None)
     host = get_ollama_host()
     try:
         requests.post(
@@ -233,6 +274,7 @@ def run_test(
 
     tps = tokens / elapsed if elapsed > 0 and tokens > 0 else 0
     preview = output[:120].replace("\n", " ") if output.strip() else failure_reason
+    ps_data = fetch_server_ps_data(_host, model, headers=req_headers or None)
     return {
         "model": model,
         "test_id": test["id"],
@@ -256,5 +298,8 @@ def run_test(
         "peak_vram_used_gb": round(peak.get("vram_used_gb", 0), 2) if mode == "local" else None,
         "mode": mode,
         "host": _host,
-        "vram_server_gb": fetch_server_vram(_host, model, headers=req_headers or None),
+        **ps_data,
+        "execution_path": compute_execution_path(
+            ps_data["vram_server_gb"], ps_data["model_size_server_gb"]
+        ),
     }
