@@ -1,6 +1,7 @@
 """Headless fleet eval runner — multi-host batch evaluation from YAML config."""
 
 import os
+import sys
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -60,8 +61,16 @@ def run_fleet(
     repeat: int,
     results_dir: Path,
     print_fn: Callable[[str], None] = print,
+    stderr_fn: Callable[[str], None] = lambda msg: print(msg, file=sys.stderr),
+    verbosity: int = 0,
 ) -> Path:
-    """Run headless eval against all fleet entries. Returns path to JSONL output."""
+    """Run headless eval against all fleet entries. Returns path to JSONL output.
+
+    verbosity:
+        -1  quiet   — suppress all progress; print only ``Saved: <path>`` on completion
+         0  normal  — host headers + per-test pass/fail lines  (default)
+         1  verbose — normal output + t/s and failure_reason detail per test
+    """
     from hermia.metrics import MetricsSampler
     from hermia.results import append_result, open_run
     from hermia.robustness import score_rows
@@ -84,13 +93,17 @@ def run_fleet(
             models = [m for m in all_models if m["name"] in requested_set]
             missing = requested_set - {m["name"] for m in models}
             if missing:
-                print_fn(f"  WARNING: models not found on {name}: {', '.join(sorted(missing))}")
+                stderr_fn(
+                    f"  WARNING: models not found on {name}: {', '.join(sorted(missing))}"
+                )
         else:
             models = all_models
-        print_fn(
-            f"[{idx}/{len(entries)}] {name} ({host_url})"
-            f" — {len(models)} models, {len(tests)} tests"
-        )
+
+        if verbosity >= 0:
+            print_fn(
+                f"[{idx}/{len(entries)}] {name} ({host_url})"
+                f" — {len(models)} models, {len(tests)} tests"
+            )
 
         sampler = MetricsSampler()
         for model_entry in models:
@@ -115,7 +128,18 @@ def run_fleet(
                     result["pass_count"] = rob.pass_count
                     result["robustness_n"] = rob.n
                     append_result(result, jsonl_path, csv_path)
-                    status = "✓" if not result.get("failure_reason") else "✗"
-                    print_fn(f"  {status} {model}:{test['id']} ({result['elapsed_sec']}s)")
 
+                    if verbosity >= 0:
+                        status = "✓" if not result.get("failure_reason") else "✗"
+                        elapsed = result.get("elapsed_sec") or 0.0
+                        line = f"  {status} {model}:{test['id']} ({elapsed}s)"
+                        if verbosity >= 1:
+                            tps = result.get("tokens_per_sec") or 0.0
+                            reason = result.get("failure_reason") or ""
+                            line += f"  {tps:.1f} t/s"
+                            if reason:
+                                line += f"  [{reason}]"
+                        print_fn(line)
+
+    print_fn(f"Saved: {jsonl_path}")
     return jsonl_path
