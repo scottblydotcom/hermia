@@ -15,7 +15,7 @@ BORDERLINE_TPS = 9.0      # below this = flag for review
 
 def load_rows(path: Path) -> list[dict]:
     rows = []
-    with path.open() as f:
+    with path.open(encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if line:

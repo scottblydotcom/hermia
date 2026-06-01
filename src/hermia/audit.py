@@ -40,6 +40,8 @@ def _dominant_execution_path(group: list[dict[str, Any]]) -> str:
 
 
 def _spill_verdict(path: str, med_tps: float) -> str:
+    if path == "unknown":
+        return "REVIEW  — unknown execution path"
     if path == "cpu":
         return "DELETE — CPU fallback"
     if med_tps < _MIN_ACCEPTABLE_TPS:

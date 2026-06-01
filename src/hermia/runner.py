@@ -68,8 +68,8 @@ def fetch_server_ps_data(
         resp = requests.get(f"{host}/api/ps", timeout=2, headers=headers or {})
         if not resp.ok:
             if resp.status_code == 404:
-                _ps_cache[key] = empty
-            return empty
+                _ps_cache[key] = dict(empty)
+            return dict(empty)
 
         result = dict(empty)
         data = resp.json()
@@ -87,7 +87,7 @@ def fetch_server_ps_data(
         _ps_cache[key] = result
         return result
     except Exception:  # noqa: BLE001
-        return empty
+        return dict(empty)
 
 
 def fetch_server_vram(
