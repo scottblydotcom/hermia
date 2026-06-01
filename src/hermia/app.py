@@ -83,6 +83,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    if (args.verbose or args.quiet) and not args.fleet:
+        parser.error("--verbose and --quiet can only be used with --fleet")
+
     if args.audit is not None:
         from hermia.audit import run_audit
         from hermia.screens import RESULTS_DIR

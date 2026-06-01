@@ -1,6 +1,7 @@
 """Headless fleet eval runner — multi-host batch evaluation from YAML config."""
 
 import os
+import sys
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -90,8 +91,11 @@ def run_fleet(
             requested_set = set(requested)
             models = [m for m in all_models if m["name"] in requested_set]
             missing = requested_set - {m["name"] for m in models}
-            if missing and verbosity >= 0:
-                print_fn(f"  WARNING: models not found on {name}: {', '.join(sorted(missing))}")
+            if missing:
+                print(
+                    f"  WARNING: models not found on {name}: {', '.join(sorted(missing))}",
+                    file=sys.stderr,
+                )
         else:
             models = all_models
 
