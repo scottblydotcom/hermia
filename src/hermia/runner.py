@@ -111,7 +111,7 @@ def compute_execution_path(
     "partial" — spill: some layers on CPU, some on GPU
     "unknown" — data unavailable
     """
-    if vram_server_gb is None or model_size_server_gb is None or model_size_server_gb == 0:
+    if vram_server_gb is None or model_size_server_gb is None or model_size_server_gb <= 0:
         return "unknown"
     ratio = vram_server_gb / model_size_server_gb
     if ratio >= 0.95:

@@ -56,7 +56,7 @@ def analyze(rows: list[dict]) -> None:
         else:
             verdict = "KEEP    — acceptable spill"
 
-        print(f"{host:<30} {model:<45} {pass_pct:>5.1f}% {med_tps:>8.1f} {avg_vram:>8.2f}  {verdict}")
+        print(f"{host:<30.30} {model:<45.45} {pass_pct:>5.1f}% {med_tps:>8.1f} {avg_vram:>8.2f}  {verdict}")
 
     print()
 
