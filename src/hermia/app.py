@@ -56,6 +56,17 @@ def main() -> None:
         metavar="FILE",
         help="YAML fleet config; runs headless eval against all hosts and exits",
     )
+    verbosity_group = parser.add_mutually_exclusive_group()
+    verbosity_group.add_argument(
+        "--verbose", "-v",
+        action="store_true",
+        help="Verbose fleet output: show t/s and failure reason per test",
+    )
+    verbosity_group.add_argument(
+        "--quiet", "-q",
+        action="store_true",
+        help="Quiet fleet output: suppress progress, print only saved path on completion",
+    )
     parser.add_argument(
         "--audit",
         nargs="?",
@@ -71,6 +82,9 @@ def main() -> None:
         help="Audit output format: jsonl (default), html, or spill (fleet health table)",
     )
     args = parser.parse_args()
+
+    if (args.verbose or args.quiet) and not args.fleet:
+        parser.error("--verbose and --quiet can only be used with --fleet")
 
     if args.audit is not None:
         from hermia.audit import run_audit
@@ -91,9 +105,10 @@ def main() -> None:
         from hermia.fleet import load_fleet_config, run_fleet
         from hermia.screens import RESULTS_DIR
 
+        verbosity = 1 if args.verbose else (-1 if args.quiet else 0)
         try:
             entries = load_fleet_config(Path(args.fleet))
-            run_fleet(entries, repeat=args.repeat, results_dir=RESULTS_DIR)
+            run_fleet(entries, repeat=args.repeat, results_dir=RESULTS_DIR, verbosity=verbosity)
         except (ValueError, RuntimeError, OSError) as exc:
             print(f"hermia: {exc}", file=sys.stderr)
             sys.exit(1)
