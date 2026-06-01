@@ -61,6 +61,7 @@ def run_fleet(
     repeat: int,
     results_dir: Path,
     print_fn: Callable[[str], None] = print,
+    stderr_fn: Callable[[str], None] = lambda msg: print(msg, file=sys.stderr),
     verbosity: int = 0,
 ) -> Path:
     """Run headless eval against all fleet entries. Returns path to JSONL output.
@@ -92,9 +93,8 @@ def run_fleet(
             models = [m for m in all_models if m["name"] in requested_set]
             missing = requested_set - {m["name"] for m in models}
             if missing:
-                print(
-                    f"  WARNING: models not found on {name}: {', '.join(sorted(missing))}",
-                    file=sys.stderr,
+                stderr_fn(
+                    f"  WARNING: models not found on {name}: {', '.join(sorted(missing))}"
                 )
         else:
             models = all_models
