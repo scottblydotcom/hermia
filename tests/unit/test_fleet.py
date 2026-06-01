@@ -391,7 +391,7 @@ def _run_fleet_capture(tmp_path: Path, verbosity: int) -> list[str]:
     with (
         patch("hermia.runner.load_tests_all", return_value=_tests),
         patch("hermia.runner.get_available_models", return_value=[{"name": "m1"}]),
-        patch("hermia.runner.run_test", return_value=dict(_MINIMAL_RESULT)),
+        patch("hermia.runner.run_test", side_effect=lambda *a, **kw: dict(_MINIMAL_RESULT)),
         patch("hermia.results.open_run", return_value=_run_files),
         patch("hermia.results.append_result"),
         patch("hermia.metrics.MetricsSampler", return_value=MagicMock()),
@@ -450,7 +450,7 @@ def test_run_fleet_verbose_includes_failure_reason_when_present(tmp_path: Path) 
     with (
         patch("hermia.runner.load_tests_all", return_value=_tests),
         patch("hermia.runner.get_available_models", return_value=[{"name": "m1"}]),
-        patch("hermia.runner.run_test", return_value=dict(failing_result)),
+        patch("hermia.runner.run_test", side_effect=lambda *a, **kw: dict(failing_result)),
         patch("hermia.results.open_run", return_value=_run_files),
         patch("hermia.results.append_result"),
         patch("hermia.metrics.MetricsSampler", return_value=MagicMock()),
