@@ -74,7 +74,10 @@ def fetch_server_ps_data(
         result = dict(empty)
         data = resp.json()
         if isinstance(data, dict):
-            for m in data.get("models") or []:
+            models_list = data.get("models")
+            for m in (models_list if isinstance(models_list, list) else []):
+                if not isinstance(m, dict):
+                    continue
                 if m.get("name") == model:
                     sv = m.get("size_vram")
                     st = m.get("size")
@@ -140,7 +143,7 @@ def get_model_size_gb(model_name: str, model_list: list[dict[str, Any]]) -> floa
 def unload_model(model_name: str) -> None:
     """Evict model from VRAM."""
     # Invalidate cached /api/ps data so next load gets fresh VRAM stats
-    keys_to_remove = [k for k in _ps_cache if k[1] == model_name]
+    keys_to_remove = [k for k in list(_ps_cache) if k[1] == model_name]
     for k in keys_to_remove:
         _ps_cache.pop(k, None)
     host = get_ollama_host()
