@@ -7,6 +7,8 @@ from hermia.transport.base import Response
 
 
 class OpenAICompatTransport:
+    is_api_mode: bool = True
+
     def __init__(self, base_url: str, headers: dict[str, str] | None = None) -> None:
         self._base_url = base_url.rstrip("/")
         self._headers = headers or {}
@@ -26,4 +28,11 @@ class OpenAICompatTransport:
         choices: list = data.get("choices") or []
         text: str = (choices[0].get("message") or {}).get("content") or "" if choices else ""
         tokens: int = (data.get("usage") or {}).get("completion_tokens", 0)
-        return Response(text=text, tokens=tokens, elapsed_sec=elapsed, orchestration="openai-compat", orchestration_version=None, is_api_mode=True)
+        return Response(
+            text=text,
+            tokens=tokens,
+            elapsed_sec=elapsed,
+            orchestration="openai-compat",
+            orchestration_version=None,
+            is_api_mode=True,
+        )

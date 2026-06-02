@@ -225,13 +225,14 @@ def run_test(
     finally:
         sampler.stop()
 
-    is_api_mode = response.is_api_mode if response is not None else False
+    is_api_mode = getattr(transport, "is_api_mode", False)
+    is_local = (not is_api_mode) and (detect_mode(_host) == "local")
     output: str = response.text if response is not None else ""
     tokens: int = response.tokens if response is not None else 0
     elapsed: float = response.elapsed_sec if response is not None else 0.0
     orchestration: str = response.orchestration if response is not None else "unknown"
     orchestration_version: str | None = response.orchestration_version if response is not None else None
-    peak = sampler.peak() if not is_api_mode else {}
+    peak = sampler.peak() if is_local else {}
 
     json_valid = False
     schema_ok = False
@@ -283,11 +284,11 @@ def run_test(
         "raw_system": test["system"] or "",
         "raw_prompt": test["prompt"] or "",
         "raw_response": "" if error_type else output,
-        "peak_cpu_pct": round(peak.get("cpu_pct", 0), 1) if not is_api_mode else None,
-        "peak_ram_used_gb": round(peak.get("ram_used_gb", 0), 2) if not is_api_mode else None,
-        "peak_gpu_pct": round(peak.get("gpu_pct", 0), 1) if not is_api_mode else None,
-        "peak_vram_used_gb": round(peak.get("vram_used_gb", 0), 2) if not is_api_mode else None,
-        "mode": "api" if is_api_mode else "local",
+        "peak_cpu_pct": round(peak.get("cpu_pct", 0), 1) if is_local else None,
+        "peak_ram_used_gb": round(peak.get("ram_used_gb", 0), 2) if is_local else None,
+        "peak_gpu_pct": round(peak.get("gpu_pct", 0), 1) if is_local else None,
+        "peak_vram_used_gb": round(peak.get("vram_used_gb", 0), 2) if is_local else None,
+        "mode": "local" if is_local else ("api" if is_api_mode else "fleet"),
         "host": _host,
         **ps_data,
         "execution_path": compute_execution_path(

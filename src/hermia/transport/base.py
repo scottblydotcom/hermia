@@ -16,5 +16,7 @@ class Response:
 
 @runtime_checkable
 class Transport(Protocol):
+    is_api_mode: bool
+
     def generate(self, model: str, messages: list[dict[str, str]], **opts: object) -> Response:
         ...

@@ -9,21 +9,27 @@ from hermia.transport.base import Response
 
 
 class OllamaTransport:
+    is_api_mode: bool = False
+
     def __init__(self, base_url: str, headers: dict[str, str] | None = None) -> None:
         self._base_url = base_url.rstrip("/")
         self._headers = headers or {}
-        self._version = self._fetch_version()
+        self._version: str | None = None
+        self._version_fetched = False
 
     def _fetch_version(self) -> str | None:
-        try:
-            resp = requests.get(
-                f"{self._base_url}/api/version",
-                timeout=3,
-                headers=self._headers,
-            )
-            return resp.json().get("version")
-        except Exception:  # noqa: BLE001
-            return None
+        if not self._version_fetched:
+            try:
+                resp = requests.get(
+                    f"{self._base_url}/api/version",
+                    timeout=3,
+                    headers=self._headers,
+                )
+                self._version = resp.json().get("version")
+            except Exception:  # noqa: BLE001
+                self._version = None
+            self._version_fetched = True
+        return self._version
 
     def generate(self, model: str, messages: list[dict[str, str]], **opts: object) -> Response:
         payload = {
@@ -49,6 +55,6 @@ class OllamaTransport:
             tokens=tokens,
             elapsed_sec=elapsed,
             orchestration="ollama",
-            orchestration_version=self._version,
+            orchestration_version=self._fetch_version(),
             is_api_mode=False,
         )
