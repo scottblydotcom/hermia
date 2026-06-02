@@ -1,12 +1,53 @@
-"""Ollama HTTP transport — implementation pending (stub)."""
+"""Ollama HTTP transport — calls /api/chat (message-list semantics)."""
 from __future__ import annotations
 
-from .base import Response
+import time
+
+import requests
+
+from hermia.transport.base import Response
 
 
 class OllamaTransport:
     def __init__(self, base_url: str, headers: dict[str, str] | None = None) -> None:
-        raise NotImplementedError
+        self._base_url = base_url.rstrip("/")
+        self._headers = headers or {}
+        self._version = self._fetch_version()
+
+    def _fetch_version(self) -> str | None:
+        try:
+            resp = requests.get(
+                f"{self._base_url}/api/version",
+                timeout=3,
+                headers=self._headers,
+            )
+            return resp.json().get("version")
+        except Exception:  # noqa: BLE001
+            return None
 
     def generate(self, model: str, messages: list[dict[str, str]], **opts: object) -> Response:
-        raise NotImplementedError
+        payload = {
+            "model": model,
+            "messages": messages,
+            "stream": False,
+            "options": {"temperature": opts.get("temperature", 0.1)},
+        }
+        t0 = time.time()
+        resp = requests.post(
+            f"{self._base_url}/api/chat",
+            json=payload,
+            headers=self._headers,
+            timeout=opts.get("timeout", 90),
+        )
+        elapsed = time.time() - t0
+        data = resp.json()
+        text: str = (data.get("message") or {}).get("content") or ""
+        tokens: int = data.get("eval_count", 0)
+        return Response(
+            text=text,
+            tokens=tokens,
+            elapsed_sec=elapsed,
+            orchestration="ollama",
+            orchestration_version=self._version,
+            is_api_mode=False,
+        )
