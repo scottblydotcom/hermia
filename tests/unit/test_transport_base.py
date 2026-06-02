@@ -28,7 +28,7 @@ def test_response_is_frozen():
         orchestration_version="1.0.0",
         is_api_mode=True,
     )
-    with pytest.raises((AttributeError, TypeError)):
+    with pytest.raises(AttributeError):
         response.text = "new text"  # type: ignore[misc]
 
 

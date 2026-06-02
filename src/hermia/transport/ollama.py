@@ -1,3 +1,4 @@
+"""Ollama HTTP transport — implementation pending (stub)."""
 from __future__ import annotations
 
 from .base import Response
