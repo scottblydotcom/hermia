@@ -33,6 +33,12 @@ def load_fleet_config(path: Path) -> list[dict[str, Any]]:
         if models is not None:
             if not isinstance(models, list) or not all(isinstance(m, str) for m in models):
                 raise ValueError(f"Fleet entry [{i}] 'models' must be a list of strings")
+        transport = entry.get("transport", "ollama")
+        if transport not in ("ollama", "openai-compat"):
+            raise ValueError(
+                f"Fleet entry '{entry.get('name', '?')}': transport must be 'ollama' or "
+                f"'openai-compat', got '{transport}'"
+            )
     return entries
 
 
@@ -75,6 +81,8 @@ def run_fleet(
     from hermia.results import append_result, open_run
     from hermia.robustness import score_rows
     from hermia.runner import _normalize_host, get_available_models, load_tests_all, run_test
+    from hermia.transport.ollama import OllamaTransport
+    from hermia.transport.openai_compat import OpenAICompatTransport
 
     jsonl_path, csv_path = open_run(results_dir)
     run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -84,18 +92,32 @@ def run_fleet(
         name = entry["name"]
         host_url = _normalize_host(entry["host"])
         headers = _build_auth_headers(entry)
+        transport_type = entry.get("transport", "ollama")
+        host_transport = (
+            OpenAICompatTransport(host_url, headers)
+            if transport_type == "openai-compat"
+            else OllamaTransport(host_url, headers)
+        )
         host_start = datetime.now(UTC).isoformat()
 
-        all_models = get_available_models(host=host_url, headers=headers)
         requested = entry.get("models")
+        if transport_type == "openai-compat" and not requested:
+            stderr_fn(
+                f"  ERROR: openai-compat host '{name}' requires an explicit"
+                f" 'models:' list in fleet YAML — skipping host"
+            )
+            continue
+        all_models = get_available_models(host=host_url, headers=headers)
         if requested:
             requested_set = set(requested)
-            models = [m for m in all_models if m["name"] in requested_set]
-            missing = requested_set - {m["name"] for m in models}
-            if missing:
-                stderr_fn(
-                    f"  WARNING: models not found on {name}: {', '.join(sorted(missing))}"
-                )
+            models = [{"name": m} for m in requested_set] if transport_type == "openai-compat" \
+                else [m for m in all_models if m["name"] in requested_set]
+            if transport_type != "openai-compat":
+                missing = requested_set - {m["name"] for m in models}
+                if missing:
+                    stderr_fn(
+                        f"  WARNING: models not found on {name}: {', '.join(sorted(missing))}"
+                    )
         else:
             models = all_models
 
@@ -111,7 +133,10 @@ def run_fleet(
             for test in tests:
                 run_results: list[dict[str, Any]] = []
                 for run_index in range(1, repeat + 1):
-                    result = run_test(model, test, sampler, host=host_url, headers=headers)
+                    result = run_test(
+                        model, test, sampler,
+                        host=host_url, headers=headers, transport=host_transport,
+                    )
                     result["run_id"] = run_id
                     result["run_timestamp"] = datetime.now(UTC).isoformat()
                     result["run_index"] = run_index
