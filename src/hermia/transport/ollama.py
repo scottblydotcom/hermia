@@ -43,7 +43,7 @@ class OllamaTransport:
             "options": {"temperature": opts.get("temperature", 0.1)},
         }
         t0 = time.monotonic()
-        resp = requests.post(
+        resp = requests.post(  # nosec B113 — timeout passed via opts.get("timeout", 90)
             f"{self._base_url}/api/chat",
             json=payload,
             headers=self._headers,
@@ -52,6 +52,10 @@ class OllamaTransport:
         resp.raise_for_status()
         elapsed = time.monotonic() - t0
         data = resp.json()
+        if not isinstance(data, dict):
+            data = {}
+        if data.get("error"):
+            raise ValueError(f"Ollama error: {data['error']}")
         text: str = (data.get("message") or {}).get("content") or ""
         tokens: int = data.get("eval_count", 0)
         return Response(
