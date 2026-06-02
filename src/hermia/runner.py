@@ -271,7 +271,11 @@ def run_test(
 
     tps = tokens / elapsed if elapsed > 0 and tokens > 0 else 0
     preview = output[:120].replace("\n", " ") if output.strip() else failure_reason
-    ps_data = fetch_server_ps_data(_host, model, headers=req_headers or None)
+    _empty_ps: dict[str, float | None] = {"vram_server_gb": None, "model_size_server_gb": None}
+    ps_data = (
+        fetch_server_ps_data(_host, model, headers=req_headers or None)
+        if not is_api_mode else _empty_ps
+    )
     return {
         "model": model,
         "test_id": test["id"],

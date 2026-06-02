@@ -100,16 +100,24 @@ def run_fleet(
         )
         host_start = datetime.now(UTC).isoformat()
 
-        all_models = get_available_models(host=host_url, headers=headers)
         requested = entry.get("models")
+        if transport_type == "openai-compat" and not requested:
+            stderr_fn(
+                f"  ERROR: openai-compat host '{name}' requires an explicit"
+                f" 'models:' list in fleet YAML — skipping host"
+            )
+            continue
+        all_models = get_available_models(host=host_url, headers=headers)
         if requested:
             requested_set = set(requested)
-            models = [m for m in all_models if m["name"] in requested_set]
-            missing = requested_set - {m["name"] for m in models}
-            if missing:
-                stderr_fn(
-                    f"  WARNING: models not found on {name}: {', '.join(sorted(missing))}"
-                )
+            models = [{"name": m} for m in requested_set] if transport_type == "openai-compat" \
+                else [m for m in all_models if m["name"] in requested_set]
+            if transport_type != "openai-compat":
+                missing = requested_set - {m["name"] for m in models}
+                if missing:
+                    stderr_fn(
+                        f"  WARNING: models not found on {name}: {', '.join(sorted(missing))}"
+                    )
         else:
             models = all_models
 
