@@ -54,6 +54,10 @@ def _mock_sampler(
     return s
 
 
+_PS_EMPTY = {"vram_server_gb": None, "model_size_server_gb": None}
+_PS_WITH_VRAM = {"vram_server_gb": 10.0, "model_size_server_gb": 12.0}
+
+
 def _mock_ps_empty() -> MagicMock:
     """Mock /api/ps returning no loaded models."""
     m = MagicMock()
@@ -199,19 +203,22 @@ def test_run_test_no_schema_checker_leaves_schema_false() -> None:
 
 
 def test_run_test_invalid_json_response() -> None:
-    mock_resp = MagicMock()
-    mock_resp.json.return_value = {"response": "not json at all", "eval_count": 10, "error": ""}
-    with patch("hermia.runner.requests.post", return_value=mock_resp):
-        with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
-            result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
+    transport = MagicMock()
+    transport.generate.return_value = TransportResponse(
+        text="not json at all", tokens=10, elapsed_sec=1.0,
+        orchestration="ollama", orchestration_version="0.24.0", is_api_mode=False,
+    )
+    with patch("hermia.runner.fetch_server_ps_data", return_value=_PS_EMPTY):
+        result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler(), transport=transport)
     assert result["json_valid"] is False
     assert result["schema_compliant"] is False
 
 
 def test_run_test_timeout() -> None:
-    with patch("hermia.runner.requests.post", side_effect=requests.exceptions.Timeout):
-        with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
-            result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
+    transport = MagicMock()
+    transport.generate.side_effect = requests.exceptions.Timeout
+    with patch("hermia.runner.fetch_server_ps_data", return_value=_PS_EMPTY):
+        result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler(), transport=transport)
     assert result["failure_reason"].startswith("TIMEOUT")
     assert result["tokens"] == 0
     assert result["json_valid"] is False
@@ -228,20 +235,23 @@ def test_run_test_transport_http_error() -> None:
 
 
 def test_run_test_generic_exception() -> None:
-    with patch("hermia.runner.requests.post", side_effect=RuntimeError("boom")):
-        with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
-            result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
+    transport = MagicMock()
+    transport.generate.side_effect = RuntimeError("boom")
+    with patch("hermia.runner.fetch_server_ps_data", return_value=_PS_EMPTY):
+        result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler(), transport=transport)
     assert result["failure_reason"].startswith("ERROR")
     assert result["json_valid"] is False
 
 
 def test_run_test_peak_metrics_in_result() -> None:
-    mock_resp = MagicMock()
-    mock_resp.json.return_value = {"response": "{}", "eval_count": 5, "error": ""}
+    transport = MagicMock()
+    transport.generate.return_value = TransportResponse(
+        text="{}", tokens=5, elapsed_sec=1.0,
+        orchestration="ollama", orchestration_version="0.24.0", is_api_mode=False,
+    )
     sampler = _mock_sampler(cpu=42.0, ram=16.5, gpu=90.0, vram=22.3)
-    with patch("hermia.runner.requests.post", return_value=mock_resp):
-        with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
-            result = run_test("qwen2.5:32b", _BASE_TEST, sampler)
+    with patch("hermia.runner.fetch_server_ps_data", return_value=_PS_EMPTY):
+        result = run_test("qwen2.5:32b", _BASE_TEST, sampler, transport=transport)
     assert result["peak_cpu_pct"] == 42.0
     assert result["peak_ram_used_gb"] == 16.5
     assert result["peak_gpu_pct"] == 90.0
@@ -267,20 +277,24 @@ def test_run_test_carries_frameworks_from_test() -> None:
         "nist_ai_rmf": [],
     }
     test_with_fw = {**_BASE_TEST, "frameworks": fw}
-    mock_resp = MagicMock()
-    mock_resp.json.return_value = {"response": "{}", "eval_count": 10, "error": ""}
-    with patch("hermia.runner.requests.post", return_value=mock_resp):
-        with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
-            result = run_test("qwen2.5:32b", test_with_fw, _mock_sampler())
+    transport = MagicMock()
+    transport.generate.return_value = TransportResponse(
+        text="{}", tokens=10, elapsed_sec=1.0,
+        orchestration="ollama", orchestration_version="0.24.0", is_api_mode=False,
+    )
+    with patch("hermia.runner.fetch_server_ps_data", return_value=_PS_EMPTY):
+        result = run_test("qwen2.5:32b", test_with_fw, _mock_sampler(), transport=transport)
     assert result["frameworks"] == fw
 
 
 def test_run_test_frameworks_defaults_to_empty_dict() -> None:
-    mock_resp = MagicMock()
-    mock_resp.json.return_value = {"response": "{}", "eval_count": 10, "error": ""}
-    with patch("hermia.runner.requests.post", return_value=mock_resp):
-        with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
-            result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
+    transport = MagicMock()
+    transport.generate.return_value = TransportResponse(
+        text="{}", tokens=10, elapsed_sec=1.0,
+        orchestration="ollama", orchestration_version="0.24.0", is_api_mode=False,
+    )
+    with patch("hermia.runner.fetch_server_ps_data", return_value=_PS_EMPTY):
+        result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler(), transport=transport)
     assert result["frameworks"] == {}
 
 
@@ -301,11 +315,13 @@ def test_run_test_result_has_no_repeat_fields() -> None:
 
     Those fields are the responsibility of screens.py, not the runner.
     """
-    mock_resp = MagicMock()
-    mock_resp.json.return_value = {"response": "{}", "eval_count": 10, "error": ""}
-    with patch("hermia.runner.requests.post", return_value=mock_resp):
-        with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
-            result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
+    transport = MagicMock()
+    transport.generate.return_value = TransportResponse(
+        text="{}", tokens=10, elapsed_sec=1.0,
+        orchestration="ollama", orchestration_version="0.24.0", is_api_mode=False,
+    )
+    with patch("hermia.runner.fetch_server_ps_data", return_value=_PS_EMPTY):
+        result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler(), transport=transport)
     assert "run_index" not in result
     assert "is_cold" not in result
     assert "cold_warm_delta_tps" not in result
@@ -487,20 +503,25 @@ def test_compute_execution_path_unknown_when_size_zero() -> None:
 # ── run_test — mode and vram_server_gb fields ─────────────────────────────────
 
 def test_run_test_has_mode_field_local() -> None:
-    mock_resp = MagicMock()
-    mock_resp.json.return_value = {"response": "{}", "eval_count": 10, "error": ""}
-    with patch("hermia.runner.requests.post", return_value=mock_resp):
-        with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
-            result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
+    transport = MagicMock()
+    transport.is_api_mode = False
+    transport.generate.return_value = TransportResponse(
+        text="{}", tokens=10, elapsed_sec=1.0,
+        orchestration="ollama", orchestration_version="0.24.0", is_api_mode=False,
+    )
+    with patch("hermia.runner.fetch_server_ps_data", return_value=_PS_EMPTY):
+        result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler(), transport=transport)
     assert result["mode"] == "local"
 
 
 def test_run_test_has_vram_server_gb_field() -> None:
-    mock_resp = MagicMock()
-    mock_resp.json.return_value = {"response": "{}", "eval_count": 10, "error": ""}
-    with patch("hermia.runner.requests.post", return_value=mock_resp):
-        with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
-            result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
+    transport = MagicMock()
+    transport.generate.return_value = TransportResponse(
+        text="{}", tokens=10, elapsed_sec=1.0,
+        orchestration="ollama", orchestration_version="0.24.0", is_api_mode=False,
+    )
+    with patch("hermia.runner.fetch_server_ps_data", return_value=_PS_EMPTY):
+        result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler(), transport=transport)
     assert "vram_server_gb" in result
     assert result["vram_server_gb"] is None  # empty models list → None
 
@@ -568,11 +589,13 @@ def test_run_test_sampler_always_called() -> None:
 
 
 def test_run_test_has_raw_prompt_equal_to_test_prompt() -> None:
-    mock_resp = MagicMock()
-    mock_resp.json.return_value = {"response": '{"ok": true}', "eval_count": 10, "error": ""}
-    with patch("hermia.runner.requests.post", return_value=mock_resp):
-        with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
-            result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
+    transport = MagicMock()
+    transport.generate.return_value = TransportResponse(
+        text='{"ok": true}', tokens=10, elapsed_sec=1.0,
+        orchestration="ollama", orchestration_version="0.24.0", is_api_mode=False,
+    )
+    with patch("hermia.runner.fetch_server_ps_data", return_value=_PS_EMPTY):
+        result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler(), transport=transport)
     assert result["raw_prompt"] == _BASE_TEST["prompt"]
 
 
@@ -590,17 +613,19 @@ def test_run_test_has_raw_response_equal_to_full_output() -> None:
 
 
 def test_run_test_raw_response_empty_on_timeout() -> None:
-    with patch("hermia.runner.requests.post", side_effect=requests.exceptions.Timeout):
-        with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
-            result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
+    transport = MagicMock()
+    transport.generate.side_effect = requests.exceptions.Timeout
+    with patch("hermia.runner.fetch_server_ps_data", return_value=_PS_EMPTY):
+        result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler(), transport=transport)
     assert result["raw_prompt"] == _BASE_TEST["prompt"]
     assert result["raw_response"] == ""
 
 
 def test_run_test_raw_response_empty_on_error() -> None:
-    with patch("hermia.runner.requests.post", side_effect=RuntimeError("boom")):
-        with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
-            result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
+    transport = MagicMock()
+    transport.generate.side_effect = RuntimeError("boom")
+    with patch("hermia.runner.fetch_server_ps_data", return_value=_PS_EMPTY):
+        result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler(), transport=transport)
     assert result["raw_prompt"] == _BASE_TEST["prompt"]
     assert result["raw_response"] == ""
 
@@ -617,33 +642,35 @@ def test_run_test_raw_response_empty_on_transport_error() -> None:
 
 def test_run_test_fleet_mode_vram_server_gb_populated() -> None:
     """vram_server_gb comes from /api/ps even in fleet mode."""
-    mock_post = MagicMock()
-    mock_post.json.return_value = {"response": "{}", "eval_count": 10, "error": ""}
-    mock_get = MagicMock()
-    mock_get.json.return_value = {
-        "models": [{"name": "qwen2.5:32b", "size_vram": 10_737_418_240}]  # 10 GiB
-    }
-    with patch("hermia.runner.requests.post", return_value=mock_post):
-        with patch("hermia.runner.requests.get", return_value=mock_get):
-            result = run_test(
-                "qwen2.5:32b", _BASE_TEST, _mock_sampler(),
-                host="http://192.0.2.1:11434"
-            )
+    transport = MagicMock()
+    transport.is_api_mode = False
+    transport.generate.return_value = TransportResponse(
+        text="{}", tokens=10, elapsed_sec=1.0,
+        orchestration="ollama", orchestration_version="0.24.0", is_api_mode=False,
+    )
+    with patch("hermia.runner.fetch_server_ps_data", return_value=_PS_WITH_VRAM):
+        result = run_test(
+            "qwen2.5:32b", _BASE_TEST, _mock_sampler(),
+            host="http://192.0.2.1:11434", transport=transport,
+        )
     assert result["vram_server_gb"] is not None
     assert abs(result["vram_server_gb"] - 10.0) < 0.01
 
 
 def test_run_test_local_mode_still_collects_metrics() -> None:
     """In local mode, local hardware fields are not None."""
-    mock_post = MagicMock()
-    mock_post.json.return_value = {"response": "{}", "eval_count": 10, "error": ""}
+    transport = MagicMock()
+    transport.is_api_mode = False
+    transport.generate.return_value = TransportResponse(
+        text="{}", tokens=10, elapsed_sec=1.0,
+        orchestration="ollama", orchestration_version="0.24.0", is_api_mode=False,
+    )
     sampler = _mock_sampler(cpu=42.0, ram=16.5, gpu=90.0, vram=22.3)
-    with patch("hermia.runner.requests.post", return_value=mock_post):
-        with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
-            result = run_test(
-                "qwen2.5:32b", _BASE_TEST, sampler,
-                host="http://localhost:11434"
-            )
+    with patch("hermia.runner.fetch_server_ps_data", return_value=_PS_EMPTY):
+        result = run_test(
+            "qwen2.5:32b", _BASE_TEST, sampler,
+            host="http://localhost:11434", transport=transport,
+        )
     assert result["mode"] == "local"
     assert result["peak_cpu_pct"] == 42.0
     assert result["peak_ram_used_gb"] == 16.5
@@ -656,11 +683,13 @@ def test_run_test_local_mode_still_collects_metrics() -> None:
 
 
 def test_run_test_has_raw_system_equal_to_test_system() -> None:
-    mock_resp = MagicMock()
-    mock_resp.json.return_value = {"response": '{"ok": true}', "eval_count": 5, "error": ""}
-    with patch("hermia.runner.requests.post", return_value=mock_resp):
-        with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
-            result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler())
+    transport = MagicMock()
+    transport.generate.return_value = TransportResponse(
+        text='{"ok": true}', tokens=5, elapsed_sec=1.0,
+        orchestration="ollama", orchestration_version="0.24.0", is_api_mode=False,
+    )
+    with patch("hermia.runner.fetch_server_ps_data", return_value=_PS_EMPTY):
+        result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler(), transport=transport)
     assert result["raw_system"] == _BASE_TEST["system"]
 
 
