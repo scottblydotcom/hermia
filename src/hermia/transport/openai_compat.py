@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import time
+from typing import Any
 
 import requests
 
@@ -26,14 +27,14 @@ class OpenAICompatTransport:
             f"{self._base_url}/v1/chat/completions",
             json=payload,
             headers=self._headers,
-            timeout=opts.get("timeout", 90),
+            timeout=float(opts.get("timeout", 90)),  # type: ignore[arg-type]
         )
         resp.raise_for_status()
         elapsed = time.monotonic() - t0
         data = resp.json()
         if not isinstance(data, dict):
             data = {}
-        choices: list = data.get("choices") or []
+        choices: list[Any] = data.get("choices") or []
         first = choices[0] if choices and isinstance(choices[0], dict) else {}
         text: str = (first.get("message") or {}).get("content") or ""
         tokens: int = (data.get("usage") or {}).get("completion_tokens", 0)
