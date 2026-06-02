@@ -4,7 +4,6 @@ package main
 
 import (
 	"fmt"
-	"sync"
 	"time"
 	"unsafe"
 
@@ -45,24 +44,18 @@ type gpuResult struct {
 	Err     error
 }
 
-var pdhMu sync.Mutex
-
 func queryGPU(threshold float64) gpuResult {
-	// Serialize PDH handle lifetime; mutex is released before the 1s sleep so
-	// concurrent requests don't queue behind the mandatory inter-sample delay.
-	pdhMu.Lock()
-
+	// Each request opens its own independent PDH query handle — no shared
+	// mutable state, so no mutex is needed for concurrent requests.
 	var hQuery uintptr
 	ret, _, _ := procPdhOpenQuery.Call(0, 0, uintptr(unsafe.Pointer(&hQuery)))
 	if ret != errorSuccess {
-		pdhMu.Unlock()
 		return gpuResult{Err: fmt.Errorf("PdhOpenQuery: 0x%08X", ret)}
 	}
+	defer procPdhCloseQuery.Call(hQuery)
 
 	counterPath, err := windows.UTF16PtrFromString(`\GPU Engine(*)\Utilization Percentage`)
 	if err != nil {
-		procPdhCloseQuery.Call(hQuery)
-		pdhMu.Unlock()
 		return gpuResult{Err: fmt.Errorf("UTF16PtrFromString: %w", err)}
 	}
 
@@ -74,28 +67,16 @@ func queryGPU(threshold float64) gpuResult {
 		uintptr(unsafe.Pointer(&hCounter)),
 	)
 	if ret != errorSuccess {
-		procPdhCloseQuery.Call(hQuery)
-		pdhMu.Unlock()
 		return gpuResult{Err: fmt.Errorf("PdhAddEnglishCounterW: 0x%08X", ret)}
 	}
 
 	// baseline collect — establishes counter state; values discarded
 	ret, _, _ = procPdhCollectQueryData.Call(hQuery)
 	if ret != errorSuccess {
-		procPdhCloseQuery.Call(hQuery)
-		pdhMu.Unlock()
 		return gpuResult{Err: fmt.Errorf("PdhCollectQueryData (baseline): 0x%08X", ret)}
 	}
 
-	// Release lock before the mandatory inter-sample sleep so concurrent
-	// requests are not serialized across the full 1-second measurement window.
-	pdhMu.Unlock()
 	time.Sleep(1 * time.Second)
-	pdhMu.Lock()
-	defer func() {
-		procPdhCloseQuery.Call(hQuery)
-		pdhMu.Unlock()
-	}()
 
 	// actual collect
 	ret, _, _ = procPdhCollectQueryData.Call(hQuery)
@@ -104,7 +85,7 @@ func queryGPU(threshold float64) gpuResult {
 	}
 
 	// sizing probe: PDH returns PDH_MORE_DATA when instances exist,
-	// or ERROR_SUCCESS / PDH_NO_DATA when the counter set is empty.
+	// or ERROR_SUCCESS when the counter set is empty.
 	var bufSize, itemCount uint32
 	ret, _, _ = procPdhGetFormattedCounterArrayW.Call(
 		hCounter,
@@ -113,7 +94,7 @@ func queryGPU(threshold float64) gpuResult {
 		uintptr(unsafe.Pointer(&itemCount)),
 		0,
 	)
-	if ret == errorSuccess || itemCount == 0 {
+	if ret == errorSuccess {
 		// No GPU engine instances active — machine is idle.
 		return gpuResult{Engines: make(map[string]float64), Gaming: false}
 	}
@@ -121,8 +102,8 @@ func queryGPU(threshold float64) gpuResult {
 		return gpuResult{Err: fmt.Errorf("PdhGetFormattedCounterArrayW (size): 0x%08X", ret)}
 	}
 
-	// fill call: use a fresh itemCount variable so the sizing estimate is
-	// preserved for bounds checking regardless of what Windows writes here.
+	// fill call: cap fillCount to the allocated buffer to guard against
+	// TOCTOU (new GPU instances appearing between the size probe and fill).
 	buf := make([]byte, bufSize)
 	var fillCount uint32
 	ret, _, _ = procPdhGetFormattedCounterArrayW.Call(
@@ -130,13 +111,16 @@ func queryGPU(threshold float64) gpuResult {
 		pdhFmtDouble,
 		uintptr(unsafe.Pointer(&bufSize)),
 		uintptr(unsafe.Pointer(&fillCount)),
-		uintptr(unsafe.Pointer(&buf[0])),
+		uintptr(unsafe.Pointer(unsafe.SliceData(buf))),
 	)
 	if ret != errorSuccess {
 		return gpuResult{Err: fmt.Errorf("PdhGetFormattedCounterArrayW: 0x%08X", ret)}
 	}
 
 	itemSize := unsafe.Sizeof(pdhFmtCounterValueItemW{})
+	if maxItems := uint32(uintptr(len(buf)) / itemSize); fillCount > maxItems {
+		fillCount = maxItems
+	}
 	samples := make([]pdhSample, 0, fillCount)
 	for i := uint32(0); i < fillCount; i++ {
 		item := (*pdhFmtCounterValueItemW)(unsafe.Pointer(&buf[uintptr(i)*itemSize]))

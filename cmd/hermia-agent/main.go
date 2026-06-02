@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"flag"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -124,10 +125,11 @@ func main() {
 	mux.Handle("/gpu", newBearerAuth(token)(http.HandlerFunc(handler)))
 
 	srv := &http.Server{
-		Addr:         *bind + ":" + *port,
-		Handler:      mux,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 10 * time.Second,
+		Addr:              net.JoinHostPort(*bind, *port),
+		Handler:           mux,
+		ReadHeaderTimeout: 3 * time.Second,
+		ReadTimeout:       5 * time.Second,
+		WriteTimeout:      10 * time.Second,
 	}
 
 	go func() {
