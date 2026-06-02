@@ -32,14 +32,15 @@ class OllamaTransport:
             "stream": False,
             "options": {"temperature": opts.get("temperature", 0.1)},
         }
-        t0 = time.time()
+        t0 = time.monotonic()
         resp = requests.post(
             f"{self._base_url}/api/chat",
             json=payload,
             headers=self._headers,
             timeout=opts.get("timeout", 90),
         )
-        elapsed = time.time() - t0
+        resp.raise_for_status()
+        elapsed = time.monotonic() - t0
         data = resp.json()
         text: str = (data.get("message") or {}).get("content") or ""
         tokens: int = data.get("eval_count", 0)
