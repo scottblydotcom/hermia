@@ -47,7 +47,7 @@ class OllamaTransport:
             f"{self._base_url}/api/chat",
             json=payload,
             headers=self._headers,
-            timeout=opts.get("timeout", 90),
+            timeout=float(opts.get("timeout", 90)),  # type: ignore[arg-type]
         )
         resp.raise_for_status()
         elapsed = time.monotonic() - t0
