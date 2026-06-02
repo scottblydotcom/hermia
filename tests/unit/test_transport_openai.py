@@ -1,7 +1,8 @@
-import pytest
-from unittest.mock import patch, MagicMock
-from hermia.transport.base import Response, Transport
+from unittest.mock import MagicMock, patch
+
+from hermia.transport.base import Transport
 from hermia.transport.openai_compat import OpenAICompatTransport
+
 
 def test_generate_posts_to_v1_chat_completions():
     with patch("hermia.transport.openai_compat.requests.post") as mock_post:
@@ -53,7 +54,9 @@ def test_generate_forwards_headers():
         }
         mock_post.return_value = mock_response
 
-        transport = OpenAICompatTransport(base_url="https://api.openai.com", headers={"Authorization": "Bearer token"})
+        transport = OpenAICompatTransport(
+            base_url="https://api.openai.com", headers={"Authorization": "Bearer token"}
+        )
         transport.generate("gpt-3.5", [{"role": "user", "content": "Hello"}])
 
         mock_post.assert_called_once()
@@ -77,6 +80,21 @@ def test_empty_choices_returns_empty_text():
 def test_satisfies_transport_protocol():
     transport = OpenAICompatTransport(base_url="https://api.openai.com")
     assert isinstance(transport, Transport)
+
+def test_base_url_v1_suffix_stripped():
+    with patch("hermia.transport.openai_compat.requests.post") as mock_post:
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"role": "assistant", "content": "ok"}}],
+            "usage": {"completion_tokens": 1, "total_tokens": 2}
+        }
+        mock_post.return_value = mock_response
+
+        transport = OpenAICompatTransport(base_url="https://api.openai.com/v1")
+        transport.generate("gpt-3.5", [{"role": "user", "content": "Hello"}])
+
+        url = mock_post.call_args[0][0]
+        assert url == "https://api.openai.com/v1/chat/completions"
 
 def test_base_url_trailing_slash_stripped():
     with patch("hermia.transport.openai_compat.requests.post") as mock_post:

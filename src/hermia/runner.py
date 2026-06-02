@@ -225,13 +225,18 @@ def run_test(
     finally:
         sampler.stop()
 
-    is_api_mode = getattr(transport, "is_api_mode", False)
+    is_api_mode = getattr(transport, "is_api_mode", False) is True
     is_local = (not is_api_mode) and (detect_mode(_host) == "local")
     output: str = response.text if response is not None else ""
     tokens: int = response.tokens if response is not None else 0
-    elapsed: float = response.elapsed_sec if response is not None else 0.0
+    elapsed: float = (
+        response.elapsed_sec if response is not None
+        else (TEST_TIMEOUT if "TIMEOUT" in error_type else 0.0)
+    )
     orchestration: str = response.orchestration if response is not None else "unknown"
-    orchestration_version: str | None = response.orchestration_version if response is not None else None
+    orchestration_version: str | None = (
+        response.orchestration_version if response is not None else None
+    )
     peak = sampler.peak() if is_local else {}
 
     json_valid = False
