@@ -346,6 +346,46 @@ def test_run_fleet_no_model_filter_runs_all(tmp_path: Path) -> None:
     assert called_models == {"qwen2.5:3b", "phi3:3.8b"}
 
 
+# ---------------------------------------------------------------------------
+# transport: field in load_fleet_config
+# ---------------------------------------------------------------------------
+
+
+def test_load_fleet_config_transport_default(tmp_path: Path) -> None:
+    """No transport field → loads without error; default resolves to 'ollama'."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text("fleet:\n  - name: node3\n    host: http://host1:11434\n")
+    entries = load_fleet_config(cfg)
+    assert len(entries) == 1
+    assert entries[0].get("transport", "ollama") == "ollama"
+
+
+def test_load_fleet_config_transport_openai_compat(tmp_path: Path) -> None:
+    """transport: openai-compat is accepted and stored on the entry."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: litellm-gateway\n"
+        "    host: https://scottai.tailc7d860.ts.net:4000\n"
+        "    transport: openai-compat\n"
+    )
+    entries = load_fleet_config(cfg)
+    assert entries[0]["transport"] == "openai-compat"
+
+
+def test_load_fleet_config_invalid_transport(tmp_path: Path) -> None:
+    """transport: grpc (unknown value) raises ValueError mentioning 'transport'."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: node3\n"
+        "    host: http://host1:11434\n"
+        "    transport: grpc\n"
+    )
+    with pytest.raises(ValueError, match="transport"):
+        load_fleet_config(cfg)
+
+
 def test_run_fleet_result_has_fleet_host_start(tmp_path: Path) -> None:
     from hermia.fleet import run_fleet
     entries = [{"name": "node2", "host": "http://192.168.25.100:11434"}]
