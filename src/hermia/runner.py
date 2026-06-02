@@ -200,52 +200,44 @@ def run_test(
     sampler: MetricsSampler,
     host: str | None = None,
     headers: dict[str, str] | None = None,
+    transport: Any | None = None,
 ) -> dict[str, Any]:
+    from hermia.transport.ollama import OllamaTransport  # lazy import
+
     _host = _normalize_host(host) if host is not None else get_ollama_host()
-    mode = detect_mode(_host)
-    payload = {
-        "model": model,
-        "system": test["system"],
-        "prompt": test["prompt"],
-        "stream": False,
-        "options": {"temperature": 0.1},
-    }
     req_headers = headers or {}
-    if mode == "local":
-        sampler.start()
+    if transport is None:
+        transport = OllamaTransport(_host, req_headers)
+
+    messages = [
+        {"role": "system", "content": test["system"]},
+        {"role": "user", "content": test["prompt"]},
+    ]
+
     error_type: str = ""
+    response = None
+    sampler.start()
     try:
-        t0 = time.time()
-        resp = requests.post(
-            f"{_host}/api/generate", json=payload, headers=req_headers, timeout=TEST_TIMEOUT
-        )
-        elapsed = time.time() - t0
-        data = resp.json()
-        if not isinstance(data, dict):
-            raise ValueError(f"Unexpected Ollama response type: {type(data).__name__}")
-        ollama_error = data.get("error", "")
-        output: str = data.get("response") or ""
-        tokens: int = data.get("eval_count", 0)
-        if ollama_error:
-            error_type = f"OLLAMA_ERROR: {ollama_error}"
+        response = transport.generate(model, messages, timeout=TEST_TIMEOUT)
     except requests.exceptions.Timeout:
-        elapsed = TEST_TIMEOUT
-        output = ""
-        tokens = 0
         error_type = f"TIMEOUT: no response in {TEST_TIMEOUT}s"
-    except Exception as e:
-        elapsed = time.time() - t0
-        output = ""
-        tokens = 0
+    except Exception as e:  # noqa: BLE001
         error_type = f"ERROR: {e}"
-    if mode == "local":
+    finally:
         sampler.stop()
-    peak = sampler.peak() if mode == "local" else {}
+
+    is_api_mode = response.is_api_mode if response is not None else False
+    output: str = response.text if response is not None else ""
+    tokens: int = response.tokens if response is not None else 0
+    elapsed: float = response.elapsed_sec if response is not None else 0.0
+    orchestration: str = response.orchestration if response is not None else "unknown"
+    orchestration_version: str | None = response.orchestration_version if response is not None else None
+    peak = sampler.peak() if not is_api_mode else {}
 
     json_valid = False
     schema_ok = False
     had_markdown_fence = False
-    failure_reason = error_type  # network/Ollama errors; "" on clean path
+    failure_reason = error_type  # network/transport errors; "" on clean path
 
     signals: dict[str, bool] = {}
     if output and not error_type:
@@ -292,14 +284,16 @@ def run_test(
         "raw_system": test["system"] or "",
         "raw_prompt": test["prompt"] or "",
         "raw_response": "" if error_type else output,
-        "peak_cpu_pct": round(peak.get("cpu_pct", 0), 1) if mode == "local" else None,
-        "peak_ram_used_gb": round(peak.get("ram_used_gb", 0), 2) if mode == "local" else None,
-        "peak_gpu_pct": round(peak.get("gpu_pct", 0), 1) if mode == "local" else None,
-        "peak_vram_used_gb": round(peak.get("vram_used_gb", 0), 2) if mode == "local" else None,
-        "mode": mode,
+        "peak_cpu_pct": round(peak.get("cpu_pct", 0), 1) if not is_api_mode else None,
+        "peak_ram_used_gb": round(peak.get("ram_used_gb", 0), 2) if not is_api_mode else None,
+        "peak_gpu_pct": round(peak.get("gpu_pct", 0), 1) if not is_api_mode else None,
+        "peak_vram_used_gb": round(peak.get("vram_used_gb", 0), 2) if not is_api_mode else None,
+        "mode": "api" if is_api_mode else "local",
         "host": _host,
         **ps_data,
         "execution_path": compute_execution_path(
             ps_data["vram_server_gb"], ps_data["model_size_server_gb"]
         ),
+        "orchestration": orchestration,
+        "orchestration_version": orchestration_version,
     }
