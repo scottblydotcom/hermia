@@ -13,9 +13,15 @@ class OpenAICompatTransport:
 
     def generate(self, model: str, messages: list[dict[str, str]], **opts: object) -> Response:
         payload = {"model": model, "messages": messages, "temperature": opts.get("temperature", 0.1)}
-        t0 = time.time()
-        resp = requests.post(f"{self._base_url}/v1/chat/completions", json=payload, headers=self._headers, timeout=opts.get("timeout", 90))
-        elapsed = time.time() - t0
+        t0 = time.monotonic()
+        resp = requests.post(
+            f"{self._base_url}/v1/chat/completions",
+            json=payload,
+            headers=self._headers,
+            timeout=opts.get("timeout", 90),
+        )
+        resp.raise_for_status()
+        elapsed = time.monotonic() - t0
         data = resp.json()
         choices: list = data.get("choices") or []
         text: str = (choices[0].get("message") or {}).get("content") or "" if choices else ""
