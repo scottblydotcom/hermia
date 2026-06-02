@@ -1,3 +1,4 @@
+"""OpenAI-compatible HTTP transport (LiteLLM, vLLM, cloud APIs) — implementation pending (stub)."""
 from __future__ import annotations
 
 from .base import Response
