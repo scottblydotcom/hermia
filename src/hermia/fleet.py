@@ -125,7 +125,10 @@ def run_fleet(
             for test in tests:
                 run_results: list[dict[str, Any]] = []
                 for run_index in range(1, repeat + 1):
-                    result = run_test(model, test, sampler, host=host_url, headers=headers, transport=host_transport)
+                    result = run_test(
+                        model, test, sampler,
+                        host=host_url, headers=headers, transport=host_transport,
+                    )
                     result["run_id"] = run_id
                     result["run_timestamp"] = datetime.now(UTC).isoformat()
                     result["run_index"] = run_index

@@ -526,7 +526,8 @@ def test_run_test_fleet_mode_suppresses_local_metrics() -> None:
 
 
 def test_run_test_remote_ollama_host_reports_fleet_mode() -> None:
-    """Remote Ollama host (is_api_mode=False, non-localhost) must report mode='fleet' and suppress local metrics."""
+    """Remote Ollama host (is_api_mode=False, non-localhost) must report mode='fleet'
+    and suppress local metrics."""
     transport = MagicMock()
     transport.is_api_mode = False
     transport.generate.return_value = TransportResponse(
@@ -554,7 +555,9 @@ def test_run_test_sampler_always_called() -> None:
     )
     sampler = _mock_sampler()
     with patch("hermia.runner.fetch_server_vram", return_value=None):
-        run_test("qwen2.5:32b", _BASE_TEST, sampler, host="http://192.0.2.1:11434", transport=transport)
+        run_test(
+            "qwen2.5:32b", _BASE_TEST, sampler, host="http://192.0.2.1:11434", transport=transport
+        )
     sampler.start.assert_called_once()
     sampler.stop.assert_called_once()
 
