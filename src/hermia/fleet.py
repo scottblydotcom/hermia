@@ -33,6 +33,12 @@ def load_fleet_config(path: Path) -> list[dict[str, Any]]:
         if models is not None:
             if not isinstance(models, list) or not all(isinstance(m, str) for m in models):
                 raise ValueError(f"Fleet entry [{i}] 'models' must be a list of strings")
+        transport = entry.get("transport", "ollama")
+        if transport not in ("ollama", "openai-compat"):
+            raise ValueError(
+                f"Fleet entry '{entry.get('name', '?')}': transport must be 'ollama' or "
+                f"'openai-compat', got '{transport}'"
+            )
     return entries
 
 
@@ -81,9 +87,18 @@ def run_fleet(
     tests = load_tests_all()
 
     for idx, entry in enumerate(entries, 1):
+        from hermia.transport.ollama import OllamaTransport
+        from hermia.transport.openai_compat import OpenAICompatTransport
+
         name = entry["name"]
         host_url = _normalize_host(entry["host"])
         headers = _build_auth_headers(entry)
+        transport_type = entry.get("transport", "ollama")
+        host_transport = (
+            OpenAICompatTransport(host_url, headers)
+            if transport_type == "openai-compat"
+            else OllamaTransport(host_url, headers)
+        )
         host_start = datetime.now(UTC).isoformat()
 
         all_models = get_available_models(host=host_url, headers=headers)
@@ -111,7 +126,7 @@ def run_fleet(
             for test in tests:
                 run_results: list[dict[str, Any]] = []
                 for run_index in range(1, repeat + 1):
-                    result = run_test(model, test, sampler, host=host_url, headers=headers)
+                    result = run_test(model, test, sampler, host=host_url, headers=headers, transport=host_transport)
                     result["run_id"] = run_id
                     result["run_timestamp"] = datetime.now(UTC).isoformat()
                     result["run_index"] = run_index
