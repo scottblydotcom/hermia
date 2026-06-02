@@ -104,9 +104,8 @@ def _backfill_aggregates(run_results: list[dict[str, Any]]) -> None:
 
 def _default_results_dir() -> Path:
     env = os.environ.get("HERMIA_RESULTS_DIR")
-    if env:
-        return Path(env)
-    return Path.home() / ".hermia" / "results"
+    base = Path(env) if env else Path.home() / ".hermia" / "results"
+    return base.expanduser().resolve()
 
 
 RESULTS_DIR = _default_results_dir()
@@ -443,7 +442,7 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
 
         if scored:
             lines.append(f"\nBest: [bold]{scored[0][0]}[/bold] ({scored[0][3] * 100:.0f}/100)")
-        lines.append(f"Saved: {jsonl_path}  |  {csv_path.name}")
+        lines.append(f"Saved: {jsonl_path}  |  {csv_path}")
 
         summary_text = "\n".join(lines)
         app.call_from_thread(self._safe_update_summary, summary_text)
