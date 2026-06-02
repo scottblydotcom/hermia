@@ -508,6 +508,7 @@ def test_run_test_has_vram_server_gb_field() -> None:
 def test_run_test_fleet_mode_suppresses_local_metrics() -> None:
     """When is_api_mode=True, all local hardware fields must be None."""
     transport = MagicMock()
+    transport.is_api_mode = True
     transport.generate.return_value = TransportResponse(
         text="{}", tokens=10, elapsed_sec=1.0,
         orchestration="openai", orchestration_version=None, is_api_mode=True,
@@ -518,6 +519,26 @@ def test_run_test_fleet_mode_suppresses_local_metrics() -> None:
             host="http://192.0.2.1:11434", transport=transport,
         )
     assert result["mode"] == "api"
+    assert result["peak_cpu_pct"] is None
+    assert result["peak_ram_used_gb"] is None
+    assert result["peak_gpu_pct"] is None
+    assert result["peak_vram_used_gb"] is None
+
+
+def test_run_test_remote_ollama_host_reports_fleet_mode() -> None:
+    """Remote Ollama host (is_api_mode=False, non-localhost) must report mode='fleet' and suppress local metrics."""
+    transport = MagicMock()
+    transport.is_api_mode = False
+    transport.generate.return_value = TransportResponse(
+        text="{}", tokens=10, elapsed_sec=1.0,
+        orchestration="ollama", orchestration_version="0.24.0", is_api_mode=False,
+    )
+    with patch("hermia.runner.fetch_server_vram", return_value=None):
+        result = run_test(
+            "qwen2.5:32b", _BASE_TEST, _mock_sampler(),
+            host="http://192.0.2.1:11434", transport=transport,
+        )
+    assert result["mode"] == "fleet"
     assert result["peak_cpu_pct"] is None
     assert result["peak_ram_used_gb"] is None
     assert result["peak_gpu_pct"] is None
@@ -945,6 +966,7 @@ def test_run_test_orchestration_in_result() -> None:
 
 def test_run_test_peak_metrics_none_in_api_mode() -> None:
     transport = MagicMock()
+    transport.is_api_mode = True
     transport.generate.return_value = _make_transport_response(is_api_mode=True)
     with patch("hermia.runner.fetch_server_vram", return_value=None):
         result = run_test("llama3", _TRANSPORT_BASE_TEST, _mock_sampler(), transport=transport)
@@ -956,6 +978,7 @@ def test_run_test_peak_metrics_none_in_api_mode() -> None:
 
 def test_run_test_peak_metrics_populated_when_local() -> None:
     transport = MagicMock()
+    transport.is_api_mode = False
     transport.generate.return_value = _make_transport_response(is_api_mode=False)
     sampler = _mock_sampler(cpu=85.0, ram=12.0, gpu=45.0, vram=4.2)
     with patch("hermia.runner.fetch_server_vram", return_value=None):

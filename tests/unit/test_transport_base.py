@@ -46,6 +46,8 @@ def test_response_version_can_be_none():
 
 def test_transport_protocol_structural():
     class MockTransport:
+        is_api_mode: bool = False
+
         def generate(self, model: str, messages: list[dict[str, str]], **opts: object) -> Response:
             return Response(
                 text="test",
