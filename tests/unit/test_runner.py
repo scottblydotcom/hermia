@@ -918,11 +918,12 @@ def test_run_test_uses_transport_generate() -> None:
     assert messages[0]["content"] == _TRANSPORT_BASE_TEST["system"]
     assert messages[1]["role"] == "user"
     assert messages[1]["content"] == _TRANSPORT_BASE_TEST["prompt"]
+    assert kwargs.get("timeout") == 90  # TEST_TIMEOUT
     assert result is not None
 
 
 def test_run_test_default_transport_is_ollama() -> None:
-    with patch("hermia.transport.ollama.OllamaTransport", create=True) as mock_ollama_cls:
+    with patch("hermia.runner.OllamaTransport") as mock_ollama_cls:
         mock_instance = MagicMock()
         mock_ollama_cls.return_value = mock_instance
         mock_instance.generate.return_value = _make_transport_response()
@@ -948,6 +949,7 @@ def test_run_test_peak_metrics_none_in_api_mode() -> None:
     with patch("hermia.runner.fetch_server_vram", return_value=None):
         result = run_test("llama3", _TRANSPORT_BASE_TEST, _mock_sampler(), transport=transport)
     assert result["peak_cpu_pct"] is None
+    assert result["peak_ram_used_gb"] is None
     assert result["peak_gpu_pct"] is None
     assert result["peak_vram_used_gb"] is None
 
