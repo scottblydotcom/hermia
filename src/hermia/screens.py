@@ -102,7 +102,13 @@ def _backfill_aggregates(run_results: list[dict[str, Any]]) -> None:
         row["robustness_n"] = result.n
 
 
-RESULTS_DIR = Path("results")
+def _default_results_dir() -> Path:
+    env = os.environ.get("HERMIA_RESULTS_DIR")
+    base = Path(env) if env else Path.home() / ".hermia" / "results"
+    return base.expanduser().resolve()
+
+
+RESULTS_DIR = _default_results_dir()
 
 
 class SelectionScreen(Screen):  # type: ignore[type-arg]
@@ -322,7 +328,7 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
         jsonl_path, csv_path = open_run(RESULTS_DIR)
         run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         run_host = socket.gethostname()
-        append_log(f"Writing results to {jsonl_path.name} (appended after each test)", "info")
+        append_log(f"Writing results to {jsonl_path} (appended after each test)", "info")
         append_log("", "")
 
         load_stats: dict[str, dict[str, float]] = {}
@@ -436,7 +442,7 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
 
         if scored:
             lines.append(f"\nBest: [bold]{scored[0][0]}[/bold] ({scored[0][3] * 100:.0f}/100)")
-        lines.append(f"Saved: {jsonl_path.name}  |  {csv_path.name}")
+        lines.append(f"Saved: {jsonl_path}  |  {csv_path}")
 
         summary_text = "\n".join(lines)
         app.call_from_thread(self._safe_update_summary, summary_text)
