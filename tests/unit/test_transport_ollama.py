@@ -68,7 +68,7 @@ def test_version_fetch_failure_returns_none():
     with patch("hermia.transport.ollama.requests.get") as mock_get:
         mock_get.side_effect = ConnectionError("Connection failed")
         transport = OllamaTransport(base_url="http://localhost:11434")
-        assert transport._version is None
+        assert transport._fetch_version() is None
 
 
 def test_satisfies_transport_protocol():

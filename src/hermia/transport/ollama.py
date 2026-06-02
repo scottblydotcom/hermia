@@ -1,6 +1,7 @@
 """Ollama HTTP transport — calls /api/chat (message-list semantics)."""
 from __future__ import annotations
 
+import threading
 import time
 
 import requests
@@ -16,19 +17,22 @@ class OllamaTransport:
         self._headers = headers or {}
         self._version: str | None = None
         self._version_fetched = False
+        self._lock = threading.Lock()
 
     def _fetch_version(self) -> str | None:
         if not self._version_fetched:
-            try:
-                resp = requests.get(
-                    f"{self._base_url}/api/version",
-                    timeout=3,
-                    headers=self._headers,
-                )
-                self._version = resp.json().get("version")
-            except Exception:  # noqa: BLE001
-                self._version = None
-            self._version_fetched = True
+            with self._lock:
+                if not self._version_fetched:
+                    try:
+                        resp = requests.get(
+                            f"{self._base_url}/api/version",
+                            timeout=3,
+                            headers=self._headers,
+                        )
+                        self._version = resp.json().get("version")
+                    except Exception:  # noqa: BLE001
+                        self._version = None
+                    self._version_fetched = True
         return self._version
 
     def generate(self, model: str, messages: list[dict[str, str]], **opts: object) -> Response:
