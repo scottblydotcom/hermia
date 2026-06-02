@@ -12,6 +12,7 @@ import requests
 
 from hermia.metrics import MetricsSampler, get_gpu_stats
 from hermia.schemas import SCHEMA_CHECKS, SIGNAL_EXTRACTORS
+from hermia.transport.ollama import OllamaTransport
 
 PACKAGE_DIR = Path(__file__).parent
 
@@ -202,8 +203,6 @@ def run_test(
     headers: dict[str, str] | None = None,
     transport: Any | None = None,
 ) -> dict[str, Any]:
-    from hermia.transport.ollama import OllamaTransport  # lazy import
-
     _host = _normalize_host(host) if host is not None else get_ollama_host()
     req_headers = headers or {}
     if transport is None:
