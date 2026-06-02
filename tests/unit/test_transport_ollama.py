@@ -1,6 +1,6 @@
-import pytest
-from unittest.mock import patch, MagicMock
-from hermia.transport.base import Response, Transport
+from unittest.mock import patch
+
+from hermia.transport.base import Transport
 from hermia.transport.ollama import OllamaTransport
 
 
