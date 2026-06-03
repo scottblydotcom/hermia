@@ -145,3 +145,31 @@ def test_jsonl_injection_in_output_preview_does_not_split_record(tmp_path: Path)
     rows = load_jsonl(jsonl)
     assert len(rows) == 1
     assert rows[0]["output_preview"] == 'hello\n{"malicious": true}'
+
+
+def test_append_result_is_thread_safe(tmp_path: Path) -> None:
+    """Concurrent appends must not drop, interleave, or corrupt JSONL lines."""
+    import json
+    import threading
+
+    jsonl = tmp_path / "eval_x.jsonl"
+    csv = tmp_path / "eval_x.csv"
+    n_threads, per_thread = 8, 100
+
+    def worker(tid: int) -> None:
+        for i in range(per_thread):
+            append_result(
+                {"run_id": "r", "host": "h", "model": f"m{tid}", "test_id": f"t{i}"},
+                jsonl, csv,
+            )
+
+    threads = [threading.Thread(target=worker, args=(t,)) for t in range(n_threads)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    rows = load_jsonl(jsonl)
+    assert len(rows) == n_threads * per_thread
+    for line in jsonl.read_text().splitlines():
+        json.loads(line)
