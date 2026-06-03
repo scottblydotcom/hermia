@@ -12,9 +12,11 @@ import (
 )
 
 const (
-	pdhFmtDouble  = 0x00000200
-	pdhMoreData   = 0x800007D2
-	errorSuccess  = 0
+	pdhFmtDouble        = 0x00000200
+	pdhMoreData         = 0x800007D2
+	errorSuccess        = 0
+	pdhCStatusValidData = 0x00000000 // counter value is valid
+	pdhCStatusNewData   = 0x00000001 // counter value is valid and new
 )
 
 var (
@@ -37,12 +39,6 @@ type pdhFmtCounterValue struct {
 type pdhFmtCounterValueItemW struct {
 	SzName   *uint16
 	FmtValue pdhFmtCounterValue
-}
-
-type gpuResult struct {
-	Engines map[string]float64
-	Gaming  bool
-	Err     error
 }
 
 func queryGPU(ctx context.Context, threshold float64) gpuResult {
@@ -131,6 +127,10 @@ func queryGPU(ctx context.Context, threshold float64) gpuResult {
 	samples := make([]pdhSample, 0, fillCount)
 	for i := uint32(0); i < fillCount; i++ {
 		item := (*pdhFmtCounterValueItemW)(unsafe.Pointer(&buf[uintptr(i)*itemSize]))
+		// Skip entries with invalid or stale CStatus — only sum confirmed-valid values.
+		if item.FmtValue.CStatus != pdhCStatusValidData && item.FmtValue.CStatus != pdhCStatusNewData {
+			continue
+		}
 		samples = append(samples, pdhSample{
 			instance: windows.UTF16PtrToString(item.SzName),
 			value:    item.FmtValue.Double,

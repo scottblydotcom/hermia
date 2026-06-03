@@ -5,6 +5,12 @@ import (
 	"strings"
 )
 
+type gpuResult struct {
+	Engines map[string]float64
+	Gaming  bool
+	Err     error
+}
+
 type pdhSample struct {
 	instance string
 	value    float64

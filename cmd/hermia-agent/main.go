@@ -63,6 +63,9 @@ func main() {
 	if *errorMode != "fail-closed" && *errorMode != "fail-open" {
 		log.Fatalf("invalid --error-mode %q: must be fail-closed or fail-open", *errorMode)
 	}
+	if *threshold < 0.0 || *threshold > 100.0 {
+		log.Fatalf("invalid --threshold %.2f: must be in [0.0, 100.0]", *threshold)
+	}
 
 	token := os.Getenv(*tokenEnv)
 	if token == "" {
@@ -85,6 +88,7 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 
 		if result.Err != nil {
+			log.Printf("ERROR: pdh query: %v", result.Err)
 			if *errorMode == "fail-closed" {
 				w.WriteHeader(http.StatusOK)
 				json.NewEncoder(w).Encode(gpuResponse{ //nolint:errcheck
