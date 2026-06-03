@@ -17,6 +17,7 @@ from hermia.runner import (
     run_test,
     unload_model,
 )
+from hermia.transport.base import Response as TransportResponse
 
 
 @pytest.fixture(autouse=True)
@@ -929,8 +930,6 @@ def test_run_test_execution_path_unknown_when_ps_unavailable() -> None:
 
 
 # ── Transport integration tests ────────────────────────────────────────────────
-
-from hermia.transport.base import Response as TransportResponse  # noqa: E402
 
 
 def _make_transport_response(
