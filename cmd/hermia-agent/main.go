@@ -25,14 +25,6 @@ type gpuResponse struct {
 	ErrorDetail      string             `json:"error_detail,omitempty"`
 }
 
-type gpuErrResponse struct {
-	Status      string `json:"status"`
-	NodeID      string `json:"node_id"`
-	Error       string `json:"error"`
-	ErrorDetail string `json:"error_detail,omitempty"`
-	SampledAt   string `json:"sampled_at"`
-}
-
 func envOr(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -80,11 +72,12 @@ func main() {
 		*nodeID = hostname
 	}
 
-	log.Printf("WARNING: serving without TLS on %s:%s — isolated VLAN only, not for untrusted networks", *bind, *port)
+	addr := net.JoinHostPort(*bind, *port)
+	log.Printf("WARNING: serving without TLS on %s — isolated VLAN only, not for untrusted networks", addr)
 
 	handler := func(w http.ResponseWriter, r *http.Request) {
-		result := queryGPU(r.Context(), *threshold)
 		sampledAt := time.Now().UTC().Format(time.RFC3339)
+		result := queryGPU(r.Context(), *threshold)
 		w.Header().Set("Content-Type", "application/json")
 
 		if result.Err != nil {
@@ -103,7 +96,7 @@ func main() {
 				})
 			} else {
 				w.WriteHeader(http.StatusServiceUnavailable)
-				json.NewEncoder(w).Encode(gpuErrResponse{ //nolint:errcheck
+				json.NewEncoder(w).Encode(gpuResponse{ //nolint:errcheck
 					Status:      "error",
 					NodeID:      *nodeID,
 					Error:       "pdh_query_failed",
@@ -126,10 +119,10 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/gpu", newBearerAuth(token)(http.HandlerFunc(handler)))
+	mux.Handle("GET /gpu", newBearerAuth(token)(http.HandlerFunc(handler)))
 
 	srv := &http.Server{
-		Addr:              net.JoinHostPort(*bind, *port),
+		Addr:              addr,
 		Handler:           mux,
 		ReadHeaderTimeout: 3 * time.Second,
 		ReadTimeout:       5 * time.Second,
@@ -137,7 +130,7 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("hermia-agent listening on %s:%s", *bind, *port)
+		log.Printf("hermia-agent listening on %s", addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("ListenAndServe: %v", err)
 		}

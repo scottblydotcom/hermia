@@ -95,12 +95,12 @@ func queryGPU(ctx context.Context, threshold float64) gpuResult {
 
 	// sizing probe: PDH returns PDH_MORE_DATA when instances exist,
 	// ERROR_SUCCESS / PDH_NO_DATA / PDH_CSTATUS_NO_INSTANCE when idle.
-	var bufSize, itemCount uint32
+	var bufSize uint32
 	ret, _, _ = procPdhGetFormattedCounterArrayW.Call(
 		hCounter,
 		pdhFmtDouble,
 		uintptr(unsafe.Pointer(&bufSize)),
-		uintptr(unsafe.Pointer(&itemCount)),
+		uintptr(unsafe.Pointer(new(uint32))),
 		0,
 	)
 	if ret == errorSuccess || ret == pdhNoData || ret == pdhCStatusNoInst {
@@ -109,6 +109,9 @@ func queryGPU(ctx context.Context, threshold float64) gpuResult {
 	}
 	if ret != pdhMoreData {
 		return gpuResult{Err: fmt.Errorf("PdhGetFormattedCounterArrayW (size): 0x%08X", ret)}
+	}
+	if bufSize == 0 {
+		return gpuResult{Err: fmt.Errorf("PdhGetFormattedCounterArrayW: pdhMoreData with bufSize=0")}
 	}
 
 	// fill call: cap fillCount to the allocated buffer to guard against

@@ -14,6 +14,7 @@ type errResponse struct {
 }
 
 func newBearerAuth(token string) func(http.Handler) http.Handler {
+	wantHash := sha256.Sum256([]byte(token))
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")
@@ -23,7 +24,6 @@ func newBearerAuth(token string) func(http.Handler) http.Handler {
 				gotToken = rest
 			}
 			gotHash := sha256.Sum256([]byte(gotToken))
-			wantHash := sha256.Sum256([]byte(token))
 			if subtle.ConstantTimeCompare(gotHash[:], wantHash[:]) != 1 {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusUnauthorized)
