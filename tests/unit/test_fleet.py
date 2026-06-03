@@ -212,6 +212,32 @@ def test_run_fleet_result_host_field(tmp_path: Path) -> None:
     assert hosts_seen == {"http://host1:11434", "http://host2:11434"}
 
 
+def test_run_host_eval_writes_expected_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import hermia.fleet as fleet
+    from hermia.results import load_jsonl, open_run
+
+    def fake_run_test(model, test, sampler, host=None, headers=None, transport=None):  # type: ignore[no-untyped-def]
+        return {"model": model, "test_id": test["id"], "failure_reason": "",
+                "elapsed_sec": 0.1, "tokens_per_sec": 1.0}
+    monkeypatch.setattr("hermia.runner.run_test", fake_run_test, raising=False)
+    monkeypatch.setattr("hermia.runner.load_tests_all", lambda: [{"id": "t1"}], raising=False)
+    monkeypatch.setattr("hermia.runner.get_available_models",
+                        lambda host=None, headers=None: [{"name": "m1"}], raising=False)
+
+    jsonl, csv = open_run(tmp_path)
+    entry = {"name": "node1", "host": "http://h1:11434"}
+    fleet._run_host_eval(
+        entry, repeat=1, run_id="rid", jsonl_path=jsonl, csv_path=csv,
+        print_lock=__import__("threading").Lock(),
+        print_fn=lambda s: None, stderr_fn=lambda s: None, verbosity=-1,
+    )
+    rows = load_jsonl(jsonl)
+    assert [r["model"] for r in rows] == ["m1"]
+    assert [r["test_id"] for r in rows] == ["t1"]
+
+
 # ---------------------------------------------------------------------------
 # --fleet flag in main() skips TUI
 # ---------------------------------------------------------------------------
