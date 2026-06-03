@@ -53,7 +53,7 @@ def test_corpus_case_frameworks_structure(case: dict[str, object]) -> None:
 
 
 def test_framework_coverage_tally(capsys: pytest.CaptureFixture[str]) -> None:
-    """Corpus must exercise at least 2 framework taxonomies; tally is printed to stdout."""
+    """Corpus must exercise all 4 framework taxonomies; tally is printed to stdout."""
     tagged_per_key: dict[str, int] = {k: 0 for k in sorted(_FRAMEWORK_KEYS)}
     distinct_codes: dict[str, set[str]] = {k: set() for k in sorted(_FRAMEWORK_KEYS)}
 
@@ -81,11 +81,22 @@ def test_framework_coverage_tally(capsys: pytest.CaptureFixture[str]) -> None:
         all_codes |= code_set
     assert all_codes, "No framework codes found anywhere in the corpus"
 
-    # At least 2 of the 4 framework keys must have tagged cases
-    keys_with_tags = sum(1 for count in tagged_per_key.values() if count > 0)
-    assert keys_with_tags >= 2, (
-        f"Expected ≥2 framework keys with tags, got {keys_with_tags}"
-    )
+    # Fix 2: all 4 taxonomies must have at least 1 tagged case — a dropout of any
+    # taxonomy is caught rather than the previous >=2 threshold.
+    for key in _FRAMEWORK_KEYS:
+        assert tagged_per_key[key] >= 1, (
+            f"Framework taxonomy {key!r} has no tagged cases in the corpus"
+        )
 
-    # The tally output was captured and is non-empty
-    assert "Framework coverage tally:" in captured.out
+    # Fix 1: assert corpus-derived content is present in the tally output, not just
+    # the literal header the test itself printed (which was self-referential).
+    assert any(key in captured.out for key in _FRAMEWORK_KEYS), (
+        "Tally output does not contain any expected framework taxonomy key"
+    )
+    # Verify the tally reflects real counts: each key's tagged_per_key count must
+    # appear as a digit string somewhere in the printed output.
+    for key in _FRAMEWORK_KEYS:
+        count_str = str(tagged_per_key[key])
+        assert count_str in captured.out, (
+            f"Tally output missing count {count_str!r} for taxonomy {key!r}"
+        )

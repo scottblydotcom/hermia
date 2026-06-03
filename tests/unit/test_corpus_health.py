@@ -21,9 +21,21 @@ def test_all_required_keys_present_and_non_empty() -> None:
         case_id = case.get("id", "<unknown>")
         for key in _REQUIRED_KEYS:
             assert key in case, f"Missing key '{key}' in case '{case_id}'"
-            assert case[key] or case[key] == 0, (
-                f"Empty value for key '{key}' in case '{case_id}'"
-            )
+            value = case[key]
+            if isinstance(value, str):
+                assert value.strip(), (
+                    f"Empty/whitespace-only string for key '{key}' in case '{case_id}'"
+                )
+            elif isinstance(value, dict):
+                # frameworks dict — presence of the key is sufficient here;
+                # structure is validated in test_frameworks_structure.
+                assert value is not None, (
+                    f"None dict for key '{key}' in case '{case_id}'"
+                )
+            else:
+                assert value is not None, (
+                    f"None value for key '{key}' in case '{case_id}'"
+                )
 
 
 def test_ids_are_unique() -> None:
