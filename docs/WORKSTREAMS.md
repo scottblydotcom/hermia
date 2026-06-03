@@ -12,7 +12,7 @@
 | A | Transport abstraction (Ollama `/api/chat` + OpenAI-compat) | merged (squash #87) | [#87](https://github.com/scottblydotcom/hermia/pull/87) | `ws-a-reviewed-2026-06-03`, `ws-a-merged-2026-06-03` | ✅ Merged to `dev` — recovered after origin-branch loss; 8 findings + 2 Gemini guards fixed; all gates green |
 | — | Recovery copy of A (pristine, do not edit) | `recover/workstream-a-transport` | — | `ws-a-reviewed-2026-06-03` | 🟢 Safety net — retain until A is confirmed stable on `dev` |
 | B | hermia-agent sidecar (Windows Go GPU gaming-gate) | merged | [#85](https://github.com/scottblydotcom/hermia/pull/85), [#86](https://github.com/scottblydotcom/hermia/pull/86) | — | ✅ Done — verified through to physical machine (ScottWin11 .20) |
-| C | Concurrent fleet runner (ThreadPoolExecutor, VRAM-aware) | _planned_ | — | — | ⚪ Planned — depends on A. **First task: make `_ps_cache` thread-safe (lock + concurrent test)** — Gemini HIGH on #87, deferred here |
+| C | Concurrent fleet runner (ThreadPoolExecutor, VRAM-aware) | `feat/workstream-c-concurrent-runner` | [#93](https://github.com/scottblydotcom/hermia/pull/93) | — | 🔵 In review — `_ps_cache` + `append_result` thread-safe; `run_fleet` concurrent via `ThreadPoolExecutor`; `--max-concurrency N` flag; VRAM-safe host grouping; all 852 tests green |
 | D | Submission API + partial Sink | _planned_ | — | — | ⚪ Planned — independent of A |
 | E | Deterministic multi-turn | _planned_ | — | — | ⚪ Planned — depends on A (message-list) |
 | F | Test quality + framework coverage | _planned_ | — | — | ⚪ Planned — independent of A |

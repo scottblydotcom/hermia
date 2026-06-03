@@ -194,6 +194,34 @@ gateway (in v0.1, use the Ollama-compatible endpoint), or a remote lab machine.
 
 ---
 
+## Multi-host fleet mode (`--fleet`)
+
+Pass a YAML fleet config to evaluate multiple hosts in a single headless run:
+
+```bash
+hermia --fleet hermia-fleet.yaml
+```
+
+**Concurrent execution.** Fleet hosts are evaluated concurrently by default (up to 4
+in parallel). To change the cap:
+
+```bash
+hermia --fleet hermia-fleet.yaml --max-concurrency 8   # more parallelism
+hermia --fleet hermia-fleet.yaml --max-concurrency 1   # fully sequential
+```
+
+**VRAM-safe serialization.** Fleet entries that share the same host (normalized URL)
+are always evaluated sequentially — one model loaded at a time — so a single GPU node
+is never asked to hold two models simultaneously. Entries on different hosts run in
+parallel up to `--max-concurrency`.
+
+**Operational note on host identity.** Grouping is by URL string. If two fleet entries
+point at the same physical machine via different addresses (e.g. `localhost` vs
+`127.0.0.1` vs its hostname), they will **not** be grouped and may run concurrently.
+Use the identical host string for all entries on one box to keep them serialized.
+
+---
+
 ## Regression detection
 
 After accumulating multiple runs, use `hermia-regression` to detect behavioral drift —

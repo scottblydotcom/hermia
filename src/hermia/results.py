@@ -2,9 +2,12 @@
 
 import csv
 import json
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+_write_lock = threading.Lock()
 
 
 def open_run(results_dir: Path) -> tuple[Path, Path]:
@@ -19,20 +22,25 @@ def append_result(
     jsonl_path: Path | None,
     csv_path: Path | None,
 ) -> None:
-    """Append a single test result to JSONL and/or CSV. Pass None to skip either."""
-    if jsonl_path is not None:
-        with open(jsonl_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(result) + "\n")
+    """Append a single test result to JSONL and/or CSV. Pass None to skip either.
 
-    if csv_path is not None:
-        write_header = not csv_path.exists()
-        with open(csv_path, "a", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(
-                f, fieldnames=result.keys(), extrasaction="ignore", restval=""
-            )
-            if write_header:
-                writer.writeheader()
-            writer.writerow(result)
+    Thread-safe: a process-wide lock serializes all writes so concurrent fleet
+    workers cannot interleave or drop result lines.
+    """
+    with _write_lock:
+        if jsonl_path is not None:
+            with open(jsonl_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(result) + "\n")
+
+        if csv_path is not None:
+            write_header = not csv_path.exists()
+            with open(csv_path, "a", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(
+                    f, fieldnames=result.keys(), extrasaction="ignore", restval=""
+                )
+                if write_header:
+                    writer.writeheader()
+                writer.writerow(result)
 
 
 def patch_results(jsonl_path: Path, updated_rows: list[dict[str, Any]]) -> None:

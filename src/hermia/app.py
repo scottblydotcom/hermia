@@ -68,6 +68,12 @@ def main() -> None:
         help="Quiet fleet output: suppress progress, print only saved path on completion",
     )
     parser.add_argument(
+        "--max-concurrency",
+        type=int,
+        default=4,
+        help="Max number of distinct hosts evaluated concurrently (default: 4)",
+    )
+    parser.add_argument(
         "--audit",
         nargs="?",
         const=True,
@@ -108,7 +114,8 @@ def main() -> None:
         verbosity = 1 if args.verbose else (-1 if args.quiet else 0)
         try:
             entries = load_fleet_config(Path(args.fleet))
-            run_fleet(entries, repeat=args.repeat, results_dir=RESULTS_DIR, verbosity=verbosity)
+            run_fleet(entries, repeat=args.repeat, results_dir=RESULTS_DIR, verbosity=verbosity,
+                      max_concurrency=args.max_concurrency)
         except (ValueError, RuntimeError, OSError) as exc:
             print(f"hermia: {exc}", file=sys.stderr)
             sys.exit(1)

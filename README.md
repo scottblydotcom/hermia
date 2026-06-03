@@ -35,8 +35,11 @@ already warm."
 endpoints. Nuanced intent evaluation and multi-turn support land in v0.3.
 
 **Fleet mode** (`--fleet FILE`) runs headless multi-host eval from a YAML config — same
-test suite, multiple Ollama endpoints in parallel. Compare CUDA vs. Metal on the same
-model. See where your inference stack diverges.
+test suite, multiple Ollama endpoints evaluated **concurrently** (default: up to 4 hosts
+in parallel). Compare CUDA vs. Metal on the same model. See where your inference stack
+diverges. Entries that share the same host are evaluated sequentially so a single GPU
+node is never asked to hold two models simultaneously (VRAM-safe). Control parallelism
+with `--max-concurrency N`.
 
 ---
 

@@ -212,6 +212,32 @@ def test_run_fleet_result_host_field(tmp_path: Path) -> None:
     assert hosts_seen == {"http://host1:11434", "http://host2:11434"}
 
 
+def test_run_host_eval_writes_expected_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import hermia.fleet as fleet
+    from hermia.results import load_jsonl, open_run
+
+    def fake_run_test(model, test, sampler, host=None, headers=None, transport=None):  # type: ignore[no-untyped-def]
+        return {"model": model, "test_id": test["id"], "failure_reason": "",
+                "elapsed_sec": 0.1, "tokens_per_sec": 1.0}
+    monkeypatch.setattr("hermia.runner.run_test", fake_run_test, raising=False)
+    monkeypatch.setattr("hermia.runner.load_tests_all", lambda: [{"id": "t1"}], raising=False)
+    monkeypatch.setattr("hermia.runner.get_available_models",
+                        lambda host=None, headers=None: [{"name": "m1"}], raising=False)
+
+    jsonl, csv = open_run(tmp_path)
+    entry = {"name": "node1", "host": "http://h1:11434"}
+    fleet._run_host_eval(
+        entry, repeat=1, run_id="rid", jsonl_path=jsonl, csv_path=csv,
+        print_lock=__import__("threading").Lock(),
+        print_fn=lambda s: None, stderr_fn=lambda s: None, verbosity=-1,
+    )
+    rows = load_jsonl(jsonl)
+    assert [r["model"] for r in rows] == ["m1"]
+    assert [r["test_id"] for r in rows] == ["t1"]
+
+
 # ---------------------------------------------------------------------------
 # --fleet flag in main() skips TUI
 # ---------------------------------------------------------------------------
@@ -512,3 +538,17 @@ def test_run_fleet_verbose_omits_failure_reason_on_pass(tmp_path: Path) -> None:
 def test_run_fleet_verbose_still_prints_saved_path(tmp_path: Path) -> None:
     lines = _run_fleet_capture(tmp_path, verbosity=1)
     assert any("Saved:" in ln for ln in lines)
+
+
+def test_group_entries_by_host_serializes_same_host() -> None:
+    from hermia.fleet import _group_entries_by_host
+    entries = [
+        {"name": "a", "host": "http://h1:11434"},
+        {"name": "b", "host": "http://h2:11434"},
+        {"name": "c", "host": "http://h1:11434/"},  # same as a after normalize
+    ]
+    groups = _group_entries_by_host(entries)
+    # two groups (h1, h2); h1 group holds a and c in order
+    assert len(groups) == 2
+    h1 = [g for g in groups if len(g) == 2][0]
+    assert [e["name"] for e in h1] == ["a", "c"]
