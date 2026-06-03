@@ -1021,3 +1021,37 @@ def test_run_test_peak_metrics_populated_when_local() -> None:
     assert result["peak_cpu_pct"] == 85.0
     assert result["peak_gpu_pct"] == 45.0
     assert result["peak_vram_used_gb"] == 4.2
+
+
+# ── thread safety ──────────────────────────────────────────────────────────────
+
+
+def test_ps_cache_is_thread_safe_under_concurrent_access() -> None:
+    """Many threads hammering fetch_server_ps_data + unload_model must not raise
+    RuntimeError('dictionary changed size during iteration') or corrupt the cache."""
+    import threading
+
+    import hermia.runner as rmod
+    from hermia.runner import fetch_server_ps_data, unload_model
+
+    rmod._ps_cache.clear()
+    errors: list[Exception] = []
+
+    def worker(n: int) -> None:
+        try:
+            for i in range(500):
+                host = f"http://h{n % 4}:11434"
+                model = f"m{i % 8}"
+                with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
+                    fetch_server_ps_data(host, model)
+                if i % 3 == 0:
+                    unload_model(model)  # mutates/evicts cache concurrently
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+
+    threads = [threading.Thread(target=worker, args=(n,)) for n in range(16)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == [], f"concurrent cache access raised: {errors[:3]}"

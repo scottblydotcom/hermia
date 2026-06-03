@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -47,6 +48,7 @@ def detect_mode(host: str) -> str:
 
 
 _ps_cache: dict[tuple[Any, ...], dict[str, float | None]] = {}
+_ps_cache_lock = threading.Lock()
 _vram_cache = _ps_cache  # backward-compat alias
 
 
@@ -62,15 +64,17 @@ def fetch_server_ps_data(
     host = _normalize_host(host)
     headers_key = tuple(sorted(headers.items())) if headers else ()
     key = (host, model, headers_key)
-    if key in _ps_cache:
-        return _ps_cache[key]
+    with _ps_cache_lock:
+        if key in _ps_cache:
+            return _ps_cache[key]
 
     empty: dict[str, float | None] = {"vram_server_gb": None, "model_size_server_gb": None}
     try:
         resp = requests.get(f"{host}/api/ps", timeout=2, headers=headers or {})
         if not resp.ok:
             if resp.status_code == 404:
-                _ps_cache[key] = dict(empty)
+                with _ps_cache_lock:
+                    _ps_cache[key] = dict(empty)
             return dict(empty)
 
         result = dict(empty)
@@ -89,7 +93,8 @@ def fetch_server_ps_data(
                         result["model_size_server_gb"] = float(st) / (1024 ** 3)
                     break
 
-        _ps_cache[key] = result
+        with _ps_cache_lock:
+            _ps_cache[key] = result
         return result
     except Exception:  # noqa: BLE001
         return dict(empty)
@@ -145,9 +150,10 @@ def get_model_size_gb(model_name: str, model_list: list[dict[str, Any]]) -> floa
 def unload_model(model_name: str) -> None:
     """Evict model from VRAM."""
     # Invalidate cached /api/ps data so next load gets fresh VRAM stats
-    keys_to_remove = [k for k in list(_ps_cache) if k[1] == model_name]
-    for k in keys_to_remove:
-        _ps_cache.pop(k, None)
+    with _ps_cache_lock:
+        keys_to_remove = [k for k in list(_ps_cache) if k[1] == model_name]
+        for k in keys_to_remove:
+            _ps_cache.pop(k, None)
     host = get_ollama_host()
     try:
         requests.post(
