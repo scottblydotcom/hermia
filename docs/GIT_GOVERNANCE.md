@@ -40,15 +40,19 @@ repeat, and the procedure to recover if work is ever lost again.
 
 ### Tier 4 — Discipline
 - PR-only into `dev`/`main` (enforced by Tier 1). Never delete a branch until its PR
-  reads **Merged**. Push local work before any `git fetch --prune`.
+  reads **Merged**. Never rely on a single clone's remote-tracking refs as the only
+  copy of a branch — push it, and let the Tier 2 mirror/bundles and milestone tags hold
+  the backups. (`git fetch --prune` only removes stale `refs/remotes/*` tracking refs,
+  not local branches — but a branch that lives *only* as a tracking ref disappears with it.)
 
 ## Recovery procedures
 
 ### A branch was deleted on origin
 1. **From its PR (fastest):** the PR retains the commits. `gh pr checkout <n>` or fetch
    the PR head: `git fetch origin pull/<n>/head:recover/<name>`.
-2. **From a milestone tag:** `git fetch origin refs/tags/ws-<x>-reviewed-<date>` then
-   `git branch recover/<name> <tag>`.
+2. **From a milestone tag:** `git fetch origin tag ws-<x>-reviewed-<date>` then
+   `git branch recover/<name> ws-<x>-reviewed-<date>`. (The `tag` keyword creates the
+   local tag ref; a bare `refs/tags/<x>` fetch only populates `FETCH_HEAD`.)
 3. **From the gateway mirror** (retains deleted refs):
    ```bash
    git fetch "gateway:git-backups/hermia.git" \
