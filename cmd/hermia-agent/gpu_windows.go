@@ -95,12 +95,12 @@ func queryGPU(ctx context.Context, threshold float64) gpuResult {
 
 	// sizing probe: PDH returns PDH_MORE_DATA when instances exist,
 	// ERROR_SUCCESS / PDH_NO_DATA / PDH_CSTATUS_NO_INSTANCE when idle.
-	var bufSize uint32
+	var bufSize, itemCount uint32
 	ret, _, _ = procPdhGetFormattedCounterArrayW.Call(
 		hCounter,
 		pdhFmtDouble,
 		uintptr(unsafe.Pointer(&bufSize)),
-		uintptr(unsafe.Pointer(new(uint32))),
+		uintptr(unsafe.Pointer(&itemCount)),
 		0,
 	)
 	if ret == errorSuccess || ret == pdhNoData || ret == pdhCStatusNoInst {
@@ -130,7 +130,12 @@ func queryGPU(ctx context.Context, threshold float64) gpuResult {
 		return gpuResult{Err: fmt.Errorf("PdhGetFormattedCounterArrayW: 0x%08X", ret)}
 	}
 
-	// Cap fillCount to what buf can hold before creating the typed slice.
+	// PDH packs struct array + string data into buf: [N×sizeof(struct)][string bytes…].
+	// len(buf)/sizeof(struct) therefore overcounts the true item capacity, but the
+	// unsafe.Slice safety invariant only requires fillCount×sizeof(struct) ≤ len(buf),
+	// which this cap guarantees. On the SUCCESS path PDH itself ensures fillCount is
+	// correct; the cap is defence-in-depth against a misbehaving PDH returning a
+	// fillCount so large that unsafe.Slice would read past buf's end.
 	itemSize := unsafe.Sizeof(pdhFmtCounterValueItemW{})
 	if maxItems := uint32(uintptr(len(buf)) / itemSize); fillCount > maxItems {
 		fillCount = maxItems

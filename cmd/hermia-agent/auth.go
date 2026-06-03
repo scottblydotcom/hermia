@@ -26,6 +26,7 @@ func newBearerAuth(token string) func(http.Handler) http.Handler {
 			gotHash := sha256.Sum256([]byte(gotToken))
 			if subtle.ConstantTimeCompare(gotHash[:], wantHash[:]) != 1 {
 				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("WWW-Authenticate", `Bearer realm="hermia-agent"`)
 				w.WriteHeader(http.StatusUnauthorized)
 				json.NewEncoder(w).Encode(errResponse{Status: "error", Error: "unauthorized"}) //nolint:errcheck
 				return

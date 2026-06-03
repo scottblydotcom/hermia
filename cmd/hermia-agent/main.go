@@ -45,7 +45,7 @@ func main() {
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
 			defaultThreshold = f
 		} else {
-			log.Printf("WARNING: HERMIA_AGENT_THRESHOLD=%q is not a valid float, using default %.1f", v, defaultThreshold)
+			log.Fatalf("HERMIA_AGENT_THRESHOLD=%q is not a valid float", v)
 		}
 	}
 	threshold := flag.Float64("threshold", defaultThreshold, "3D engine % above which owner is gaming")
@@ -99,6 +99,7 @@ func main() {
 				json.NewEncoder(w).Encode(gpuResponse{ //nolint:errcheck
 					Status:      "error",
 					NodeID:      *nodeID,
+					Gaming:      false, // explicit: fail-open allows dispatch
 					Error:       "pdh_query_failed",
 					ErrorDetail: result.Err.Error(),
 					SampledAt:   sampledAt,
