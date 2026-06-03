@@ -15,7 +15,7 @@
 | C | Concurrent fleet runner (ThreadPoolExecutor, VRAM-aware) | `feat/workstream-c-concurrent-runner` | [#93](https://github.com/scottblydotcom/hermia/pull/93) | — | 🔵 In review — `_ps_cache` + `append_result` thread-safe; `run_fleet` concurrent via `ThreadPoolExecutor`; `--max-concurrency N` flag; VRAM-safe host grouping; all 852 tests green |
 | D | Submission API + partial Sink | _planned_ | — | — | ⚪ Planned — independent of A |
 | E | Deterministic multi-turn | _planned_ | — | — | ⚪ Planned — depends on A (message-list) |
-| F | Test quality + framework coverage | _planned_ | — | — | ⚪ Planned — independent of A |
+| F | Test quality + framework coverage | `feat/workstream-f-test-quality` | [#94](https://github.com/scottblydotcom/hermia/pull/94) | — | 🔵 In review — corpus health, schema contract (totality + pos/neg table), framework taxonomy validation, CLI subprocess smoke; 1117 tests green |
 
 ## Rules
 
