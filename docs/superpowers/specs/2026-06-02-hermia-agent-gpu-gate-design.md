@@ -71,7 +71,8 @@ inference. (Source: `project_gaming_gate_prototype` memory; capture tool
 cmd/hermia-agent/
 ├── main.go              — flags/env, server setup, auth middleware, signal handling
 ├── gpu_windows.go       — PDH query, engine aggregation, gate decision (//go:build windows)
-├── gpu_windows_test.go  — table-driven tests for the pure aggregation function
+├── gpu_aggregate_test.go — table-driven tests for the pure aggregation function
+├── gpu_aggregate.go     — pure aggregation functions (cross-platform)
 ├── auth.go              — bearer middleware (crypto/subtle), platform-agnostic
 ├── auth_test.go         — auth middleware tests
 ├── go.mod               — own module; one external dep: golang.org/x/sys
@@ -95,8 +96,7 @@ ignores it; a dedicated `agent.yml` workflow handles the Go build.
 ```
 request → auth middleware (constant-time bearer check)
         → [401 if invalid, BEFORE any PDH work]
-        → mutex (serialize concurrent PDH collections, share one result)
-        → PDH on-demand query (see §4)
+        → PDH on-demand query (see §4)  [per-request independent handle; no mutex needed]
         → aggregate engines, compute gaming = 3D > threshold
         → write JSON response per error mode
 ```
@@ -185,6 +185,9 @@ never dispatches into an unread signal.
 {
   "status": "error",
   "node_id": "fleet-node-20",
+  "gaming": false,
+  "gate_threshold_pct": 0,
+  "engines": null,
   "error": "pdh_query_failed",
   "error_detail": "PdhCollectQueryData returned 0xC0000BC4",
   "sampled_at": "2026-06-02T14:23:01Z"
