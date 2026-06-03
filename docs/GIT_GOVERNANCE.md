@@ -22,12 +22,13 @@ repeat, and the procedure to recover if work is ever lost again.
   habit would have prevented the A loss.
 
 ### Tier 2 — Recover (insurance)
-- **Nightly off-GitHub mirror on the gateway** (`scott-H170M-D3H`, always-on):
-  - Script: `/home/scott/git-backups/hermia-backup.sh`
+- **Nightly off-GitHub mirror on the always-on gateway** (paths below are relative to
+  the gateway service account's home directory):
+  - Script: `~/git-backups/hermia-backup.sh`
   - Cron: `0 3 * * *` (nightly 03:00)
-  - **Non-pruning** bare mirror at `/home/scott/git-backups/hermia.git` — refs deleted
+  - **Non-pruning** bare mirror at `~/git-backups/hermia.git` — refs deleted
     on origin are **retained** here.
-  - Immutable dated `git bundle` snapshots in `/home/scott/git-backups/bundles/`
+  - Immutable dated `git bundle` snapshots in `~/git-backups/bundles/`
     (`--all`, 30-day retention). Each bundle is a complete point-in-time backup that
     origin deletion or force-push cannot touch.
 - **Milestone tags:** annotated `ws-<x>-reviewed-<date>` tags pin reviewed work. Tags
@@ -50,12 +51,12 @@ repeat, and the procedure to recover if work is ever lost again.
    `git branch recover/<name> <tag>`.
 3. **From the gateway mirror** (retains deleted refs):
    ```bash
-   git fetch ssh://gateway/home/scott/git-backups/hermia.git \
+   git fetch "gateway:git-backups/hermia.git" \
      '+refs/heads/<name>:recover/<name>'
    ```
 4. **From a dated bundle** (worst case, full snapshot):
    ```bash
-   scp gateway:/home/scott/git-backups/bundles/hermia-<stamp>.bundle /tmp/
+   scp gateway:~/git-backups/bundles/hermia-<stamp>.bundle /tmp/
    git bundle list-heads /tmp/hermia-<stamp>.bundle      # inspect refs
    git fetch /tmp/hermia-<stamp>.bundle '+refs/heads/<name>:recover/<name>'
    ```
@@ -65,7 +66,7 @@ repeat, and the procedure to recover if work is ever lost again.
 
 ## Verifying the backup is healthy
 ```bash
-ssh gateway 'tail -3 /home/scott/git-backups/backup.log; \
-  ls -t /home/scott/git-backups/bundles | head -1'
+ssh gateway 'tail -3 ~/git-backups/backup.log; \
+  ls -t ~/git-backups/bundles | head -1'
 ```
 Most recent bundle should be < 24h old. If stale, run the script manually and check cron.
