@@ -68,10 +68,6 @@ class SubmissionSink:
                 timeout=5,
             )
             if not response.ok:
-                logger.warning(
-                    "hermia submit: server returned %s for %s",
-                    response.status_code,
-                    self.endpoint,
-                )
+                logger.warning("hermia submit: server returned %s", response.status_code)
         except requests.exceptions.RequestException as exc:
             logger.warning("hermia submit: request failed (%s)", type(exc).__name__)

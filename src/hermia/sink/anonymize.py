@@ -85,6 +85,16 @@ def anonymize_row(row: dict[str, Any]) -> dict[str, Any]:
     metrics, run ids, or timestamps are ever emitted.
     """
     out: dict[str, Any] = {k: row[k] for k in SUBMIT_WHITELIST if k in row}
+
+    # Value-level default-deny for signals: only bool values are safe to share.
+    # A probe could embed host/IP strings or other sensitive content in non-bool
+    # signal values; strip anything that is not strictly bool.
+    sig = out.get("signals")
+    if isinstance(sig, dict):
+        out["signals"] = {k: v for k, v in sig.items() if isinstance(v, bool)}
+    else:
+        out.pop("signals", None)  # drop if not a bool dict
+
     out["failure_category"] = _categorize_failure(row.get("failure_reason"))
     out["hermia_version"] = __version__
     return out

@@ -137,6 +137,26 @@ def test_passthrough_would_fail() -> None:
     assert "host" not in out
 
 
+def test_signals_non_bool_values_are_stripped() -> None:
+    """Non-bool values in signals (e.g. leaked host strings) must be stripped."""
+    row = {
+        "model": "m",
+        "signals": {"flag": True, "leaked_host": "192.168.1.5", "detail": "raw text"},
+    }
+    out = anonymize_row(row)
+    assert out["signals"] == {"flag": True}
+    assert "192.168" not in repr(out)
+    assert "raw text" not in repr(out)
+
+
+def test_signals_non_dict_is_dropped() -> None:
+    """A signals value that is not a dict must be dropped entirely."""
+    out = anonymize_row({"model": "m", "signals": "host=192.168.1.5 raw=SENSITIVE"})
+    assert "signals" not in out
+    assert "192.168" not in repr(out)
+    assert "SENSITIVE" not in repr(out)
+
+
 # ---------------------------------------------------------------------------
 # Hypothesis property tests
 # ---------------------------------------------------------------------------
