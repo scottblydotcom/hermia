@@ -5,7 +5,7 @@
 > it and its PR/tag — making the loss obvious and recovery trivial. Keep it current:
 > add a row when a workstream branch is pushed; update status on merge.
 
-**Last updated:** 2026-06-03
+**Last updated:** 2026-06-03 (D updated)
 
 | WS | Title | Branch | PR | Protective tag | Status |
 |----|-------|--------|----|----------------|--------|
@@ -13,7 +13,7 @@
 | — | Recovery copy of A (pristine, do not edit) | `recover/workstream-a-transport` | — | `ws-a-reviewed-2026-06-03` | 🟢 Safety net — retain until A is confirmed stable on `dev` |
 | B | hermia-agent sidecar (Windows Go GPU gaming-gate) | merged | [#85](https://github.com/scottblydotcom/hermia/pull/85), [#86](https://github.com/scottblydotcom/hermia/pull/86) | — | ✅ Done — verified through to physical machine (ScottWin11 .20) |
 | C | Concurrent fleet runner (ThreadPoolExecutor, VRAM-aware) | `feat/workstream-c-concurrent-runner` | [#93](https://github.com/scottblydotcom/hermia/pull/93) | — | 🔵 In review — `_ps_cache` + `append_result` thread-safe; `run_fleet` concurrent via `ThreadPoolExecutor`; `--max-concurrency N` flag; VRAM-safe host grouping; all 852 tests green |
-| D | Submission API + partial Sink | _planned_ | — | — | ⚪ Planned — independent of A |
+| D | Submission API + partial Sink | `feat/workstream-d-sink` | [#95](https://github.com/scottblydotcom/hermia/pull/95) | — | 🔵 In review — `Sink` Protocol + `JsonlCsvSink`/`PostgresSink` adapters; default-deny anonymizer (property-tested); `SubmissionSink` opt-in POST/dry-run; `--submit` / `--submit-dry-run` CLI flags; 650 tests green |
 | E | Deterministic multi-turn | _planned_ | — | — | ⚪ Planned — depends on A (message-list) |
 | F | Test quality + framework coverage | _planned_ | — | — | ⚪ Planned — independent of A |
 
