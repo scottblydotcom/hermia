@@ -77,6 +77,9 @@ func TestGPUHandler_FailOpen(t *testing.T) {
 	if resp.Status != "error" {
 		t.Errorf("status = %q, want %q", resp.Status, "error")
 	}
+	if resp.GateThresholdPct != 10.0 {
+		t.Errorf("gate_threshold_pct = %v, want 10.0", resp.GateThresholdPct)
+	}
 }
 
 func TestGPUHandler_AuthGateFiresFirst(t *testing.T) {

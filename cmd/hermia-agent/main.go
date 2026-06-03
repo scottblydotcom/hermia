@@ -33,6 +33,9 @@ func envOr(key, fallback string) string {
 }
 
 func newGPUHandler(nodeID, errorMode string, threshold float64) http.HandlerFunc {
+	if errorMode != "fail-closed" && errorMode != "fail-open" {
+		log.Fatalf("newGPUHandler: invalid errorMode %q: must be fail-closed or fail-open", errorMode)
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		sampledAt := time.Now().UTC().Format(time.RFC3339)
 		result := queryGPU(r.Context(), threshold)
@@ -55,12 +58,13 @@ func newGPUHandler(nodeID, errorMode string, threshold float64) http.HandlerFunc
 			} else {
 				w.WriteHeader(http.StatusServiceUnavailable)
 				json.NewEncoder(w).Encode(gpuResponse{ //nolint:errcheck
-					Status:      "error",
-					NodeID:      nodeID,
-					Gaming:      false, // explicit: fail-open allows dispatch
-					Error:       "pdh_query_failed",
-					ErrorDetail: result.Err.Error(),
-					SampledAt:   sampledAt,
+					Status:           "error",
+					NodeID:           nodeID,
+					Gaming:           false, // explicit: fail-open allows dispatch
+					GateThresholdPct: threshold,
+					Error:            "pdh_query_failed",
+					ErrorDetail:      result.Err.Error(),
+					SampledAt:        sampledAt,
 				})
 			}
 			return
