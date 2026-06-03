@@ -122,8 +122,8 @@ func queryGPU(ctx context.Context, threshold float64) gpuResult {
 		uintptr(unsafe.Pointer(&fillCount)),
 		uintptr(unsafe.Pointer(unsafe.SliceData(buf))),
 	)
-	runtime.KeepAlive(buf) // same variadic-uintptr GC hazard as counterPath
 	if ret != errorSuccess {
+		runtime.KeepAlive(buf)
 		return gpuResult{Err: fmt.Errorf("PdhGetFormattedCounterArrayW: 0x%08X", ret)}
 	}
 
@@ -143,6 +143,9 @@ func queryGPU(ctx context.Context, threshold float64) gpuResult {
 			value:    item.FmtValue.Double,
 		})
 	}
+	// KeepAlive after the loop: item.SzName is a self-referential pointer into
+	// buf's backing array; pin buf through all dereferences, not just the Call.
+	runtime.KeepAlive(buf)
 
 	engines := aggregateEngineCounters(samples)
 	return gpuResult{
