@@ -51,6 +51,11 @@ func TestParseInstanceName(t *testing.T) {
 			expected: parsedInstance{physIdx: 0, gpuIdx: 0, engType: "Other"},
 		},
 		{
+			name:     "Engtype with trailing suffix (future-proofing against e.g. engtype_3D_v2)",
+			input:    "pid_4132_luid_0x00000000000A1234_phys_0_gpu_0_engtype_3D_v2",
+			expected: parsedInstance{physIdx: 0, gpuIdx: 0, engType: "3D"},
+		},
+		{
 			name:     "Empty string",
 			input:    "",
 			expected: parsedInstance{physIdx: 0, gpuIdx: 0, engType: "Other"},

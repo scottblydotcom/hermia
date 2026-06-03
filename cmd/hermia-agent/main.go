@@ -32,6 +32,56 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
+func newGPUHandler(nodeID, errorMode string, threshold float64) http.HandlerFunc {
+	if errorMode != "fail-closed" && errorMode != "fail-open" {
+		log.Fatalf("newGPUHandler: invalid errorMode %q: must be fail-closed or fail-open", errorMode)
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		sampledAt := time.Now().UTC().Format(time.RFC3339)
+		result := queryGPU(r.Context(), threshold)
+		w.Header().Set("Content-Type", "application/json")
+
+		if result.Err != nil {
+			log.Printf("ERROR: pdh query: %v", result.Err)
+			if errorMode == "fail-closed" {
+				w.WriteHeader(http.StatusOK)
+				json.NewEncoder(w).Encode(gpuResponse{ //nolint:errcheck
+					Status:           "ok",
+					NodeID:           nodeID,
+					Gaming:           true,
+					GateThresholdPct: threshold,
+					Engines:          map[string]float64{},
+					SampledAt:        sampledAt,
+					Error:            "pdh_query_failed",
+					ErrorDetail:      result.Err.Error(),
+				})
+			} else {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				json.NewEncoder(w).Encode(gpuResponse{ //nolint:errcheck
+					Status:           "error",
+					NodeID:           nodeID,
+					Gaming:           false, // explicit: fail-open allows dispatch
+					GateThresholdPct: threshold,
+					Error:            "pdh_query_failed",
+					ErrorDetail:      result.Err.Error(),
+					SampledAt:        sampledAt,
+				})
+			}
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(gpuResponse{ //nolint:errcheck
+			Status:           "ok",
+			NodeID:           nodeID,
+			Gaming:           result.Gaming,
+			GateThresholdPct: threshold,
+			Engines:          result.Engines,
+			SampledAt:        sampledAt,
+		})
+	}
+}
+
 func main() {
 	// Env vars set flag defaults; explicit CLI flags override them.
 	port := flag.String("port", envOr("HERMIA_AGENT_PORT", "11435"), "port to listen on")
@@ -75,52 +125,8 @@ func main() {
 	addr := net.JoinHostPort(*bind, *port)
 	log.Printf("WARNING: serving without TLS on %s — isolated VLAN only, not for untrusted networks", addr)
 
-	handler := func(w http.ResponseWriter, r *http.Request) {
-		sampledAt := time.Now().UTC().Format(time.RFC3339)
-		result := queryGPU(r.Context(), *threshold)
-		w.Header().Set("Content-Type", "application/json")
-
-		if result.Err != nil {
-			log.Printf("ERROR: pdh query: %v", result.Err)
-			if *errorMode == "fail-closed" {
-				w.WriteHeader(http.StatusOK)
-				json.NewEncoder(w).Encode(gpuResponse{ //nolint:errcheck
-					Status:           "ok",
-					NodeID:           *nodeID,
-					Gaming:           true,
-					GateThresholdPct: *threshold,
-					Engines:          map[string]float64{},
-					SampledAt:        sampledAt,
-					Error:            "pdh_query_failed",
-					ErrorDetail:      result.Err.Error(),
-				})
-			} else {
-				w.WriteHeader(http.StatusServiceUnavailable)
-				json.NewEncoder(w).Encode(gpuResponse{ //nolint:errcheck
-					Status:      "error",
-					NodeID:      *nodeID,
-					Gaming:      false, // explicit: fail-open allows dispatch
-					Error:       "pdh_query_failed",
-					ErrorDetail: result.Err.Error(),
-					SampledAt:   sampledAt,
-				})
-			}
-			return
-		}
-
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(gpuResponse{ //nolint:errcheck
-			Status:           "ok",
-			NodeID:           *nodeID,
-			Gaming:           result.Gaming,
-			GateThresholdPct: *threshold,
-			Engines:          result.Engines,
-			SampledAt:        sampledAt,
-		})
-	}
-
 	mux := http.NewServeMux()
-	mux.Handle("GET /gpu", newBearerAuth(token)(http.HandlerFunc(handler)))
+	mux.Handle("GET /gpu", newBearerAuth(token)(newGPUHandler(*nodeID, *errorMode, *threshold)))
 
 	srv := &http.Server{
 		Addr:              addr,
