@@ -93,6 +93,8 @@ def fetch_server_ps_data(
                         result["model_size_server_gb"] = float(st) / (1024 ** 3)
                     break
 
+        # last-write-wins; concurrent misses recompute the same value, so a
+        # redundant overwrite is safe
         with _ps_cache_lock:
             _ps_cache[key] = result
         return result

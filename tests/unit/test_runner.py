@@ -1029,6 +1029,9 @@ def test_run_test_peak_metrics_populated_when_local() -> None:
 def test_ps_cache_is_thread_safe_under_concurrent_access() -> None:
     """Many threads hammering fetch_server_ps_data + unload_model must not raise
     RuntimeError('dictionary changed size during iteration') or corrupt the cache."""
+    # NOTE: under CPython the GIL makes individual dict ops atomic, so this is a
+    # structural/intent guard rather than a strict data-race detector; the lock
+    # still matters on free-threaded runtimes and for unload_model's list+pop sequence.
     import threading
 
     import hermia.runner as rmod
