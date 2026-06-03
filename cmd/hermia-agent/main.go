@@ -1,0 +1,151 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"flag"
+	"log"
+	"net"
+	"net/http"
+	"os"
+	"os/signal"
+	"strconv"
+	"syscall"
+	"time"
+)
+
+type gpuResponse struct {
+	Status           string             `json:"status"`
+	NodeID           string             `json:"node_id"`
+	Gaming           bool               `json:"gaming"`
+	GateThresholdPct float64            `json:"gate_threshold_pct"`
+	Engines          map[string]float64 `json:"engines"`
+	SampledAt        string             `json:"sampled_at"`
+	Error            string             `json:"error,omitempty"`
+	ErrorDetail      string             `json:"error_detail,omitempty"`
+}
+
+func envOr(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func main() {
+	// Env vars set flag defaults; explicit CLI flags override them.
+	port := flag.String("port", envOr("HERMIA_AGENT_PORT", "11435"), "port to listen on")
+	bind := flag.String("bind", envOr("HERMIA_AGENT_BIND", "0.0.0.0"), "address to bind")
+	tokenEnv := flag.String("token-env", envOr("HERMIA_AGENT_TOKEN_ENV", "HERMIA_AGENT_TOKEN"), "env var holding the bearer token")
+	nodeID := flag.String("node-id", envOr("HERMIA_AGENT_NODE_ID", ""), "node identifier (default: hostname)")
+	errorMode := flag.String("error-mode", envOr("HERMIA_AGENT_ERROR_MODE", "fail-closed"), "fail-closed or fail-open")
+
+	defaultThreshold := 10.0
+	if v := os.Getenv("HERMIA_AGENT_THRESHOLD"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			defaultThreshold = f
+		} else {
+			log.Fatalf("HERMIA_AGENT_THRESHOLD=%q is not a valid float", v)
+		}
+	}
+	threshold := flag.Float64("threshold", defaultThreshold, "3D engine % above which owner is gaming")
+
+	flag.Parse()
+
+	if *errorMode != "fail-closed" && *errorMode != "fail-open" {
+		log.Fatalf("invalid --error-mode %q: must be fail-closed or fail-open", *errorMode)
+	}
+	if *threshold < 0.0 {
+		log.Fatalf("invalid --threshold %.2f: must be >= 0.0", *threshold)
+	}
+
+	token := os.Getenv(*tokenEnv)
+	if token == "" {
+		log.Fatalf("token env var %q is not set; refusing to start unauthenticated", *tokenEnv)
+	}
+
+	if *nodeID == "" {
+		hostname, err := os.Hostname()
+		if err != nil {
+			log.Fatalf("os.Hostname: %v", err)
+		}
+		*nodeID = hostname
+	}
+
+	addr := net.JoinHostPort(*bind, *port)
+	log.Printf("WARNING: serving without TLS on %s — isolated VLAN only, not for untrusted networks", addr)
+
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		sampledAt := time.Now().UTC().Format(time.RFC3339)
+		result := queryGPU(r.Context(), *threshold)
+		w.Header().Set("Content-Type", "application/json")
+
+		if result.Err != nil {
+			log.Printf("ERROR: pdh query: %v", result.Err)
+			if *errorMode == "fail-closed" {
+				w.WriteHeader(http.StatusOK)
+				json.NewEncoder(w).Encode(gpuResponse{ //nolint:errcheck
+					Status:           "ok",
+					NodeID:           *nodeID,
+					Gaming:           true,
+					GateThresholdPct: *threshold,
+					Engines:          map[string]float64{},
+					SampledAt:        sampledAt,
+					Error:            "pdh_query_failed",
+					ErrorDetail:      result.Err.Error(),
+				})
+			} else {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				json.NewEncoder(w).Encode(gpuResponse{ //nolint:errcheck
+					Status:      "error",
+					NodeID:      *nodeID,
+					Gaming:      false, // explicit: fail-open allows dispatch
+					Error:       "pdh_query_failed",
+					ErrorDetail: result.Err.Error(),
+					SampledAt:   sampledAt,
+				})
+			}
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(gpuResponse{ //nolint:errcheck
+			Status:           "ok",
+			NodeID:           *nodeID,
+			Gaming:           result.Gaming,
+			GateThresholdPct: *threshold,
+			Engines:          result.Engines,
+			SampledAt:        sampledAt,
+		})
+	}
+
+	mux := http.NewServeMux()
+	mux.Handle("GET /gpu", newBearerAuth(token)(http.HandlerFunc(handler)))
+
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 3 * time.Second,
+		ReadTimeout:       5 * time.Second,
+		WriteTimeout:      10 * time.Second,
+	}
+
+	go func() {
+		log.Printf("hermia-agent listening on %s", addr)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("ListenAndServe: %v", err)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	log.Println("shutting down...")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Fatalf("Shutdown: %v", err)
+	}
+	log.Println("stopped")
+}

@@ -1,0 +1,45 @@
+name: hermia-agent CI
+
+on:
+  push:
+    paths:
+      - cmd/hermia-agent/**
+      - .github/workflows/agent.yml
+  pull_request:
+    paths:
+      - cmd/hermia-agent/**
+      - .github/workflows/agent.yml
+
+jobs:
+  build:
+    name: Windows build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: cmd/hermia-agent/go.sum
+      - name: go vet
+        run: go vet ./...
+        working-directory: cmd/hermia-agent
+      - name: go build
+        run: go build -o hermia-agent.exe ./...
+        working-directory: cmd/hermia-agent
+        env:
+          GOOS: windows
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+
+  test:
+    name: Cross-platform unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: cmd/hermia-agent/go.sum
+      - name: go test
+        run: go test -v ./...
+        working-directory: cmd/hermia-agent
