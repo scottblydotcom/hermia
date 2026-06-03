@@ -18,8 +18,9 @@ func newBearerAuth(token string) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")
 			var gotToken string
-			if strings.HasPrefix(authHeader, "Bearer ") {
-				gotToken = authHeader[7:]
+			// RFC 7235 §2.1: scheme tokens are case-insensitive.
+			if scheme, rest, found := strings.Cut(authHeader, " "); found && strings.EqualFold(scheme, "Bearer") {
+				gotToken = rest
 			}
 			gotHash := sha256.Sum256([]byte(gotToken))
 			wantHash := sha256.Sum256([]byte(token))

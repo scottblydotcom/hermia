@@ -42,6 +42,12 @@ func TestBearerAuth(t *testing.T) {
 			handlerCalled: false,
 		},
 		{
+			name:          "Lowercase bearer scheme accepted (RFC 7235)",
+			authHeader:    "bearer correct-token",
+			expectStatus:  http.StatusOK,
+			handlerCalled: true,
+		},
+		{
 			name:          "Malformed header no Bearer prefix",
 			authHeader:    "sometoken",
 			expectStatus:  http.StatusUnauthorized,
