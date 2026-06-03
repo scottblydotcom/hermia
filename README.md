@@ -15,7 +15,7 @@ their driver stack, their runtime version. Not yours.
 A ROCm update can flip a security test from PASS to FAIL. Hermia catches it — because it
 runs on your stack, not a cloud proxy.
 
-![Hermia — Goldilocks demo: llama3.2 fails injection resistance, qwen3:8b passes](assets/goldilocks.gif)
+<video src="assets/demo.mp4" autoplay loop muted playsinline aria-label="Hermia demo: running structured behavioral evaluations across models including llama3.2 and qwen3:8b, comparing pass/fail results per test on a local Ollama fleet">Download the <a href="assets/demo.mp4">demo video</a>.</video>
 
 ---
 
@@ -126,16 +126,25 @@ targets via `--host`; running Hermia itself on Windows is not yet supported.
 
 ## Install
 
-From source (pre-PyPI):
+Recommended (via pipx):
+
+```bash
+pipx install hermia
+```
+
+Or with pip:
+
+```bash
+pip install hermia
+```
+
+Or from source:
 
 ```bash
 git clone https://github.com/scottblydotcom/hermia
 cd hermia
 pip install -e .
-hermia
 ```
-
-PyPI publication is on the roadmap. See [project status](#project-status).
 
 ---
 
@@ -176,12 +185,12 @@ See [docs/roadmap.md](docs/roadmap.md) for the full plan.
 
 ## Project Status
 
-**v0.1.0** — stable and tested. The core eval suite, fleet mode, audit trail, and findings
+**v0.1.1** — stable and tested. The core eval suite, fleet mode, audit trail, and findings
 analysis pipeline are all shipping. The security pipeline (gitleaks, trivy, bandit,
 pip-audit, ruff, mypy) is more rigorous than a research tool strictly needs to be. That
 was intentional.
 
-PyPI publication is planned after v0.1.0 stabilizes in the wild.
+Available on [PyPI](https://pypi.org/project/hermia/): `pipx install hermia`
 
 ---
 

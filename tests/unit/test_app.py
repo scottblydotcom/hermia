@@ -31,6 +31,23 @@ def test_positive_int_negative_raises() -> None:
 
 
 # ---------------------------------------------------------------------------
+# --version flag
+# ---------------------------------------------------------------------------
+
+
+def test_main_version_flag(monkeypatch, capsys) -> None:
+    """--version should print the package version and exit 0."""
+    from hermia import __version__
+    monkeypatch.setattr(sys, "argv", ["hermia", "--version"])
+    with pytest.raises(SystemExit) as exc:
+        from hermia.app import main
+        main()
+    assert exc.value.code == 0
+    captured = capsys.readouterr()
+    assert __version__ in captured.out or __version__ in captured.err
+
+
+# ---------------------------------------------------------------------------
 # main() — --audit path
 # ---------------------------------------------------------------------------
 

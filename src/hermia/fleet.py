@@ -1,6 +1,7 @@
 """Headless fleet eval runner — multi-host batch evaluation from YAML config."""
 
 import os
+import sys
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -32,6 +33,12 @@ def load_fleet_config(path: Path) -> list[dict[str, Any]]:
         if models is not None:
             if not isinstance(models, list) or not all(isinstance(m, str) for m in models):
                 raise ValueError(f"Fleet entry [{i}] 'models' must be a list of strings")
+        transport = entry.get("transport", "ollama")
+        if transport not in ("ollama", "openai-compat"):
+            raise ValueError(
+                f"Fleet entry '{entry.get('name', '?')}': transport must be 'ollama' or "
+                f"'openai-compat', got '{transport}'"
+            )
     return entries
 
 
@@ -55,17 +62,49 @@ def _build_auth_headers(entry: dict[str, Any]) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+def _resolve_models(
+    transport_type: str,
+    requested: list[str] | None,
+    all_models: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], set[str]]:
+    """Resolve the model list to evaluate for a host.
+
+    Returns ``(models, missing)``. For openai-compat hosts the requested names
+    are used directly in **sorted** order (deterministic across runs — set
+    iteration order is not). For ollama hosts the discovered list order is
+    preserved and any requested-but-undiscovered names are reported as missing.
+    """
+    if not requested:
+        return all_models, set()
+    requested_set = set(requested)
+    if transport_type == "openai-compat":
+        return [{"name": m} for m in sorted(requested_set)], set()
+    models = [m for m in all_models if m["name"] in requested_set]
+    missing = requested_set - {m["name"] for m in models}
+    return models, missing
+
+
 def run_fleet(
     entries: list[dict[str, Any]],
     repeat: int,
     results_dir: Path,
     print_fn: Callable[[str], None] = print,
+    stderr_fn: Callable[[str], None] = lambda msg: print(msg, file=sys.stderr),
+    verbosity: int = 0,
 ) -> Path:
-    """Run headless eval against all fleet entries. Returns path to JSONL output."""
+    """Run headless eval against all fleet entries. Returns path to JSONL output.
+
+    verbosity:
+        -1  quiet   — suppress all progress; print only ``Saved: <path>`` on completion
+         0  normal  — host headers + per-test pass/fail lines  (default)
+         1  verbose — normal output + t/s and failure_reason detail per test
+    """
     from hermia.metrics import MetricsSampler
     from hermia.results import append_result, open_run
     from hermia.robustness import score_rows
     from hermia.runner import _normalize_host, get_available_models, load_tests_all, run_test
+    from hermia.transport.ollama import OllamaTransport
+    from hermia.transport.openai_compat import OpenAICompatTransport
 
     jsonl_path, csv_path = open_run(results_dir)
     run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -75,22 +114,38 @@ def run_fleet(
         name = entry["name"]
         host_url = _normalize_host(entry["host"])
         headers = _build_auth_headers(entry)
+        transport_type = entry.get("transport", "ollama")
+        host_transport = (
+            OpenAICompatTransport(host_url, headers)
+            if transport_type == "openai-compat"
+            else OllamaTransport(host_url, headers)
+        )
         host_start = datetime.now(UTC).isoformat()
 
-        all_models = get_available_models(host=host_url, headers=headers)
         requested = entry.get("models")
-        if requested:
-            requested_set = set(requested)
-            models = [m for m in all_models if m["name"] in requested_set]
-            missing = requested_set - {m["name"] for m in models}
-            if missing:
-                print_fn(f"  WARNING: models not found on {name}: {', '.join(sorted(missing))}")
-        else:
-            models = all_models
-        print_fn(
-            f"[{idx}/{len(entries)}] {name} ({host_url})"
-            f" — {len(models)} models, {len(tests)} tests"
+        if transport_type == "openai-compat" and not requested:
+            stderr_fn(
+                f"  ERROR: openai-compat host '{name}' requires an explicit"
+                f" 'models:' list in fleet YAML — skipping host"
+            )
+            continue
+        # openai-compat hosts have no /api/tags endpoint; only discover for ollama.
+        all_models = (
+            get_available_models(host=host_url, headers=headers)
+            if transport_type != "openai-compat"
+            else []
         )
+        models, missing = _resolve_models(transport_type, requested, all_models)
+        if missing:
+            stderr_fn(
+                f"  WARNING: models not found on {name}: {', '.join(sorted(missing))}"
+            )
+
+        if verbosity >= 0:
+            print_fn(
+                f"[{idx}/{len(entries)}] {name} ({host_url})"
+                f" — {len(models)} models, {len(tests)} tests"
+            )
 
         sampler = MetricsSampler()
         for model_entry in models:
@@ -98,7 +153,10 @@ def run_fleet(
             for test in tests:
                 run_results: list[dict[str, Any]] = []
                 for run_index in range(1, repeat + 1):
-                    result = run_test(model, test, sampler, host=host_url, headers=headers)
+                    result = run_test(
+                        model, test, sampler,
+                        host=host_url, headers=headers, transport=host_transport,
+                    )
                     result["run_id"] = run_id
                     result["run_timestamp"] = datetime.now(UTC).isoformat()
                     result["run_index"] = run_index
@@ -115,7 +173,18 @@ def run_fleet(
                     result["pass_count"] = rob.pass_count
                     result["robustness_n"] = rob.n
                     append_result(result, jsonl_path, csv_path)
-                    status = "✓" if not result.get("failure_reason") else "✗"
-                    print_fn(f"  {status} {model}:{test['id']} ({result['elapsed_sec']}s)")
 
+                    if verbosity >= 0:
+                        status = "✓" if not result.get("failure_reason") else "✗"
+                        elapsed = result.get("elapsed_sec") or 0.0
+                        line = f"  {status} {model}:{test['id']} ({elapsed}s)"
+                        if verbosity >= 1:
+                            tps = result.get("tokens_per_sec") or 0.0
+                            reason = result.get("failure_reason") or ""
+                            line += f"  {tps:.1f} t/s"
+                            if reason:
+                                line += f"  [{reason}]"
+                        print_fn(line)
+
+    print_fn(f"Saved: {jsonl_path}")
     return jsonl_path

@@ -11,7 +11,10 @@ import hermia.runner as _runner_mod
 DEFAULT_GENERATE: dict[str, Any] = {
     "model": "fake-model",
     "created_at": "2026-01-01T00:00:00Z",
-    "response": '{"action": "search_documentation", "params": {"query": "requests Session"}}',
+    "message": {
+        "role": "assistant",
+        "content": '{"action": "search_documentation", "params": {"query": "requests Session"}}',
+    },
     "done": True,
     "eval_count": 42,
     "eval_duration": 1000000000,
@@ -29,7 +32,7 @@ class _FakeOllamaHandler(http.server.BaseHTTPRequestHandler):
         content_length = int(self.headers.get("Content-Length") or 0)
         self.rfile.read(content_length)
 
-        if self.path == "/api/generate":
+        if self.path in ("/api/chat", "/api/generate"):
             status = self._overrides.get("generate_status", 200)
 
             delay = self._overrides.get("generate_delay")
@@ -55,13 +58,16 @@ class _FakeOllamaHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         if self.path == "/api/tags":
             body = json.dumps(self._overrides.get("tags", DEFAULT_TAGS)).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+        elif self.path == "/api/version":
+            body = json.dumps({"version": "test"}).encode()
         else:
             self.send_error(404)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def log_message(self, *args: Any) -> None:
         pass

@@ -346,6 +346,46 @@ def test_run_fleet_no_model_filter_runs_all(tmp_path: Path) -> None:
     assert called_models == {"qwen2.5:3b", "phi3:3.8b"}
 
 
+# ---------------------------------------------------------------------------
+# transport: field in load_fleet_config
+# ---------------------------------------------------------------------------
+
+
+def test_load_fleet_config_transport_default(tmp_path: Path) -> None:
+    """No transport field → loads without error; default resolves to 'ollama'."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text("fleet:\n  - name: node3\n    host: http://host1:11434\n")
+    entries = load_fleet_config(cfg)
+    assert len(entries) == 1
+    assert entries[0].get("transport", "ollama") == "ollama"
+
+
+def test_load_fleet_config_transport_openai_compat(tmp_path: Path) -> None:
+    """transport: openai-compat is accepted and stored on the entry."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: litellm-gateway\n"
+        "    host: https://scottai.tailc7d860.ts.net:4000\n"
+        "    transport: openai-compat\n"
+    )
+    entries = load_fleet_config(cfg)
+    assert entries[0]["transport"] == "openai-compat"
+
+
+def test_load_fleet_config_invalid_transport(tmp_path: Path) -> None:
+    """transport: grpc (unknown value) raises ValueError mentioning 'transport'."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: node3\n"
+        "    host: http://host1:11434\n"
+        "    transport: grpc\n"
+    )
+    with pytest.raises(ValueError, match="transport"):
+        load_fleet_config(cfg)
+
+
 def test_run_fleet_result_has_fleet_host_start(tmp_path: Path) -> None:
     from hermia.fleet import run_fleet
     entries = [{"name": "node2", "host": "http://192.168.25.100:11434"}]
@@ -372,3 +412,103 @@ def test_run_fleet_result_has_fleet_host_start(tmp_path: Path) -> None:
     from datetime import datetime
     dt = datetime.fromisoformat(fake_result["fleet_host_start"])
     assert dt.tzinfo is not None
+
+
+# ---------------------------------------------------------------------------
+# verbosity levels
+# ---------------------------------------------------------------------------
+
+
+def _run_fleet_capture(tmp_path: Path, verbosity: int) -> list[str]:
+    """Run run_fleet with given verbosity and return captured print_fn lines."""
+    from hermia.fleet import run_fleet
+
+    lines: list[str] = []
+    entries = [{"name": "n1", "host": "http://host1:11434"}]
+    _tests = [{"id": "t1", "system": "s", "prompt": "p"}]
+    _run_files = (tmp_path / "out.jsonl", tmp_path / "out.csv")
+
+    with (
+        patch("hermia.runner.load_tests_all", return_value=_tests),
+        patch("hermia.runner.get_available_models", return_value=[{"name": "m1"}]),
+        patch("hermia.runner.run_test", side_effect=lambda *a, **kw: dict(_MINIMAL_RESULT)),
+        patch("hermia.results.open_run", return_value=_run_files),
+        patch("hermia.results.append_result"),
+        patch("hermia.metrics.MetricsSampler", return_value=MagicMock()),
+    ):
+        run_fleet(entries, repeat=1, results_dir=tmp_path,
+                  print_fn=lines.append, verbosity=verbosity)
+    return lines
+
+
+def test_run_fleet_normal_prints_host_header(tmp_path: Path) -> None:
+    lines = _run_fleet_capture(tmp_path, verbosity=0)
+    assert any("n1" in ln and "host1" in ln for ln in lines)
+
+
+def test_run_fleet_normal_prints_per_test_line(tmp_path: Path) -> None:
+    lines = _run_fleet_capture(tmp_path, verbosity=0)
+    assert any("m1:t1" in ln for ln in lines)
+
+
+def test_run_fleet_normal_always_prints_saved_path(tmp_path: Path) -> None:
+    lines = _run_fleet_capture(tmp_path, verbosity=0)
+    assert any("Saved:" in ln for ln in lines)
+
+
+def test_run_fleet_quiet_suppresses_host_header(tmp_path: Path) -> None:
+    lines = _run_fleet_capture(tmp_path, verbosity=-1)
+    assert not any("n1" in ln and "host1" in ln for ln in lines)
+
+
+def test_run_fleet_quiet_suppresses_per_test_line(tmp_path: Path) -> None:
+    lines = _run_fleet_capture(tmp_path, verbosity=-1)
+    assert not any("m1:t1" in ln for ln in lines)
+
+
+def test_run_fleet_quiet_still_prints_saved_path(tmp_path: Path) -> None:
+    lines = _run_fleet_capture(tmp_path, verbosity=-1)
+    assert any("Saved:" in ln for ln in lines)
+
+
+def test_run_fleet_verbose_includes_tps(tmp_path: Path) -> None:
+    lines = _run_fleet_capture(tmp_path, verbosity=1)
+    test_lines = [ln for ln in lines if "m1:t1" in ln]
+    assert test_lines, "expected at least one per-test line"
+    assert any("t/s" in ln for ln in test_lines)
+
+
+def test_run_fleet_verbose_includes_failure_reason_when_present(tmp_path: Path) -> None:
+    from hermia.fleet import run_fleet
+
+    lines: list[str] = []
+    failing_result = {**_MINIMAL_RESULT, "failure_reason": "TIMEOUT: 90s", "tokens_per_sec": 0.0}
+    entries = [{"name": "n1", "host": "http://host1:11434"}]
+    _tests = [{"id": "t1", "system": "s", "prompt": "p"}]
+    _run_files = (tmp_path / "out.jsonl", tmp_path / "out.csv")
+
+    with (
+        patch("hermia.runner.load_tests_all", return_value=_tests),
+        patch("hermia.runner.get_available_models", return_value=[{"name": "m1"}]),
+        patch("hermia.runner.run_test", side_effect=lambda *a, **kw: dict(failing_result)),
+        patch("hermia.results.open_run", return_value=_run_files),
+        patch("hermia.results.append_result"),
+        patch("hermia.metrics.MetricsSampler", return_value=MagicMock()),
+    ):
+        run_fleet(entries, repeat=1, results_dir=tmp_path,
+                  print_fn=lines.append, verbosity=1)
+
+    test_lines = [ln for ln in lines if "m1:t1" in ln]
+    assert any("TIMEOUT" in ln for ln in test_lines)
+
+
+def test_run_fleet_verbose_omits_failure_reason_on_pass(tmp_path: Path) -> None:
+    lines = _run_fleet_capture(tmp_path, verbosity=1)
+    test_lines = [ln for ln in lines if "m1:t1" in ln]
+    # _MINIMAL_RESULT has failure_reason="" so no bracket annotation expected
+    assert not any("[" in ln for ln in test_lines)
+
+
+def test_run_fleet_verbose_still_prints_saved_path(tmp_path: Path) -> None:
+    lines = _run_fleet_capture(tmp_path, verbosity=1)
+    assert any("Saved:" in ln for ln in lines)

@@ -551,3 +551,22 @@ def test_pg_columns_includes_raw_prompt() -> None:
 
 def test_pg_columns_includes_raw_response() -> None:
     assert "raw_response" in _PG_COLUMNS
+
+
+# ---------------------------------------------------------------------------
+# --version flag
+# ---------------------------------------------------------------------------
+
+
+def test_main_version_flag(monkeypatch, capsys) -> None:
+    """--version should print the package version and exit 0."""
+    import sys
+
+    from hermia import __version__
+    monkeypatch.setattr(sys, "argv", ["hermia-push", "--version"])
+    # exit_on_error=True so SystemExit propagates; version action exits 0
+    with pytest.raises(SystemExit) as exc:
+        main(exit_on_error=True)
+    assert exc.value.code == 0
+    captured = capsys.readouterr()
+    assert __version__ in captured.out or __version__ in captured.err

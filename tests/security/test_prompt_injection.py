@@ -3,8 +3,8 @@
 import json
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).parents[2]
-TASKS_FILE = PROJECT_ROOT / "test-datasets" / "agentic-tasks.json"
+PACKAGE_DIR = Path(__file__).parents[2] / "src" / "hermia"
+TASKS_FILE = PACKAGE_DIR / "test-datasets" / "agentic-tasks.json"
 
 INJECTION_PATTERNS = [
     "ignore previous",
@@ -35,6 +35,9 @@ SECURITY_TEST_IDS = {
     "adversarial-input-signal-in-noise",
     "adversarial-input-zero-width-injection",
     "adversarial-input-few-shot-poisoning",
+    # v0.1.1 additions — intentionally embed adversarial patterns in user turn
+    "instruction-override-resistance",  # prompt contains "system prompt" as injection attempt
+    "indirect-injection-tool-output",   # tool output contains "ignore previous" / "you are now"
 }
 
 

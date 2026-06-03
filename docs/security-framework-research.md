@@ -87,7 +87,7 @@ Expressible as pass/fail automated eval cases against a local Ollama model:
 
 ### What it covers
 
-MITRE ATLAS (Adversarial Threat Landscape for Artificial-Intelligence Systems) is an adversary knowledge base modeled after ATT&CK, focused on attacks against AI and ML systems. As of v5.1.0 (November 2025): 16 tactics, 84 techniques, 32 mitigations, 42 case studies. The February 2026 update added agentic-specific techniques including "Publish Poisoned AI Agent Tool" and "Escape to Host." A Zenity Labs collaboration contributed 14 agent-focused techniques covering credential harvesting, tool data poisoning, and agent clickbait. A February 2026 OpenClaw case study documented real-world agentic attack techniques including direct/indirect prompt injection and tool invocation abuse.
+MITRE ATLAS (Adversarial Threat Landscape for Artificial-Intelligence Systems) is an adversary knowledge base modeled after ATT&CK, focused on attacks against AI and ML systems. As of v5.1.0 (November 2025): 16 tactics, 84 techniques, 32 mitigations, 42 case studies. The February 2026 update added agentic-specific techniques including "Publish Poisoned AI Agent Tool" and "Escape to Host." A Zenity Labs collaboration contributed 14 agent-focused techniques covering credential harvesting, tool data poisoning, and agent clickbait. An internal February 2026 case study documented real-world agentic attack techniques including direct/indirect prompt injection and tool invocation abuse.
 
 ### Agentic AI relevance
 
@@ -117,7 +117,7 @@ TTPs directly relevant to the Hermia fleet architecture (local Ollama → LiteLL
 | Memory manipulation | ❌ None | No persistent memory in current models |
 | Thread injection | ❌ None | No multi-turn eval harness |
 
-**Honest assessment:** The fleet-lane-test covers one instance of AML.T0100 (injection in a JSON event field). The main eval suite covers AML.T0051. Everything else is a gap. The OpenClaw case study is a useful reference for calibrating test realism — these are not theoretical techniques.
+**Honest assessment:** The fleet-lane-test covers one instance of AML.T0100 (injection in a JSON event field). The main eval suite covers AML.T0051. Everything else is a gap. That case study is a useful reference for calibrating test realism — these are not theoretical techniques.
 
 ### Testable gaps
 
@@ -149,10 +149,10 @@ MAESTRO (Multi-Agent Environment, Security, Threat, Risk, and Outcome) is CSA's 
 
 | Layer | Name | Fleet equivalent | Hermia evaluates this? |
 |---|---|---|---|
-| L1 | Foundation Models | Ollama models (qwen, llama, mistral variants on Vega 64) | ✅ Partial — behavioral tests |
+| L1 | Foundation Models | Ollama models (qwen, llama, mistral variants on local GPU) | ✅ Partial — behavioral tests |
 | L2 | Data Operations | No RAG pipeline yet; LiteLLM context window | ❌ No |
 | L3 | Agent Frameworks | LiteLLM proxy + lane routing + Claude orchestrator | ✅ Partial — routing and tool-use tests |
-| L4 | Deployment & Infrastructure | OpenClaw Docker + Vega 64 host | ❌ No — outside eval scope |
+| L4 | Deployment & Infrastructure | GPU inference host (Docker) | ❌ No — outside eval scope |
 | L5 | Evaluation & Observability | Hermia itself + Prometheus/Grafana | Meta — Hermia IS this layer |
 | L6 | Security & Compliance (vertical) | FortiGate VLAN isolation, Wazuh (planned), CI pipeline | ❌ No — infrastructure, not model behavior |
 | L7 | Agent Ecosystem | Multi-agent lane routing; future Claude ↔ local model interaction | ❌ No |
@@ -214,7 +214,7 @@ For agentic systems, **ME 2.4** is the critical subcategory: a model that passed
 
 | RMF Requirement | Current coverage | Gap |
 |---|---|---|
-| ME 2.3 Benchmark similar to deployment | ✅ Hermia runs on OpenClaw against live Ollama | Eval prompts are static; real-world prompt distribution not sampled |
+| ME 2.3 Benchmark similar to deployment | ✅ Hermia runs on a local GPU node against live Ollama | Eval prompts are static; real-world prompt distribution not sampled |
 | ME 2.4 Production monitoring | ✅ Grafana: CPU, RAM, GPU%, VRAM, inference latency | ❌ No eval accuracy metrics in Grafana (schema pass rate, security test pass rate) |
 | ME 3.1 Track emergent risks | ❌ None | Results stored in JSONL but no regression detection or alerting |
 | ME 1.3 Independent review | ✅ Gemini Code Assist reviews PRs | Reviews code only, not model behavior changes |

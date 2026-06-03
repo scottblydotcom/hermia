@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
 
+from hermia import __version__
 from hermia.results import load_jsonl
 
 _PG_COLUMNS = (
@@ -42,6 +44,11 @@ _PG_COLUMNS = (
     "judge_reasoning",
     "mode",
     "vram_server_gb",
+    "model_size_server_gb",
+    "execution_path",
+    "orchestration",
+    "orchestration_version",
+    "signals",
     "raw_system",
     "raw_prompt",
     "raw_response",
@@ -73,6 +80,33 @@ def compute_score(row: dict[str, object]) -> int:
     return 100
 
 
+_FW_MAP = {
+    "framework_owasp": "owasp_llm_top10_2025",
+    "framework_mitre": "mitre_atlas_v5_1",
+    "framework_maestro": "csa_maestro",
+    "framework_nist": "nist_ai_rmf",
+}
+
+
+def _build_record(row: dict[str, object]) -> dict[str, object]:
+    """Project a result row onto the Postgres column set.
+
+    ``signals`` is serialized to a JSON string so psycopg2 can store it in a
+    TEXT column without needing a dict adapter (and so the dry-run path stays
+    dependency-free).
+    """
+    rec = {c: row.get(c) for c in _PG_COLUMNS}
+    rec["score"] = compute_score(row)
+    raw_fw = row.get("frameworks")
+    fw: dict[str, object] = raw_fw if isinstance(raw_fw, dict) else {}
+    for col, key in _FW_MAP.items():
+        rec[col] = fw.get(key, [])
+    signals = rec.get("signals")
+    if signals is not None and not isinstance(signals, str):
+        rec["signals"] = json.dumps(signals)
+    return rec
+
+
 def collect_results(results_dir: Path) -> list[dict[str, object]]:
     rows: list[dict[str, object]] = []
     for jsonl in sorted(results_dir.glob("eval_*.jsonl")):
@@ -87,21 +121,7 @@ def push(rows: list[dict[str, object]], dsn: str, dry_run: bool) -> None:
     if skipped:
         print(f"Skipped {skipped} row(s) missing mandatory fields (likely from older runs).")
 
-    fw_map = {
-        "framework_owasp": "owasp_llm_top10_2025",
-        "framework_mitre": "mitre_atlas_v5_1",
-        "framework_maestro": "csa_maestro",
-        "framework_nist": "nist_ai_rmf",
-    }
-    records = []
-    for row in valid_rows:
-        rec = {c: row.get(c) for c in _PG_COLUMNS}
-        rec["score"] = compute_score(row)
-        raw_fw = row.get("frameworks")
-        fw: dict[str, object] = raw_fw if isinstance(raw_fw, dict) else {}
-        for col, key in fw_map.items():
-            rec[col] = fw.get(key, [])
-        records.append(rec)
+    records = [_build_record(row) for row in valid_rows]
 
     if dry_run:
         print(f"[dry-run] Would process {len(records)} row(s)")
@@ -161,6 +181,7 @@ def main(
             description="Push hermia eval results to Postgres",
             exit_on_error=exit_on_error,
         )
+        parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
         parser.add_argument(
             "--dsn",
             default=dsn,

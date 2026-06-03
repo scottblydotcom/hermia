@@ -4,16 +4,41 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hermia"
-version = "0.1.0"
+version = "0.1.3"
 description = "Interactive LLM agentic evaluation TUI for local and cloud models"
+readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
+authors = [
+    { name = "Scott Bly", email = "scottbly1@gmail.com" },
+]
+keywords = ["llm", "security", "evaluation", "ollama", "red-team", "inference", "tui"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Security",
+    "Topic :: Software Development :: Testing",
+]
 dependencies = [
     "textual>=0.80.0",
     "requests>=2.32.0",
     "psutil>=6.0.0",
     "pyyaml>=6.0.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/scottblydotcom/hermia"
+Documentation = "https://github.com/scottblydotcom/hermia/blob/main/docs/usage.md"
+"Bug Tracker" = "https://github.com/scottblydotcom/hermia/issues"
 
 [project.optional-dependencies]
 grafana = [

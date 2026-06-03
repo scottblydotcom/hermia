@@ -18,6 +18,12 @@ results/
 session-notes/
 prompt.txt
 docs/talk-*.md
+docs/talk-*.js
+docs/*.pptx
+docs/*.pdf
+docs/slide-*.jpg
+docs/~$*
+logs/
 analysis/*.jsonl
 scripts/collect_and_push.sh
 scripts/run_analyze.sh
@@ -26,3 +32,9 @@ scripts/seed_findings.py
 analysis/*.md
 analysis/*.html
 docs/*.docx
+
+hermia-fleet-spill.yaml
+
+# Secret scanning
+# .secrets.baseline is intentionally tracked (audited false-positive list)
+# .gitleaks.toml is intentionally tracked (custom rules)

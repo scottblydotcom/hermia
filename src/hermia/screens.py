@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 from textual import work
 from textual.app import ComposeResult
 from textual.containers import Horizontal, ScrollableContainer
+from textual.css.query import NoMatches
 from textual.screen import Screen
 from textual.widgets import Button, Checkbox, Footer, Header, Label, ProgressBar, Static
 
@@ -101,8 +102,7 @@ def _backfill_aggregates(run_results: list[dict[str, Any]]) -> None:
         row["robustness_n"] = result.n
 
 
-PROJECT_ROOT = Path(__file__).parents[2]
-RESULTS_DIR = PROJECT_ROOT / "results"
+RESULTS_DIR = Path("results")
 
 
 class SelectionScreen(Screen):  # type: ignore[type-arg]
@@ -257,6 +257,25 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
     def action_go_back(self) -> None:
         self.app.pop_screen()
 
+    # ── Thread-safe UI helpers (called via call_from_thread) ─────────────────
+    def _safe_update_log(self, content: str) -> None:
+        try:
+            self.query_one("#log-content", Static).update(content)
+        except NoMatches:
+            pass
+
+    def _safe_advance_progress(self) -> None:
+        try:
+            self.query_one(ProgressBar).advance(1)
+        except NoMatches:
+            pass
+
+    def _safe_update_summary(self, text: str) -> None:
+        try:
+            self.query_one("#summary-content", Static).update(text)
+        except NoMatches:
+            pass
+
     @work(thread=True)
     def run_evals(self) -> None:
         tests = load_tests(self.test_ids)
@@ -264,13 +283,14 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
         sampler = MetricsSampler()
         self._live_sampler = sampler
 
+        app = self.app
+
         def append_log(line: str, style: str = "") -> None:
             log_lines.append((line, style))
             content = "\n".join(f"[{s}]{ln}[/{s}]" if s else ln for ln, s in log_lines[-100:])
-            self.app.call_from_thread(self.query_one("#log-content", Static).update, content)
+            app.call_from_thread(self._safe_update_log, content)
 
         # ── Preflight ────────────────────────────────────────────────────────
-        app = self.app
         pf = run_preflight(
             self.models, app.model_list, RESULTS_DIR, fleet_mode=app.fleet_mode  # type: ignore[attr-defined]
         )
@@ -351,7 +371,7 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
                     self.all_results.append(result)
                     append_result(result, jsonl_path, csv_path=None)
                     run_results_for_test.append(result)
-                    self.app.call_from_thread(self.query_one(ProgressBar).advance, 1)
+                    app.call_from_thread(self._safe_advance_progress)
 
                 # Compute aggregates after all N runs, then patch the already-written
                 # rows in the JSONL. CSV written here so aggregate fields are included.
@@ -381,6 +401,12 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
                     f"GPU {gpu:.0f}%  VRAM {vram:.1f}GB  CPU {cpu:.0f}%"
                 )
                 append_log(main_line, style)
+                if result.get("execution_path") == "cpu":
+                    append_log(
+                        "       ⚠ CPU fallback detected (vram_server_gb near zero)"
+                        " — results may be timeout artifacts",
+                        "warn",
+                    )
                 if style == "fail":
                     preview = result.get("output_preview", "")
                     if preview:
@@ -412,7 +438,6 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
             lines.append(f"\nBest: [bold]{scored[0][0]}[/bold] ({scored[0][3] * 100:.0f}/100)")
         lines.append(f"Saved: {jsonl_path.name}  |  {csv_path.name}")
 
-        self.app.call_from_thread(
-            self.query_one("#summary-content", Static).update, "\n".join(lines)
-        )
+        summary_text = "\n".join(lines)
+        app.call_from_thread(self._safe_update_summary, summary_text)
         append_log("\nDone! See summary below.", "pass")
