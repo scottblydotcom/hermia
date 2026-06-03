@@ -30,6 +30,9 @@ jobs:
           GOOS: windows
           GOARCH: amd64
           CGO_ENABLED: '0'
+      - name: go test
+        run: go test -v ./...
+        working-directory: cmd/hermia-agent
 
   test:
     name: Cross-platform unit tests
