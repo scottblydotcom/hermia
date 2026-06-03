@@ -22,18 +22,20 @@ func parseInstanceName(name string) parsedInstance {
 	if i := strings.Index(name, "phys_"); i != -1 {
 		rest := name[i+5:]
 		if end := strings.Index(rest, "_"); end != -1 {
-			if v, err := strconv.Atoi(rest[:end]); err == nil {
-				p.physIdx = v
-			}
+			rest = rest[:end]
+		}
+		if v, err := strconv.Atoi(rest); err == nil {
+			p.physIdx = v
 		}
 	}
 
 	if i := strings.Index(name, "gpu_"); i != -1 {
 		rest := name[i+4:]
 		if end := strings.Index(rest, "_"); end != -1 {
-			if v, err := strconv.Atoi(rest[:end]); err == nil {
-				p.gpuIdx = v
-			}
+			rest = rest[:end]
+		}
+		if v, err := strconv.Atoi(rest); err == nil {
+			p.gpuIdx = v
 		}
 	}
 

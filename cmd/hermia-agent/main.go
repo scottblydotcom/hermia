@@ -80,7 +80,7 @@ func main() {
 	log.Printf("WARNING: serving without TLS on %s:%s — isolated VLAN only, not for untrusted networks", *bind, *port)
 
 	handler := func(w http.ResponseWriter, r *http.Request) {
-		result := queryGPU(*threshold)
+		result := queryGPU(r.Context(), *threshold)
 		sampledAt := time.Now().UTC().Format(time.RFC3339)
 		w.Header().Set("Content-Type", "application/json")
 

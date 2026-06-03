@@ -3,6 +3,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"time"
 	"unsafe"
@@ -44,7 +45,7 @@ type gpuResult struct {
 	Err     error
 }
 
-func queryGPU(threshold float64) gpuResult {
+func queryGPU(ctx context.Context, threshold float64) gpuResult {
 	// Each request opens its own independent PDH query handle — no shared
 	// mutable state, so no mutex is needed for concurrent requests.
 	var hQuery uintptr
@@ -76,7 +77,13 @@ func queryGPU(threshold float64) gpuResult {
 		return gpuResult{Err: fmt.Errorf("PdhCollectQueryData (baseline): 0x%08X", ret)}
 	}
 
-	time.Sleep(1 * time.Second)
+	timer := time.NewTimer(1 * time.Second)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return gpuResult{Err: ctx.Err()}
+	case <-timer.C:
+	}
 
 	// actual collect
 	ret, _, _ = procPdhCollectQueryData.Call(hQuery)
