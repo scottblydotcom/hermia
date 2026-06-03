@@ -18,6 +18,8 @@ const (
 	errorSuccess        = 0
 	pdhCStatusValidData = 0x00000000 // counter value is valid
 	pdhCStatusNewData   = 0x00000001 // counter value is valid and new
+	pdhNoData           = 0xC0000BC6 // counter has no data; no instances active
+	pdhCStatusNoInst    = 0x800007D3 // counter instance does not exist
 )
 
 var (
@@ -92,7 +94,7 @@ func queryGPU(ctx context.Context, threshold float64) gpuResult {
 	}
 
 	// sizing probe: PDH returns PDH_MORE_DATA when instances exist,
-	// or ERROR_SUCCESS when the counter set is empty.
+	// ERROR_SUCCESS / PDH_NO_DATA / PDH_CSTATUS_NO_INSTANCE when idle.
 	var bufSize, itemCount uint32
 	ret, _, _ = procPdhGetFormattedCounterArrayW.Call(
 		hCounter,
@@ -101,7 +103,7 @@ func queryGPU(ctx context.Context, threshold float64) gpuResult {
 		uintptr(unsafe.Pointer(&itemCount)),
 		0,
 	)
-	if ret == errorSuccess {
+	if ret == errorSuccess || ret == pdhNoData || ret == pdhCStatusNoInst {
 		// No GPU engine instances active — machine is idle.
 		return gpuResult{Engines: make(map[string]float64), Gaming: false}
 	}
@@ -120,6 +122,7 @@ func queryGPU(ctx context.Context, threshold float64) gpuResult {
 		uintptr(unsafe.Pointer(&fillCount)),
 		uintptr(unsafe.Pointer(unsafe.SliceData(buf))),
 	)
+	runtime.KeepAlive(buf) // same variadic-uintptr GC hazard as counterPath
 	if ret != errorSuccess {
 		return gpuResult{Err: fmt.Errorf("PdhGetFormattedCounterArrayW: 0x%08X", ret)}
 	}

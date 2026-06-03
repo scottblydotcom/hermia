@@ -63,8 +63,8 @@ func main() {
 	if *errorMode != "fail-closed" && *errorMode != "fail-open" {
 		log.Fatalf("invalid --error-mode %q: must be fail-closed or fail-open", *errorMode)
 	}
-	if *threshold < 0.0 || *threshold > 100.0 {
-		log.Fatalf("invalid --threshold %.2f: must be in [0.0, 100.0]", *threshold)
+	if *threshold < 0.0 {
+		log.Fatalf("invalid --threshold %.2f: must be >= 0.0", *threshold)
 	}
 
 	token := os.Getenv(*tokenEnv)
