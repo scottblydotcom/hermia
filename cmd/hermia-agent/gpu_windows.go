@@ -127,13 +127,14 @@ func queryGPU(ctx context.Context, threshold float64) gpuResult {
 		return gpuResult{Err: fmt.Errorf("PdhGetFormattedCounterArrayW: 0x%08X", ret)}
 	}
 
+	// Cap fillCount to what buf can hold before creating the typed slice.
 	itemSize := unsafe.Sizeof(pdhFmtCounterValueItemW{})
 	if maxItems := uint32(uintptr(len(buf)) / itemSize); fillCount > maxItems {
 		fillCount = maxItems
 	}
+	items := unsafe.Slice((*pdhFmtCounterValueItemW)(unsafe.Pointer(unsafe.SliceData(buf))), fillCount)
 	samples := make([]pdhSample, 0, fillCount)
-	for i := uint32(0); i < fillCount; i++ {
-		item := (*pdhFmtCounterValueItemW)(unsafe.Pointer(&buf[uintptr(i)*itemSize]))
+	for _, item := range items {
 		// Skip entries with invalid or stale CStatus — only sum confirmed-valid values.
 		if item.FmtValue.CStatus != pdhCStatusValidData && item.FmtValue.CStatus != pdhCStatusNewData {
 			continue
