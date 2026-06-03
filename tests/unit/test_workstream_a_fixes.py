@@ -66,6 +66,33 @@ def test_openai_completion_tokens_null_yields_zero_tokens() -> None:
         assert resp.tokens == 0
 
 
+# ── Gemini follow-up: defensive guards against malformed backend JSON ─────────
+
+def test_ollama_non_dict_message_does_not_crash() -> None:
+    """A malformed backend may return message as a non-dict; must not AttributeError."""
+    from hermia.transport.ollama import OllamaTransport
+
+    with patch("hermia.transport.ollama.requests.post") as mock_post, \
+         patch("hermia.transport.ollama.requests.get") as mock_get:
+        mock_get.return_value.json.return_value = {"version": "0.24.0"}
+        mock_post.return_value.json.return_value = {"message": "oops-not-a-dict", "eval_count": 3}
+        transport = OllamaTransport(base_url="http://localhost:11434")
+        resp = transport.generate("m", [{"role": "user", "content": "hi"}])
+        assert resp.text == ""
+        assert resp.tokens == 3
+
+
+def test_openai_non_dict_choices_and_usage_do_not_crash() -> None:
+    from hermia.transport.openai_compat import OpenAICompatTransport
+
+    with patch("hermia.transport.openai_compat.requests.post") as mock_post:
+        mock_post.return_value.json.return_value = {"choices": "bad", "usage": "bad"}
+        transport = OpenAICompatTransport(base_url="https://api.openai.com")
+        resp = transport.generate("m", [{"role": "user", "content": "hi"}])
+        assert resp.text == ""
+        assert resp.tokens == 0
+
+
 # ── Finding #7 + base: in-body errors raise a typed TransportError ────────────
 
 def test_ollama_in_body_error_raises_transport_error() -> None:

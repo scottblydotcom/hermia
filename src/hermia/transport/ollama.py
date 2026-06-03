@@ -56,7 +56,8 @@ class OllamaTransport:
             data = {}
         if data.get("error"):
             raise TransportError(str(data["error"]), kind="ollama")
-        text: str = (data.get("message") or {}).get("content") or ""
+        message = data.get("message")
+        text: str = message.get("content") or "" if isinstance(message, dict) else ""
         # .get(default) does not catch an explicit JSON null; coerce with `or 0`.
         tokens: int = data.get("eval_count") or 0
         return Response(

@@ -37,11 +37,14 @@ class OpenAICompatTransport:
         if data.get("error"):
             # Gateways (LiteLLM, etc.) can return HTTP 200 with an error body.
             raise TransportError(str(data["error"]), kind="openai-compat")
-        choices: list[Any] = data.get("choices") or []
+        choices_raw = data.get("choices")
+        choices: list[Any] = choices_raw if isinstance(choices_raw, list) else []
         first = choices[0] if choices and isinstance(choices[0], dict) else {}
-        text: str = (first.get("message") or {}).get("content") or ""
+        message = first.get("message")
+        text: str = message.get("content") or "" if isinstance(message, dict) else ""
         # .get(default) does not catch an explicit JSON null; coerce with `or 0`.
-        tokens: int = (data.get("usage") or {}).get("completion_tokens") or 0
+        usage = data.get("usage")
+        tokens: int = usage.get("completion_tokens") or 0 if isinstance(usage, dict) else 0
         return Response(
             text=text,
             tokens=tokens,
