@@ -1,5 +1,6 @@
 """Concurrent fleet dispatch: all rows land, same-host entries serialize."""
 import threading
+import time
 from pathlib import Path
 
 from hermia import fleet
@@ -20,9 +21,9 @@ def _setup(monkeypatch, active: dict, max_seen: dict):
         with lock:
             active["n"] += 1
             max_seen["n"] = max(max_seen["n"], active["n"])
-        # simulate work so overlap is observable
-        for _ in range(1000000):
-            pass
+        # sleep (releases the GIL) so concurrent workers reliably overlap —
+        # more robust and far cheaper than a CPU-bound spin loop (Gemini #93)
+        time.sleep(0.01)
         with lock:
             active["n"] -= 1
         return {"model": model, "test_id": test["id"], "failure_reason": "",

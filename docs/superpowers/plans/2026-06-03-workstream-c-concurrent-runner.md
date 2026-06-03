@@ -482,9 +482,10 @@ def _setup(monkeypatch, active: dict, max_seen: dict):
         with lock:
             active["n"] += 1
             max_seen["n"] = max(max_seen["n"], active["n"])
-        # simulate work so overlap is observable
-        for _ in range(10000):
-            pass
+        # sleep releases the GIL so concurrent workers reliably overlap —
+        # more robust and cheaper than a CPU-bound spin loop
+        import time
+        time.sleep(0.01)
         with lock:
             active["n"] -= 1
         return {"model": model, "test_id": test["id"], "failure_reason": "",
@@ -613,7 +614,7 @@ Read the surrounding `argparse` setup so the new flag matches the existing style
 
 - [ ] **Step 2: Write the failing arg-parse test**
 
-Add to `tests/unit/test_app.py` (match the file's existing invocation pattern — adapt the call to however `app` exposes parsing; if it parses inside `main`, drive it via `monkeypatch.setattr("sys.argv", [...])` and assert the value reaches `run_fleet` through a `monkeypatch.setattr(app, "run_fleet", spy)`):
+Add to `tests/unit/test_app.py` (match the file's existing invocation pattern — adapt the call to however `app` exposes parsing; if it parses inside `main`, drive it via `monkeypatch.setattr("sys.argv", [...])`). **`app.main()` does `from hermia.fleet import load_fleet_config, run_fleet` *inside* the function, so patch at the definition site (`hermia.fleet.run_fleet`), not `app.run_fleet`** — patching the `app` module attribute would not intercept the call:
 
 ```python
 def test_max_concurrency_flag_passed_to_run_fleet(monkeypatch, tmp_path) -> None:
@@ -622,8 +623,8 @@ def test_max_concurrency_flag_passed_to_run_fleet(monkeypatch, tmp_path) -> None
     def spy(entries, repeat, results_dir, **kw):
         captured.update(kw)
         return tmp_path / "eval_x.jsonl"
-    monkeypatch.setattr(app, "run_fleet", spy, raising=False)
-    monkeypatch.setattr(app, "load_fleet_config", lambda p: [{"name": "a", "host": "http://h1:11434"}], raising=False)
+    monkeypatch.setattr("hermia.fleet.run_fleet", spy, raising=False)
+    monkeypatch.setattr("hermia.fleet.load_fleet_config", lambda p: [{"name": "a", "host": "http://h1:11434"}], raising=False)
     monkeypatch.setattr("sys.argv",
         ["hermia", "--fleet", "fleet.yaml", "--max-concurrency", "7"])
     app.main()
