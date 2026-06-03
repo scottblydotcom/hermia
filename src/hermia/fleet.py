@@ -190,6 +190,26 @@ def _run_host_eval(
                         print_fn(line)
 
 
+def _group_entries_by_host(entries: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    """Group entries by normalized host URL, preserving first-seen order.
+
+    Entries sharing a physical host are returned in one group so they run
+    sequentially (VRAM-aware); distinct hosts become separate groups that may
+    run concurrently.
+    """
+    from hermia.runner import _normalize_host
+
+    groups: dict[str, list[dict[str, Any]]] = {}
+    order: list[str] = []
+    for entry in entries:
+        key = _normalize_host(entry["host"])
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(entry)
+    return [groups[k] for k in order]
+
+
 def run_fleet(
     entries: list[dict[str, Any]],
     repeat: int,
@@ -197,25 +217,38 @@ def run_fleet(
     print_fn: Callable[[str], None] = print,
     stderr_fn: Callable[[str], None] = lambda msg: print(msg, file=sys.stderr),
     verbosity: int = 0,
+    max_concurrency: int = 4,
 ) -> Path:
-    """Run headless eval against all fleet entries. Returns path to JSONL output.
+    """Run headless eval against all fleet entries, concurrently across hosts.
+
+    max_concurrency caps how many distinct hosts run at once (default 4).
+    Entries sharing a normalized host run sequentially within one worker.
 
     verbosity:
         -1  quiet   — suppress all progress; print only ``Saved: <path>`` on completion
          0  normal  — host headers + per-test pass/fail lines  (default)
          1  verbose — normal output + t/s and failure_reason detail per test
     """
+    from concurrent.futures import ThreadPoolExecutor
+
     from hermia.results import open_run
 
     jsonl_path, csv_path = open_run(results_dir)
     run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     print_lock = threading.Lock()
 
-    for entry in entries:
-        _run_host_eval(
-            entry, repeat, run_id, jsonl_path, csv_path,
-            print_lock, print_fn, stderr_fn, verbosity,
-        )
+    groups = _group_entries_by_host(entries)
+    workers = max(1, min(max_concurrency, len(groups)))
+
+    def run_group(group: list[dict[str, Any]]) -> None:
+        for entry in group:  # same physical host → strictly sequential
+            _run_host_eval(
+                entry, repeat, run_id, jsonl_path, csv_path,
+                print_lock, print_fn, stderr_fn, verbosity,
+            )
+
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        list(pool.map(run_group, groups))
 
     print_fn(f"Saved: {jsonl_path}")
     return jsonl_path

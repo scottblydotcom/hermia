@@ -538,3 +538,17 @@ def test_run_fleet_verbose_omits_failure_reason_on_pass(tmp_path: Path) -> None:
 def test_run_fleet_verbose_still_prints_saved_path(tmp_path: Path) -> None:
     lines = _run_fleet_capture(tmp_path, verbosity=1)
     assert any("Saved:" in ln for ln in lines)
+
+
+def test_group_entries_by_host_serializes_same_host() -> None:
+    from hermia.fleet import _group_entries_by_host
+    entries = [
+        {"name": "a", "host": "http://h1:11434"},
+        {"name": "b", "host": "http://h2:11434"},
+        {"name": "c", "host": "http://h1:11434/"},  # same as a after normalize
+    ]
+    groups = _group_entries_by_host(entries)
+    # two groups (h1, h2); h1 group holds a and c in order
+    assert len(groups) == 2
+    h1 = [g for g in groups if len(g) == 2][0]
+    assert [e["name"] for e in h1] == ["a", "c"]
