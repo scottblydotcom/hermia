@@ -87,6 +87,21 @@ def main() -> None:
         dest="audit_format",
         help="Audit output format: jsonl (default), html, or spill (fleet health table)",
     )
+    submit_group = parser.add_mutually_exclusive_group()
+    submit_group.add_argument(
+        "--submit",
+        action="store_true",
+        help=(
+            "After a fleet run, anonymize results and POST to HERMIA_SUBMIT_URL "
+            "(opt-in community submission; nothing is sent without this flag)"
+        ),
+    )
+    submit_group.add_argument(
+        "--submit-dry-run",
+        action="store_true",
+        dest="submit_dry_run",
+        help="Print the anonymized submission payload without sending it",
+    )
     args = parser.parse_args()
 
     if (args.verbose or args.quiet) and not args.fleet:
@@ -109,16 +124,33 @@ def main() -> None:
 
     if args.fleet:
         from hermia.fleet import load_fleet_config, run_fleet
+        from hermia.results import load_jsonl
         from hermia.screens import RESULTS_DIR
+        from hermia.sink.submission import SubmissionSink
 
         verbosity = 1 if args.verbose else (-1 if args.quiet else 0)
         try:
             entries = load_fleet_config(Path(args.fleet))
-            run_fleet(entries, repeat=args.repeat, results_dir=RESULTS_DIR, verbosity=verbosity,
-                      max_concurrency=args.max_concurrency)
+            jsonl_path = run_fleet(
+                entries,
+                repeat=args.repeat,
+                results_dir=RESULTS_DIR,
+                verbosity=verbosity,
+                max_concurrency=args.max_concurrency,
+            )
         except (ValueError, RuntimeError, OSError) as exc:
             print(f"hermia: {exc}", file=sys.stderr)
             sys.exit(1)
+
+        if args.submit_dry_run:
+            SubmissionSink(endpoint=None, dry_run=True).write(load_jsonl(jsonl_path))
+        elif args.submit:
+            SubmissionSink(
+                endpoint=os.environ.get("HERMIA_SUBMIT_URL"),
+                token_env="HERMIA_SUBMIT_TOKEN",  # noqa: S106
+                dry_run=False,
+            ).write(load_jsonl(jsonl_path))
+
         sys.exit(0)
 
     os.environ["HERMIA_HOST"] = args.host.rstrip("/")
