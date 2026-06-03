@@ -159,6 +159,32 @@ def test_main_fleet_valid_config(tmp_path: Path, monkeypatch) -> None:
     mock_run.assert_called_once()
 
 
+def test_max_concurrency_flag_passed_to_run_fleet(tmp_path: Path, monkeypatch) -> None:
+    """--max-concurrency N should be forwarded to run_fleet as max_concurrency=N."""
+    fleet_file = tmp_path / "fleet.yaml"
+    fleet_file.write_text("hosts:\n  - name: local\n    host: http://localhost:11434\n")
+
+    monkeypatch.setattr(
+        sys, "argv",
+        ["hermia", "--fleet", str(fleet_file), "--max-concurrency", "7"],
+    )
+
+    mock_load = MagicMock(return_value=[{"name": "local", "host": "http://localhost:11434"}])
+    mock_run = MagicMock()
+
+    with (
+        patch("hermia.fleet.load_fleet_config", mock_load),
+        patch("hermia.fleet.run_fleet", mock_run),
+        pytest.raises(SystemExit) as exc,
+    ):
+        from hermia.app import main
+        main()
+
+    assert exc.value.code == 0
+    mock_run.assert_called_once()
+    assert mock_run.call_args.kwargs.get("max_concurrency") == 7
+
+
 def test_main_fleet_error_exits_1(tmp_path: Path, monkeypatch, capsys) -> None:
     fleet_file = tmp_path / "fleet.yaml"
     fleet_file.write_text("hosts: []\n")
