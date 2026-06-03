@@ -9,10 +9,10 @@
 
 | WS | Title | Branch | PR | Protective tag | Status |
 |----|-------|--------|----|----------------|--------|
-| A | Transport abstraction (Ollama `/api/chat` + OpenAI-compat) | `feat/workstream-a-transport` | [#87](https://github.com/scottblydotcom/hermia/pull/87) | `ws-a-reviewed-2026-06-03` | 🔵 In review — recovered after origin-branch loss; rebased, 8 findings fixed, all gates green; awaiting merge |
-| — | Recovery copy of A (pristine, do not edit) | `recover/workstream-a-transport` | — | `ws-a-reviewed-2026-06-03` | 🟢 Safety net — keep until A is merged |
+| A | Transport abstraction (Ollama `/api/chat` + OpenAI-compat) | merged (squash #87) | [#87](https://github.com/scottblydotcom/hermia/pull/87) | `ws-a-reviewed-2026-06-03`, `ws-a-merged-2026-06-03` | ✅ Merged to `dev` — recovered after origin-branch loss; 8 findings + 2 Gemini guards fixed; all gates green |
+| — | Recovery copy of A (pristine, do not edit) | `recover/workstream-a-transport` | — | `ws-a-reviewed-2026-06-03` | 🟢 Safety net — retain until A is confirmed stable on `dev` |
 | B | hermia-agent sidecar (Windows Go GPU gaming-gate) | merged | [#85](https://github.com/scottblydotcom/hermia/pull/85), [#86](https://github.com/scottblydotcom/hermia/pull/86) | — | ✅ Done — verified through to physical machine (ScottWin11 .20) |
-| C | Concurrent fleet runner (ThreadPoolExecutor, VRAM-aware) | _planned_ | — | — | ⚪ Planned — depends on A |
+| C | Concurrent fleet runner (ThreadPoolExecutor, VRAM-aware) | _planned_ | — | — | ⚪ Planned — depends on A. **First task: make `_ps_cache` thread-safe (lock + concurrent test)** — Gemini HIGH on #87, deferred here |
 | D | Submission API + partial Sink | _planned_ | — | — | ⚪ Planned — independent of A |
 | E | Deterministic multi-turn | _planned_ | — | — | ⚪ Planned — depends on A (message-list) |
 | F | Test quality + framework coverage | _planned_ | — | — | ⚪ Planned — independent of A |
