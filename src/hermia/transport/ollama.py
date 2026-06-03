@@ -6,7 +6,7 @@ import time
 
 import requests
 
-from hermia.transport.base import Response
+from hermia.transport.base import Response, TransportError
 
 
 class OllamaTransport:
@@ -55,9 +55,10 @@ class OllamaTransport:
         if not isinstance(data, dict):
             data = {}
         if data.get("error"):
-            raise ValueError(f"Ollama error: {data['error']}")
+            raise TransportError(str(data["error"]), kind="ollama")
         text: str = (data.get("message") or {}).get("content") or ""
-        tokens: int = data.get("eval_count", 0)
+        # .get(default) does not catch an explicit JSON null; coerce with `or 0`.
+        tokens: int = data.get("eval_count") or 0
         return Response(
             text=text,
             tokens=tokens,

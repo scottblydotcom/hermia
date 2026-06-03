@@ -567,8 +567,12 @@ def test_run_test_remote_ollama_host_reports_fleet_mode() -> None:
     assert result["peak_vram_used_gb"] is None
 
 
-def test_run_test_sampler_always_called() -> None:
-    """sampler.start() and sampler.stop() are always called regardless of mode."""
+def test_run_test_skips_sampler_in_non_local_mode() -> None:
+    """The local-hardware sampler is skipped for fleet/api hosts.
+
+    Sampling the orchestrator's own hardware is meaningless when the model runs
+    elsewhere — the peak is discarded — so we avoid the sampler thread overhead.
+    """
     transport = MagicMock()
     transport.generate.return_value = TransportResponse(
         text="{}", tokens=10, elapsed_sec=1.0,
@@ -579,8 +583,8 @@ def test_run_test_sampler_always_called() -> None:
         run_test(
             "qwen2.5:32b", _BASE_TEST, sampler, host="http://192.0.2.1:11434", transport=transport
         )
-    sampler.start.assert_called_once()
-    sampler.stop.assert_called_once()
+    sampler.start.assert_not_called()
+    sampler.stop.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

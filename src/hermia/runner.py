@@ -12,6 +12,7 @@ import requests
 
 from hermia.metrics import MetricsSampler, get_gpu_stats
 from hermia.schemas import SCHEMA_CHECKS, SIGNAL_EXTRACTORS
+from hermia.transport.base import TransportError
 from hermia.transport.ollama import OllamaTransport
 
 PACKAGE_DIR = Path(__file__).parent
@@ -213,25 +214,36 @@ def run_test(
         {"role": "user", "content": test["prompt"]},
     ]
 
+    is_api_mode = getattr(transport, "is_api_mode", False) is True
+    is_local = (not is_api_mode) and (detect_mode(_host) == "local")
+
     error_type: str = ""
     response = None
-    sampler.start()
+    # Only sample local hardware when the work runs on this machine; in
+    # fleet/api mode the orchestrator's own hardware is irrelevant and the
+    # sampler thread would be pure overhead (the peak is discarded anyway).
+    if is_local:
+        sampler.start()
+    t0 = time.monotonic()
     try:
         response = transport.generate(model, messages, timeout=TEST_TIMEOUT)
     except requests.exceptions.Timeout:
         error_type = f"TIMEOUT: no response in {TEST_TIMEOUT}s"
+    except TransportError as e:
+        prefix = "OLLAMA_ERROR" if e.kind == "ollama" else "API_ERROR"
+        error_type = f"{prefix}: {e}"
     except Exception as e:  # noqa: BLE001
         error_type = f"ERROR: {e}"
     finally:
-        sampler.stop()
+        if is_local:
+            sampler.stop()
+    error_elapsed = time.monotonic() - t0
 
-    is_api_mode = getattr(transport, "is_api_mode", False) is True
-    is_local = (not is_api_mode) and (detect_mode(_host) == "local")
     output: str = response.text if response is not None else ""
     tokens: int = response.tokens if response is not None else 0
     elapsed: float = (
         response.elapsed_sec if response is not None
-        else (TEST_TIMEOUT if "TIMEOUT" in error_type else 0.0)
+        else (TEST_TIMEOUT if "TIMEOUT" in error_type else error_elapsed)
     )
     orchestration: str = response.orchestration if response is not None else "unknown"
     orchestration_version: str | None = (

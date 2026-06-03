@@ -62,6 +62,28 @@ def _build_auth_headers(entry: dict[str, Any]) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
 
 
+def _resolve_models(
+    transport_type: str,
+    requested: list[str] | None,
+    all_models: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], set[str]]:
+    """Resolve the model list to evaluate for a host.
+
+    Returns ``(models, missing)``. For openai-compat hosts the requested names
+    are used directly in **sorted** order (deterministic across runs — set
+    iteration order is not). For ollama hosts the discovered list order is
+    preserved and any requested-but-undiscovered names are reported as missing.
+    """
+    if not requested:
+        return all_models, set()
+    requested_set = set(requested)
+    if transport_type == "openai-compat":
+        return [{"name": m} for m in sorted(requested_set)], set()
+    models = [m for m in all_models if m["name"] in requested_set]
+    missing = requested_set - {m["name"] for m in models}
+    return models, missing
+
+
 def run_fleet(
     entries: list[dict[str, Any]],
     repeat: int,
@@ -107,19 +129,17 @@ def run_fleet(
                 f" 'models:' list in fleet YAML — skipping host"
             )
             continue
-        all_models = get_available_models(host=host_url, headers=headers)
-        if requested:
-            requested_set = set(requested)
-            models = [{"name": m} for m in requested_set] if transport_type == "openai-compat" \
-                else [m for m in all_models if m["name"] in requested_set]
-            if transport_type != "openai-compat":
-                missing = requested_set - {m["name"] for m in models}
-                if missing:
-                    stderr_fn(
-                        f"  WARNING: models not found on {name}: {', '.join(sorted(missing))}"
-                    )
-        else:
-            models = all_models
+        # openai-compat hosts have no /api/tags endpoint; only discover for ollama.
+        all_models = (
+            get_available_models(host=host_url, headers=headers)
+            if transport_type != "openai-compat"
+            else []
+        )
+        models, missing = _resolve_models(transport_type, requested, all_models)
+        if missing:
+            stderr_fn(
+                f"  WARNING: models not found on {name}: {', '.join(sorted(missing))}"
+            )
 
         if verbosity >= 0:
             print_fn(

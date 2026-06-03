@@ -14,6 +14,18 @@ class Response:
     is_api_mode: bool
 
 
+class TransportError(Exception):
+    """Raised when a transport receives an in-body error from the backend.
+
+    ``kind`` identifies the originating transport ("ollama", "openai-compat")
+    so the runner can preserve backend-specific failure classification.
+    """
+
+    def __init__(self, message: str, *, kind: str) -> None:
+        super().__init__(message)
+        self.kind = kind
+
+
 @runtime_checkable
 class Transport(Protocol):
     is_api_mode: bool

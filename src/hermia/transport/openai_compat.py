@@ -6,7 +6,7 @@ from typing import Any
 
 import requests
 
-from hermia.transport.base import Response
+from hermia.transport.base import Response, TransportError
 
 
 class OpenAICompatTransport:
@@ -34,10 +34,14 @@ class OpenAICompatTransport:
         data = resp.json()
         if not isinstance(data, dict):
             data = {}
+        if data.get("error"):
+            # Gateways (LiteLLM, etc.) can return HTTP 200 with an error body.
+            raise TransportError(str(data["error"]), kind="openai-compat")
         choices: list[Any] = data.get("choices") or []
         first = choices[0] if choices and isinstance(choices[0], dict) else {}
         text: str = (first.get("message") or {}).get("content") or ""
-        tokens: int = (data.get("usage") or {}).get("completion_tokens", 0)
+        # .get(default) does not catch an explicit JSON null; coerce with `or 0`.
+        tokens: int = (data.get("usage") or {}).get("completion_tokens") or 0
         return Response(
             text=text,
             tokens=tokens,
