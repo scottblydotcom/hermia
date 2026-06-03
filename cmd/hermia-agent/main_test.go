@@ -34,11 +34,11 @@ func TestGPUHandler_FailClosed(t *testing.T) {
 	// gpu_stub always returns a PDH error; fail-closed must return 200 + gaming:true.
 	h := newGPUHandler("test-node", "fail-closed", 10.0)
 	rec := makeRequest(t, h, "")
-	resp := decodeResponse(t, rec)
 
 	if rec.Code != http.StatusOK {
-		t.Errorf("status = %d, want 200", rec.Code)
+		t.Fatalf("status = %d, want 200", rec.Code)
 	}
+	resp := decodeResponse(t, rec)
 	if !resp.Gaming {
 		t.Error("gaming = false, want true (fail-closed on PDH error)")
 	}
@@ -57,11 +57,11 @@ func TestGPUHandler_FailOpen(t *testing.T) {
 	// gpu_stub always returns a PDH error; fail-open must return 503 + gaming:false.
 	h := newGPUHandler("test-node", "fail-open", 10.0)
 	rec := makeRequest(t, h, "")
-	resp := decodeResponse(t, rec)
 
 	if rec.Code != http.StatusServiceUnavailable {
-		t.Errorf("status = %d, want 503", rec.Code)
+		t.Fatalf("status = %d, want 503", rec.Code)
 	}
+	resp := decodeResponse(t, rec)
 	if resp.Gaming {
 		t.Error("gaming = true, want false (fail-open allows dispatch on PDH error)")
 	}
@@ -111,6 +111,10 @@ func TestGPUHandler_FailClosedResponseShape(t *testing.T) {
 	// Verify all expected fields are present in a fail-closed response.
 	h := newGPUHandler("shape-node", "fail-closed", 15.0)
 	rec := makeRequest(t, h, "")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
 	resp := decodeResponse(t, rec)
 
 	if resp.Engines == nil {
