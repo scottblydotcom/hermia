@@ -5,6 +5,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"time"
 	"unsafe"
 
@@ -63,6 +64,9 @@ func queryGPU(ctx context.Context, threshold float64) gpuResult {
 		0,
 		uintptr(unsafe.Pointer(&hCounter)),
 	)
+	// Proc.Call takes ...uintptr (variadic), breaking Go's Rule 4 safe-pointer
+	// guarantee. KeepAlive pins the backing []uint16 until after the DLL call.
+	runtime.KeepAlive(counterPath)
 	if ret != errorSuccess {
 		return gpuResult{Err: fmt.Errorf("PdhAddEnglishCounterW: 0x%08X", ret)}
 	}
