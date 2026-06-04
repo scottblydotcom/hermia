@@ -232,7 +232,7 @@ def _play_turns(
         last = transport.generate(model, list(messages), **opts)
         if last is None:
             return None
-        messages.append({"role": "assistant", "content": last.text})
+        messages.append({"role": "assistant", "content": last.text or ""})
         total_tokens += last.tokens or 0
         total_elapsed += last.elapsed_sec or 0.0
     if last is None:  # pragma: no cover — caller guarantees user_turns is non-empty

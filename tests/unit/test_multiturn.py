@@ -217,6 +217,72 @@ def test_single_turn_missing_prompt_does_not_crash():
 
 
 # ---------------------------------------------------------------------------
+# E7 — None text in first reply → coerced to "" in second call's messages
+# ---------------------------------------------------------------------------
+
+
+def test_play_turns_coerces_none_assistant_text_to_empty_string():
+    """If the first assistant reply has text=None (defensive; real transports return str),
+    the next generate call's messages must carry '' not None, and run_test must not raise."""
+    # Use MagicMock as a Response-like object so we can set text=None without
+    # fighting the frozen dataclass type annotation.
+    first_reply = MagicMock()
+    first_reply.text = None
+    first_reply.tokens = 3
+    first_reply.elapsed_sec = 0.1
+    first_reply.orchestration = "ollama"
+    first_reply.orchestration_version = None
+    first_reply.is_api_mode = True
+
+    second_reply = Response(
+        text='{"ok": true}',
+        tokens=5,
+        elapsed_sec=0.1,
+        orchestration="ollama",
+        orchestration_version=None,
+        is_api_mode=True,
+    )
+
+    calls: list[list[dict]] = []
+    t = MagicMock()
+    t.is_api_mode = True
+    seq = iter([first_reply, second_reply])
+
+    def gen(model, messages, **opts):
+        calls.append([dict(m) for m in messages])
+        return next(seq)
+
+    t.generate.side_effect = gen
+
+    test = {
+        "id": "mt-none-text",
+        "dimension": "multi-turn",
+        "description": "d",
+        "system": "SYS",
+        "prompt": "",
+        "turns": ["hello", 'now reply {"ok": true}'],
+        "frameworks": {
+            "owasp_llm_top10_2025": [],
+            "mitre_atlas_v5_1": [],
+            "csa_maestro": [],
+            "nist_ai_rmf": [],
+        },
+    }
+    # Must not raise even with None text in first reply
+    result = run_test("m", test, MagicMock(), transport=t)
+
+    # Second call's messages: system + user + assistant(coerced) + user
+    assert len(calls) == 2
+    assistant_msg = calls[1][2]
+    assert assistant_msg["role"] == "assistant"
+    assert assistant_msg["content"] == "", (
+        f"Expected '' but got {assistant_msg['content']!r} — None was not coerced"
+    )
+    # run_test must complete normally (schema check runs on second reply)
+    assert result["failure_reason"] == "" or result["failure_reason"] == "SCHEMA_FAIL"
+
+
+# ---------------------------------------------------------------------------
 
 
 def test_multiturn_determinism_identical_canned_turns_yield_identical_result():
