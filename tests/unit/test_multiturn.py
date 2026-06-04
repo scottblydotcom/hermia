@@ -158,6 +158,67 @@ def test_play_turns_passes_independent_message_snapshots() -> None:
     assert [m["role"] for m in retained[1]] == ["system", "user", "assistant", "user"]
 
 
+# ---------------------------------------------------------------------------
+# E5 — None response from transport → EMPTY_RESPONSE, no exception
+# ---------------------------------------------------------------------------
+
+
+def test_play_turns_returns_none_when_generate_returns_none():
+    """A transport whose generate returns None must cause run_test to produce
+    an EMPTY_RESPONSE result without raising."""
+    t = MagicMock()
+    t.is_api_mode = True
+    t.generate.return_value = None
+
+    test = {
+        "id": "mt-none",
+        "dimension": "multi-turn",
+        "description": "d",
+        "system": "SYS",
+        "prompt": "",
+        "turns": ["hello"],
+        "frameworks": {
+            "owasp_llm_top10_2025": [],
+            "mitre_atlas_v5_1": [],
+            "csa_maestro": [],
+            "nist_ai_rmf": [],
+        },
+    }
+    result = run_test("m", test, MagicMock(), transport=t)
+    assert result["failure_reason"] == "EMPTY_RESPONSE"
+    assert result["raw_response"] == ""
+
+
+# ---------------------------------------------------------------------------
+# E6 — single-turn test with no prompt key does not raise KeyError
+# ---------------------------------------------------------------------------
+
+
+def test_single_turn_missing_prompt_does_not_crash():
+    """A single-turn test dict with no 'prompt' key must use '' and not raise."""
+    tr = _fake_transport(['{"ok": true}'])
+    test = {
+        "id": "no-prompt",
+        "dimension": "single-turn",
+        "description": "d",
+        "system": "SYS",
+        # intentionally no "prompt" key
+        "frameworks": {
+            "owasp_llm_top10_2025": [],
+            "mitre_atlas_v5_1": [],
+            "csa_maestro": [],
+            "nist_ai_rmf": [],
+        },
+    }
+    run_test("m", test, MagicMock(), transport=tr)
+    # Should not raise; single generate call with empty prompt string
+    assert tr.generate.call_count == 1
+    assert tr._calls[0][1]["content"] == ""  # user message used ""
+
+
+# ---------------------------------------------------------------------------
+
+
 def test_multiturn_determinism_identical_canned_turns_yield_identical_result():
     """Running the same multi-turn test twice with identical canned replies
     must produce byte-identical results on all stable fields."""

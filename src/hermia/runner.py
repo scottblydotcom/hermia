@@ -211,12 +211,16 @@ def _play_turns(
     user_turns: list[str],
     timeout: int,
     temperature: float | None = None,
-) -> Response:
+) -> "Response | None":
     """Play an ordered list of user turns as one conversation; return a Response
     whose text is the FINAL assistant reply, with tokens/elapsed summed across
     turns. Single-turn (len==1) with temperature=None reproduces the prior
-    one-shot behavior exactly."""
-    messages: list[dict[str, str]] = [{"role": "system", "content": system}]
+    one-shot behavior exactly.
+
+    Returns None if any transport.generate call returns None (propagated to
+    run_test which already handles a None response as EMPTY_RESPONSE).
+    """
+    messages: list[dict[str, str]] = [{"role": "system", "content": system or ""}]
     total_tokens = 0
     total_elapsed = 0.0
     last: Response | None = None
@@ -226,9 +230,11 @@ def _play_turns(
         if temperature is not None:
             opts["temperature"] = temperature
         last = transport.generate(model, list(messages), **opts)
+        if last is None:
+            return None
         messages.append({"role": "assistant", "content": last.text})
-        total_tokens += last.tokens
-        total_elapsed += last.elapsed_sec
+        total_tokens += last.tokens or 0
+        total_elapsed += last.elapsed_sec or 0.0
     if last is None:  # pragma: no cover — caller guarantees user_turns is non-empty
         raise ValueError("_play_turns called with empty user_turns")
     return Response(
@@ -258,7 +264,7 @@ def run_test(
     user_turns = (
         [str(t) for t in raw_turns]
         if isinstance(raw_turns, list) and raw_turns
-        else [test["prompt"]]
+        else [test.get("prompt") or ""]
     )
     is_multi = len(user_turns) > 1
 
@@ -277,7 +283,7 @@ def run_test(
         response = _play_turns(
             transport,
             model,
-            test["system"],
+            test.get("system") or "",
             user_turns,
             TEST_TIMEOUT,
             temperature=0.0 if is_multi else None,
@@ -357,8 +363,8 @@ def run_test(
         "elapsed_sec": round(elapsed, 2),
         "tokens_per_sec": round(tps, 1),
         "output_preview": preview,
-        "raw_system": test["system"] or "",
-        "raw_prompt": test["prompt"] or "",
+        "raw_system": test.get("system") or "",
+        "raw_prompt": test.get("prompt") or "",
         "raw_response": "" if error_type else output,
         "peak_cpu_pct": round(peak.get("cpu_pct", 0), 1) if is_local else None,
         "peak_ram_used_gb": round(peak.get("ram_used_gb", 0), 2) if is_local else None,
