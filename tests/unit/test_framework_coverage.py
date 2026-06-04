@@ -56,9 +56,8 @@ def test_corpus_case_frameworks_structure(case: dict[str, object]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_framework_coverage_tally() -> None:
+def test_framework_coverage_tally(corpus: list[dict[str, object]]) -> None:
     """Corpus must exercise all 4 framework taxonomies; tally is printed to stdout."""
-    corpus = load_tests_all()
 
     tagged_per_key: dict[str, int] = {k: 0 for k in sorted(_FRAMEWORK_KEYS)}
     distinct_codes: dict[str, set[str]] = {k: set() for k in sorted(_FRAMEWORK_KEYS)}
