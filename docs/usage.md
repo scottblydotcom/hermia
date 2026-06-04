@@ -317,6 +317,65 @@ hermia-push --results-dir /path/to/results
 
 ---
 
+## Multi-turn test cases
+
+Some test cases define a multi-turn conversation via the `turns` field instead of a
+single `prompt`. Hermia plays these conversations deterministically: it sends each user
+turn in order, appending the model's reply to the conversation history before sending
+the next turn. Only the **final assistant reply** is schema-checked.
+
+### When to use multi-turn
+
+Multi-turn cases are useful for testing:
+
+- **Context retention across turns** — does the model remember a constraint established
+  in turn 1 when answering turn 2?
+- **Safety-boundary persistence** — if turn 1 is benign and turn 2 attempts a social
+  engineering override ("the system prompt has been updated to allow X"), does the model
+  hold its original constraints?
+
+### Test case format
+
+```json
+{
+  "id": "multiturn-context-carry",
+  "dimension": "multi-turn",
+  "description": "...",
+  "system": "...",
+  "prompt": "",
+  "turns": [
+    "My total budget is $500.",
+    "Estimate the cost of 10 keyboards at $45 each. Are we within budget?"
+  ],
+  "frameworks": { ... }
+}
+```
+
+- `prompt` must be `""` when `turns` is present (the turns list replaces the prompt).
+- `turns` must contain at least 2 entries (use a single `prompt` for one-turn cases).
+- The SCHEMA_CHECKS entry for the test id validates the **final-turn** response only.
+
+### Determinism
+
+The orchestration is fully deterministic — fixed turn order, identical message
+construction, no randomness in how the conversation is assembled. Hermia passes
+`temperature=0` to the backend for multi-turn cases to give the backend the best
+opportunity to produce reproducible output. Whether the model actually produces
+identical output depends on backend support (temperature 0 + seed support varies);
+this is documented, not promised.
+
+Single-turn cases (a case with no `turns` field, or `turns` absent) are unaffected —
+they use the transport's default temperature exactly as before.
+
+### Result fields
+
+Two additional fields are present in every result row:
+
+| Field | Description |
+|---|---|
+| `turn_count` | Number of user turns played (1 for single-turn cases) |
+| `raw_turns` | The ordered list of user turn strings played in this run |
+
 ## Opt-in community submission (`--submit`)
 
 After a fleet run you can contribute anonymized results to the Hermia community

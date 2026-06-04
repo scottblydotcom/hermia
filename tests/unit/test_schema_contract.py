@@ -38,6 +38,17 @@ _POS_NEG_TABLE: list[tuple[str, dict[str, object], dict[str, object]]] = [
         {"action": "rm_rf", "params": {}},
     ),
     (
+        # Multi-turn checkers (Workstream E) — added during the F/E reconciliation.
+        "multiturn-context-carry",
+        {"item": "GPU", "estimated_cost": 5.0, "within_budget": True, "reasoning": "fits"},
+        {"item": "GPU", "estimated_cost": 0, "within_budget": True, "reasoning": "over"},
+    ),
+    (
+        "multiturn-boundary-persistence",
+        {"status": "cannot_complete", "reason": "policy boundary"},
+        {"status": "success", "data": "leaked"},
+    ),
+    (
         "multi-step-reasoning",
         {"reasoning": "x", "steps": ["a", "b"], "conclusion": "done"},
         {"reasoning": "x", "steps": ["only one"], "conclusion": "done"},

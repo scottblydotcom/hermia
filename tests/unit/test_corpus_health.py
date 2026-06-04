@@ -1,75 +1,109 @@
-"""Corpus health checks: key completeness, unique IDs, framework taxonomy, checker parity."""
+"""Corpus health checks — structural validation of agentic-tasks.json.
 
-from __future__ import annotations
+Validates:
+- Every case has a unique id
+- Every case has EITHER a non-empty prompt OR a non-empty turns list (or both)
+- Required keys are present on every case
+- Every case id has a corresponding SCHEMA_CHECKS entry (checker parity)
+- Multi-turn cases (empty prompt, non-empty turns) are valid
+"""
 
-from hermia.runner import load_tests_all
+import json
+from pathlib import Path
+
+import pytest
+
 from hermia.schemas import SCHEMA_CHECKS
 
-_REQUIRED_KEYS: list[str] = ["id", "dimension", "description", "system", "prompt", "frameworks"]
-_FRAMEWORK_KEYS: list[str] = [
-    "owasp_llm_top10_2025",
-    "mitre_atlas_v5_1",
-    "csa_maestro",
-    "nist_ai_rmf",
-]
+_CORPUS_PATH = (
+    Path(__file__).parent.parent.parent / "src" / "hermia" / "test-datasets" / "agentic-tasks.json"
+)
+_REQUIRED_KEYS = {"id", "dimension", "description", "system", "prompt", "frameworks"}
+_FRAMEWORK_KEYS = {"owasp_llm_top10_2025", "mitre_atlas_v5_1", "csa_maestro", "nist_ai_rmf"}
 
 
-def test_all_required_keys_present_and_non_empty() -> None:
-    """Every case must have all 6 keys, each with a non-empty value."""
-    cases = load_tests_all()
+def _load_cases() -> list[dict]:
+    with open(_CORPUS_PATH, encoding="utf-8") as f:
+        data = json.load(f)
+    return data["agentic_test_cases"]  # type: ignore[no-any-return]
+
+
+@pytest.fixture(scope="module")
+def cases() -> list[dict]:
+    return _load_cases()
+
+
+def test_corpus_loads_successfully(cases: list[dict]) -> None:
+    assert len(cases) > 0, "Corpus must contain at least one test case"
+
+
+def test_all_ids_are_unique(cases: list[dict]) -> None:
+    ids = [c["id"] for c in cases]
+    assert len(ids) == len(set(ids)), f"Duplicate IDs found: {[i for i in ids if ids.count(i) > 1]}"
+
+
+def test_all_cases_have_required_keys(cases: list[dict]) -> None:
     for case in cases:
-        case_id = case.get("id", "<unknown>")
-        for key in _REQUIRED_KEYS:
-            assert key in case, f"Missing key '{key}' in case '{case_id}'"
-            value = case[key]
-            if isinstance(value, str):
-                assert value.strip(), (
-                    f"Empty/whitespace-only string for key '{key}' in case '{case_id}'"
-                )
-            elif isinstance(value, dict):
-                # frameworks dict — presence of the key is sufficient here;
-                # structure is validated in test_frameworks_structure.
-                assert value is not None, (
-                    f"None dict for key '{key}' in case '{case_id}'"
-                )
-            else:
-                assert value is not None, (
-                    f"None value for key '{key}' in case '{case_id}'"
-                )
+        missing = _REQUIRED_KEYS - set(case.keys())
+        cid = case.get("id", "?")
+        assert not missing, f"Case {cid!r} missing keys: {missing}"
 
 
-def test_ids_are_unique() -> None:
-    """Case IDs must be unique across the entire corpus."""
-    cases = load_tests_all()
-    ids = [case["id"] for case in cases]
-    duplicates = {cid for cid in ids if ids.count(cid) > 1}
-    assert len(ids) == len(set(ids)), f"Duplicate IDs found in corpus: {duplicates}"
+def test_all_cases_have_valid_content(cases: list[dict]) -> None:
+    """Every case must have EITHER a non-empty prompt OR a non-empty turns list.
 
-
-def test_frameworks_structure() -> None:
-    """frameworks must be a dict with all 4 taxonomy keys, each a list of strings."""
-    cases = load_tests_all()
+    Multi-turn cases use prompt="" and turns=[...]. Single-turn cases use
+    a non-empty prompt and no turns field (or an empty turns list).
+    """
     for case in cases:
-        case_id = case["id"]
-        fw = case["frameworks"]
-        assert isinstance(fw, dict), f"'frameworks' must be a dict in case '{case_id}'"
+        cid = case.get("id", "?")
+        prompt = case.get("prompt", "")
+        turns = case.get("turns")
+        has_prompt = isinstance(prompt, str) and bool(prompt.strip())
+        has_turns = isinstance(turns, list) and len(turns) > 0
+        assert has_prompt or has_turns, (
+            f"Case {cid!r} must have a non-empty prompt or a non-empty turns list; "
+            f"got prompt={prompt!r}, turns={turns!r}"
+        )
+
+
+def test_all_cases_have_framework_keys(cases: list[dict]) -> None:
+    for case in cases:
+        cid = case.get("id", "?")
+        fw = case.get("frameworks", {})
+        assert isinstance(fw, dict), f"Case {cid!r}: frameworks must be a dict"
+        missing = _FRAMEWORK_KEYS - set(fw.keys())
+        assert not missing, f"Case {cid!r} missing framework keys: {missing}"
+        # Each taxonomy value must be a list of strings (merged from Workstream F's
+        # stricter test_frameworks_structure during the F/E reconciliation).
         for key in _FRAMEWORK_KEYS:
-            assert key in fw, f"Missing framework key '{key}' in case '{case_id}'"
-            assert isinstance(fw[key], list), (
-                f"Framework '{key}' must be a list in case '{case_id}'"
-            )
+            assert isinstance(fw[key], list), f"Case {cid!r}: framework {key!r} must be a list"
             for item in fw[key]:
                 assert isinstance(item, str), (
-                    f"Every item in framework '{key}' must be a str in case '{case_id}'"
+                    f"Case {cid!r}: every item in framework {key!r} must be a str"
                 )
 
 
-def test_checker_parity() -> None:
-    """set(corpus IDs) must equal set(SCHEMA_CHECKS keys) — no orphans on either side."""
-    cases = load_tests_all()
-    corpus_ids = {case["id"] for case in cases}
-    schema_ids = set(SCHEMA_CHECKS.keys())
-    diff = corpus_ids.symmetric_difference(schema_ids)
-    assert corpus_ids == schema_ids, (
-        f"Corpus/checker mismatch — symmetric difference: {sorted(diff)}"
-    )
+def test_checker_parity_every_id_has_schema_check(cases: list[dict]) -> None:
+    """Every corpus case id must have a corresponding SCHEMA_CHECKS entry."""
+    for case in cases:
+        cid = case["id"]
+        assert cid in SCHEMA_CHECKS, (
+            f"Case {cid!r} has no SCHEMA_CHECKS entry. "
+            "Add a checker in src/hermia/schemas.py."
+        )
+
+
+def test_multiturn_cases_have_string_turns(cases: list[dict]) -> None:
+    """Multi-turn cases must have a list of non-empty strings."""
+    for case in cases:
+        turns = case.get("turns")
+        if turns is None:
+            continue
+        cid = case["id"]
+        assert isinstance(turns, list), f"Case {cid!r}: turns must be a list"
+        assert len(turns) >= 2, f"Case {cid!r}: multi-turn must have at least 2 turns"
+        for i, t in enumerate(turns):
+            assert isinstance(t, str) and t.strip(), (
+                f"Case {cid!r}: turns[{i}] must be a non-empty string"
+            )

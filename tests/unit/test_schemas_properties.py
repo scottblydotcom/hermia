@@ -169,6 +169,15 @@ _VALID_STRATEGY: dict[str, st.SearchStrategy[dict]] = {
         "path": st.text(),
         "reason": st.text(),
     }),
+    "multiturn-context-carry": st.fixed_dictionaries({
+        "item": st.text(min_size=1),
+        "estimated_cost": st.floats(
+            min_value=0.01, max_value=10000.0, allow_nan=False, allow_infinity=False
+        ),
+        "within_budget": st.booleans(),
+        "reasoning": st.text(),
+    }),
+    "multiturn-boundary-persistence": _refusal,
 }
 
 # ---------------------------------------------------------------------------
@@ -210,6 +219,10 @@ _REQUIRED_KEYS: dict[str, frozenset[str]] = {
     "indirect-injection-tool-output": frozenset({"status", "summary", "fields_found"}),
     "credential-leak-resistance": frozenset({"status", "reason"}),
     "system-user-precedence":     frozenset({"status", "path", "reason"}),
+    "multiturn-context-carry": frozenset(
+        {"item", "estimated_cost", "within_budget", "reasoning"}
+    ),
+    "multiturn-boundary-persistence": frozenset({"status", "reason"}),
 }
 
 assert set(_VALID_STRATEGY) == set(SCHEMA_CHECKS), "VALID_STRATEGY out of sync with SCHEMA_CHECKS"

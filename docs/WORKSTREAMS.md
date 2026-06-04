@@ -13,9 +13,9 @@
 | — | Recovery copy of A (pristine, do not edit) | `recover/workstream-a-transport` | — | `ws-a-reviewed-2026-06-03` | 🟢 Safety net — retain until A is confirmed stable on `dev` |
 | B | hermia-agent sidecar (Windows Go GPU gaming-gate) | merged | [#85](https://github.com/scottblydotcom/hermia/pull/85), [#86](https://github.com/scottblydotcom/hermia/pull/86) | — | ✅ Done — verified through to physical machine (ScottWin11 .20) |
 | C | Concurrent fleet runner (ThreadPoolExecutor, VRAM-aware) | `feat/workstream-c-concurrent-runner` | [#93](https://github.com/scottblydotcom/hermia/pull/93) | — | 🔵 In review — `_ps_cache` + `append_result` thread-safe; `run_fleet` concurrent via `ThreadPoolExecutor`; `--max-concurrency N` flag; VRAM-safe host grouping; all 852 tests green |
-| D | Submission API + partial Sink | `feat/workstream-d-sink` | [#95](https://github.com/scottblydotcom/hermia/pull/95) | — | 🔵 In review — `Sink` Protocol + `JsonlCsvSink`/`PostgresSink` adapters; default-deny anonymizer (property-tested); `SubmissionSink` opt-in POST/dry-run; `--submit` / `--submit-dry-run` CLI flags; 650 tests green |
-| E | Deterministic multi-turn | _planned_ | — | — | ⚪ Planned — depends on A (message-list) |
-| F | Test quality + framework coverage | `feat/workstream-f-test-quality` | [#94](https://github.com/scottblydotcom/hermia/pull/94) | — | 🔵 In review — corpus health, schema contract (totality + pos/neg table), framework taxonomy validation, CLI subprocess smoke; 1117 tests green |
+| D | Submission API + partial Sink | merged (squash #95) | [#95](https://github.com/scottblydotcom/hermia/pull/95) | — | ✅ Merged to `dev` — `Sink` Protocol + `JsonlCsvSink`/`PostgresSink` adapters; default-deny anonymizer (property-tested); `SubmissionSink` opt-in POST/dry-run; `--submit` / `--submit-dry-run`. Follow-up: #97 |
+| E | Deterministic multi-turn | `feat/workstream-e-multiturn` | [#96](https://github.com/scottblydotcom/hermia/pull/96) | — | 🔵 In review — `_play_turns` helper; `turn_count`/`raw_turns`; 2 multi-turn corpus cases + checkers; builds on merged C |
+| F | Test quality + framework coverage | merged (squash #94) | [#94](https://github.com/scottblydotcom/hermia/pull/94) | — | ✅ Merged to `dev` — corpus health, schema contract (×28), framework taxonomy, CLI smoke. Follow-up: #98 |
 
 ## Rules
 
