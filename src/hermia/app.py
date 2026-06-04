@@ -142,22 +142,27 @@ def main() -> None:
             print(f"hermia: {exc}", file=sys.stderr)
             sys.exit(1)
 
-        if args.submit_dry_run:
-            SubmissionSink(endpoint=None, dry_run=True).write(load_jsonl(jsonl_path))
-        elif args.submit:
-            submit_url = os.environ.get("HERMIA_SUBMIT_URL", "").strip()
-            if not submit_url:
-                print(
-                    "hermia: --submit requires HERMIA_SUBMIT_URL environment variable to be set",
-                    file=sys.stderr,
-                )
-                sys.exit(1)
+        if args.submit_dry_run or args.submit:
+            submit_url = ""
+            if args.submit:
+                submit_url = os.environ.get("HERMIA_SUBMIT_URL", "").strip()
+                if not submit_url:
+                    print(
+                        "hermia: --submit requires HERMIA_SUBMIT_URL"
+                        " environment variable to be set",
+                        file=sys.stderr,
+                    )
+                    sys.exit(1)
             try:
-                SubmissionSink(
-                    endpoint=submit_url,
-                    token_env="HERMIA_SUBMIT_TOKEN",  # noqa: S106
-                    dry_run=False,
-                ).write(load_jsonl(jsonl_path))
+                rows = load_jsonl(jsonl_path)
+                if args.submit_dry_run:
+                    SubmissionSink(endpoint=None, dry_run=True).write(rows)
+                else:
+                    SubmissionSink(
+                        endpoint=submit_url,
+                        token_env="HERMIA_SUBMIT_TOKEN",  # noqa: S106
+                        dry_run=False,
+                    ).write(rows)
             except OSError as exc:
                 print(f"hermia: {exc}", file=sys.stderr)
                 sys.exit(1)

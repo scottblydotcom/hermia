@@ -22,6 +22,16 @@ def test_dry_run_no_endpoint_no_network_call(capsys: pytest.CaptureFixture[str])
     mock_post.assert_not_called()
 
 
+def test_empty_string_endpoint_dry_runs_no_network_call(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """endpoint='' with dry_run=False must behave as dry-run (not POST to empty URL)."""
+    rows = [{"host": "example.com", "raw_response": "raw text", "model": "m"}]
+    with patch("requests.post") as mock_post:
+        SubmissionSink(endpoint="", dry_run=False).write(rows)
+    mock_post.assert_not_called()
+
+
 def test_dry_run_true_with_endpoint_no_network_call() -> None:
     """dry_run=True must never call requests.post even when endpoint is set."""
     rows = [{"host": "example.com", "raw_response": "raw text", "model": "m"}]

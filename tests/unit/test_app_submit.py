@@ -140,6 +140,40 @@ def test_submit_exits_nonzero_when_url_unset(
 
 
 # ---------------------------------------------------------------------------
+# load_jsonl OSError in submit path → clean exit(1), no traceback
+# ---------------------------------------------------------------------------
+
+
+def test_submit_oserror_exits_cleanly(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An OSError from load_jsonl in the submit path must exit(1) cleanly, not raise."""
+    fleet_file = _make_fleet_file(tmp_path)
+    # Point to a non-existent jsonl path so load_jsonl raises OSError
+    missing_jsonl = tmp_path / "nonexistent.jsonl"
+    submit_url = "https://example.test/submit"
+
+    monkeypatch.setattr(sys, "argv", ["hermia", "--fleet", str(fleet_file), "--submit"])
+    monkeypatch.setenv("HERMIA_SUBMIT_URL", submit_url)
+
+    mock_load = MagicMock(return_value=[{"name": "local", "host": "http://localhost:11434"}])
+    mock_run = MagicMock(return_value=missing_jsonl)
+
+    with (
+        patch("hermia.fleet.load_fleet_config", mock_load),
+        patch("hermia.fleet.run_fleet", mock_run),
+        patch("hermia.results.load_jsonl", side_effect=OSError("file not found")),
+        pytest.raises(SystemExit) as exc,
+    ):
+        from hermia.app import main
+        main()
+
+    assert exc.value.code == 1
+    captured = capsys.readouterr()
+    assert "hermia:" in captured.err
+
+
+# ---------------------------------------------------------------------------
 # No flags — no SubmissionSink
 # ---------------------------------------------------------------------------
 

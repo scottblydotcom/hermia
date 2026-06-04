@@ -55,7 +55,7 @@ class SubmissionSink:
 
         payload = [anonymize_row(row) for row in rows]
 
-        if self.dry_run or self.endpoint is None:
+        if self.dry_run or not self.endpoint:
             print(json.dumps(payload, indent=2))
             return
 
