@@ -74,6 +74,14 @@ def test_all_cases_have_framework_keys(cases: list[dict]) -> None:
         assert isinstance(fw, dict), f"Case {cid!r}: frameworks must be a dict"
         missing = _FRAMEWORK_KEYS - set(fw.keys())
         assert not missing, f"Case {cid!r} missing framework keys: {missing}"
+        # Each taxonomy value must be a list of strings (merged from Workstream F's
+        # stricter test_frameworks_structure during the F/E reconciliation).
+        for key in _FRAMEWORK_KEYS:
+            assert isinstance(fw[key], list), f"Case {cid!r}: framework {key!r} must be a list"
+            for item in fw[key]:
+                assert isinstance(item, str), (
+                    f"Case {cid!r}: every item in framework {key!r} must be a str"
+                )
 
 
 def test_checker_parity_every_id_has_schema_check(cases: list[dict]) -> None:
