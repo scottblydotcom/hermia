@@ -106,6 +106,58 @@ def _result_fields_for_determinism(res: dict) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# E4 — snapshot isolation: each generate call receives an independent copy
+# ---------------------------------------------------------------------------
+
+
+def test_play_turns_passes_independent_message_snapshots() -> None:
+    """Each generate call must receive a snapshot of the conversation AT THAT
+    POINT — not a reference that later reflects appended turns. Guards the
+    list(messages) snapshot in _play_turns."""
+    retained: list[list[dict]] = []
+    t = MagicMock()
+    t.is_api_mode = True
+    seq = iter(["reply-1", '{"ok": true}'])
+
+    def gen(model, messages, **opts):
+        retained.append(messages)  # RETAIN the reference, do NOT copy
+        return Response(
+            text=next(seq),
+            tokens=1,
+            elapsed_sec=0.0,
+            orchestration="ollama",
+            orchestration_version=None,
+            is_api_mode=True,
+        )
+
+    t.generate.side_effect = gen
+
+    test = {
+        "id": "mt",
+        "dimension": "multi-turn",
+        "description": "d",
+        "system": "SYS",
+        "prompt": "",
+        "turns": ["first", "second"],
+        "frameworks": {
+            "owasp_llm_top10_2025": [],
+            "mitre_atlas_v5_1": [],
+            "csa_maestro": [],
+            "nist_ai_rmf": [],
+        },
+    }
+    run_test("m", test, MagicMock(), transport=t)
+
+    # If the same mutable list were passed each call, BOTH retained refs would
+    # now have the final length (4: system+user+assistant+user). With per-call
+    # snapshots, the first retains length 2 and the second length 4.
+    assert len(retained[0]) == 2, "first call must snapshot [system, user-1]"
+    assert [m["role"] for m in retained[0]] == ["system", "user"]
+    assert len(retained[1]) == 4
+    assert [m["role"] for m in retained[1]] == ["system", "user", "assistant", "user"]
+
+
 def test_multiturn_determinism_identical_canned_turns_yield_identical_result():
     """Running the same multi-turn test twice with identical canned replies
     must produce byte-identical results on all stable fields."""
