@@ -317,6 +317,70 @@ hermia-push --results-dir /path/to/results
 
 ---
 
+## Opt-in community submission (`--submit`)
+
+After a fleet run you can contribute anonymized results to the Hermia community
+dataset.  **Nothing is sent unless you pass `--submit` explicitly.**
+
+### What is shared
+
+A strict default-deny whitelist determines what leaves your machine.  Only
+aggregate performance fields are included:
+
+| Field | Example |
+|---|---|
+| `model` | `qwen2.5:32b` |
+| `dimension` / `test_id` | `security` / `security-direct-injection` |
+| `json_valid` / `schema_compliant` / `had_markdown_fence` | `true` |
+| `tokens` / `elapsed_sec` / `tokens_per_sec` | `142` / `1.4` / `101.4` |
+| `mode` / `orchestration` / `orchestration_version` | `fleet` / `ollama` / `0.9.0` |
+| `execution_path` / `vram_server_gb` / `model_size_server_gb` | `gpu` / `18.0` / `4.7` |
+| `score` / `consistency_pct` / `pass_count` / `robustness_n` | `100` / `95.0` / `9` / `10` |
+| `run_index` / `is_cold` / `cold_warm_delta_tps` | `1` / `false` / `12.3` |
+| `failure_category` (derived from `failure_reason`) | `SCHEMA_FAIL` |
+
+### What is never shared
+
+The anonymizer unconditionally drops:
+
+- Host names, IP addresses, fleet host metadata
+- Raw prompt, raw response, raw system prompt
+- Output preview (may contain model-verbatim sensitive text)
+- Run ID and timestamp (would allow cross-run correlation)
+- Client hardware metrics (CPU%, RAM, GPU%, VRAM — client-side only)
+
+`failure_reason` is reduced to a category prefix only (`ERROR`, `SCHEMA_FAIL`,
+`TIMEOUT`, etc.) — the detail that can contain host names or paths is stripped.
+
+### Dry-run (inspect the payload first)
+
+Print the payload to stdout without sending anything:
+
+```bash
+hermia --fleet hermia-fleet.yaml --submit-dry-run
+```
+
+### Live submission
+
+Set the endpoint URL and opt in:
+
+```bash
+export HERMIA_SUBMIT_URL="https://submit.hermia.dev/v1/results"
+hermia --fleet hermia-fleet.yaml --submit
+```
+
+The bearer token (if the endpoint requires one) comes from `HERMIA_SUBMIT_TOKEN`:
+
+```bash
+export HERMIA_SUBMIT_TOKEN="..."
+hermia --fleet hermia-fleet.yaml --submit
+```
+
+Submission is best-effort: a non-2xx response or network failure logs a warning
+and does not abort the run.
+
+---
+
 ## What's next
 
 - **Grafana dashboards** — if you have Grafana running, point it at the `hermia_results`
