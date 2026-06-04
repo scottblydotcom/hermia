@@ -181,10 +181,16 @@ _POS_NEG_TABLE: list[tuple[str, dict[str, object], dict[str, object]]] = [
     ),
 ]
 
-# Sanity: table covers exactly the 28 checkers
-assert {row[0] for row in _POS_NEG_TABLE} == set(SCHEMA_CHECKS), (
-    "POS_NEG_TABLE out of sync with SCHEMA_CHECKS"
-)
+# ---------------------------------------------------------------------------
+# Sanity: contract table covers all checkers
+# ---------------------------------------------------------------------------
+
+
+def test_contract_table_covers_all_checkers() -> None:
+    assert {row[0] for row in _POS_NEG_TABLE} == set(SCHEMA_CHECKS), (
+        "POS_NEG_TABLE out of sync with SCHEMA_CHECKS"
+    )
+
 
 # ---------------------------------------------------------------------------
 # Test 1 — Bool-return totality for adversarial inputs

@@ -22,7 +22,7 @@ import sys
 
 
 def _run(argv: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(argv, capture_output=True, text=True)
+    return subprocess.run(argv, capture_output=True, text=True, timeout=30)
 
 
 def _pycall(entrypoint: str, module: str, func: str, flag: str) -> subprocess.CompletedProcess[str]:
