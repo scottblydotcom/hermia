@@ -97,6 +97,7 @@ built for your context.
 | `constraint` | Exact schema compliance, numeric correctness, adversarial input robustness |
 | `routing` | Request classification, lane routing evasion detection |
 | `memory` | Cross-turn context retention |
+| `multi-turn` | Deterministic multi-turn conversations — context carry across turns, safety-boundary persistence under social engineering |
 | `domain` | Home automation agent, structured data extraction |
 
 ---

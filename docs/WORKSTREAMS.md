@@ -14,7 +14,7 @@
 | B | hermia-agent sidecar (Windows Go GPU gaming-gate) | merged | [#85](https://github.com/scottblydotcom/hermia/pull/85), [#86](https://github.com/scottblydotcom/hermia/pull/86) | — | ✅ Done — verified through to physical machine (ScottWin11 .20) |
 | C | Concurrent fleet runner (ThreadPoolExecutor, VRAM-aware) | `feat/workstream-c-concurrent-runner` | [#93](https://github.com/scottblydotcom/hermia/pull/93) | — | 🔵 In review — `_ps_cache` + `append_result` thread-safe; `run_fleet` concurrent via `ThreadPoolExecutor`; `--max-concurrency N` flag; VRAM-safe host grouping; all 852 tests green |
 | D | Submission API + partial Sink | _planned_ | — | — | ⚪ Planned — independent of A |
-| E | Deterministic multi-turn | _planned_ | — | — | ⚪ Planned — depends on A (message-list) |
+| E | Deterministic multi-turn | `feat/workstream-e-multiturn` | — | — | 🔵 In review — `_play_turns` helper; `run_test` derives turns; `turn_count`/`raw_turns` in result; 2 corpus cases + checkers; corpus health test; 865 tests green |
 | F | Test quality + framework coverage | _planned_ | — | — | ⚪ Planned — independent of A |
 
 ## Rules
