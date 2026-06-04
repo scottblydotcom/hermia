@@ -96,12 +96,35 @@ def test_live_authorization_header_from_env(monkeypatch: pytest.MonkeyPatch) -> 
     assert headers.get("Authorization") == f"Bearer {marker}"
 
 
+def test_live_empty_token_omits_authorization_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When the token env var is unset/empty, no Authorization header must be sent."""
+    monkeypatch.delenv("MY_MISSING_TOKEN_ENV", raising=False)
+    rows = [{"model": "m"}]
+
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+
+    with patch("requests.post", return_value=mock_response) as mock_post:
+        SubmissionSink(
+            endpoint="https://example.test/submit",
+            token_env="MY_MISSING_TOKEN_ENV",  # noqa: S106
+            dry_run=False,
+        ).write(rows)
+
+    _, kwargs = mock_post.call_args
+    headers = kwargs.get("headers", {})
+    assert "Authorization" not in headers, (
+        "Authorization header must be absent when token env var is unset"
+    )
+
+
 def test_live_non_2xx_does_not_raise(monkeypatch: pytest.MonkeyPatch) -> None:
     """Non-2xx response must not raise; a warning should be logged."""
     monkeypatch.setenv("TEST_SUBMIT_MARKER", "marker-value-abc")
     mock_response = MagicMock()
     mock_response.status_code = 503
     mock_response.ok = False
+    mock_response.text = "Service Unavailable"
 
     with (
         patch("requests.post", return_value=mock_response),
@@ -115,6 +138,56 @@ def test_live_non_2xx_does_not_raise(monkeypatch: pytest.MonkeyPatch) -> None:
         ).write([{"model": "m"}])
 
     mock_logger.warning.assert_called()
+
+
+def test_live_non_2xx_logs_truncated_response_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Non-2xx warning must include a truncated response body for diagnosis."""
+    monkeypatch.setenv("TEST_SUBMIT_MARKER", "marker-value-abc")
+    body = "x" * 300  # longer than the 200-char truncation limit
+    mock_response = MagicMock()
+    mock_response.status_code = 422
+    mock_response.ok = False
+    mock_response.text = body
+
+    with (
+        patch("requests.post", return_value=mock_response),
+        patch("hermia.sink.submission.logger") as mock_logger,
+    ):
+        SubmissionSink(
+            endpoint="https://example.test/submit",
+            token_env="TEST_SUBMIT_MARKER",  # noqa: S106
+            dry_run=False,
+        ).write([{"model": "m"}])
+
+    mock_logger.warning.assert_called_once()
+    call_args = mock_logger.warning.call_args
+    # The warning format string references %s, %s — check positional args
+    pos_args = call_args[0]
+    assert 422 in pos_args
+    # Truncated body (first 200 chars) must appear somewhere in the positional args
+    assert body[:200] in pos_args
+
+
+def test_empty_rows_no_network_call() -> None:
+    """When rows is empty, no anonymization, no print, no network call must occur."""
+    with (
+        patch("requests.post") as mock_post,
+        patch("hermia.sink.anonymize.anonymize_row") as mock_anon,
+    ):
+        SubmissionSink(
+            endpoint="https://example.test/submit",
+            dry_run=False,
+        ).write([])
+
+    mock_post.assert_not_called()
+    mock_anon.assert_not_called()
+
+
+def test_empty_rows_dry_run_no_print(capsys: pytest.CaptureFixture[str]) -> None:
+    """Empty rows with dry_run=True must not print anything."""
+    SubmissionSink(endpoint=None, dry_run=True).write([])
+    captured = capsys.readouterr()
+    assert captured.out == ""
 
 
 def test_live_request_exception_does_not_raise(monkeypatch: pytest.MonkeyPatch) -> None:

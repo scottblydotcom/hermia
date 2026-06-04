@@ -103,6 +103,43 @@ def test_submit_live_calls_submission_sink(tmp_path: Path, monkeypatch: pytest.M
 
 
 # ---------------------------------------------------------------------------
+# --submit with HERMIA_SUBMIT_URL unset → non-zero exit, no write
+# ---------------------------------------------------------------------------
+
+
+def test_submit_exits_nonzero_when_url_unset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """--submit without HERMIA_SUBMIT_URL must exit(1) with a clear message; no write."""
+    fleet_file = _make_fleet_file(tmp_path)
+    rows = [{"model": "m", "score": 1.0}]
+    jsonl_path = _make_jsonl(tmp_path, rows)
+
+    monkeypatch.setattr(sys, "argv", ["hermia", "--fleet", str(fleet_file), "--submit"])
+    monkeypatch.delenv("HERMIA_SUBMIT_URL", raising=False)
+
+    mock_load = MagicMock(return_value=[{"name": "local", "host": "http://localhost:11434"}])
+    mock_run = MagicMock(return_value=jsonl_path)
+    mock_sink_instance = MagicMock()
+    mock_sink_class = MagicMock(return_value=mock_sink_instance)
+
+    with (
+        patch("hermia.fleet.load_fleet_config", mock_load),
+        patch("hermia.fleet.run_fleet", mock_run),
+        patch("hermia.sink.submission.SubmissionSink", mock_sink_class),
+        pytest.raises(SystemExit) as exc,
+    ):
+        from hermia.app import main
+        main()
+
+    assert exc.value.code == 1
+    captured = capsys.readouterr()
+    assert "HERMIA_SUBMIT_URL" in captured.err
+    # SubmissionSink.write must NOT have been called
+    mock_sink_instance.write.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # No flags — no SubmissionSink
 # ---------------------------------------------------------------------------
 

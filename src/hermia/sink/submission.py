@@ -50,6 +50,9 @@ class SubmissionSink:
 
     def write(self, rows: list[dict[str, Any]]) -> None:
         """Anonymize *rows* and submit (or dry-print) the safe subset."""
+        if not rows:
+            return
+
         payload = [anonymize_row(row) for row in rows]
 
         if self.dry_run or self.endpoint is None:
@@ -58,7 +61,9 @@ class SubmissionSink:
 
         # Live submission — read token from env at call time; never log it.
         bearer = os.environ.get(self.token_env, "")
-        headers = {"Authorization": f"Bearer {bearer}"}
+        headers: dict[str, str] = {}
+        if bearer:
+            headers["Authorization"] = f"Bearer {bearer}"
 
         try:
             response = requests.post(
@@ -68,6 +73,10 @@ class SubmissionSink:
                 timeout=5,
             )
             if not response.ok:
-                logger.warning("hermia submit: server returned %s", response.status_code)
+                logger.warning(
+                    "hermia submit: server returned %s: %s",
+                    response.status_code,
+                    response.text[:200],
+                )
         except requests.exceptions.RequestException as exc:
             logger.warning("hermia submit: request failed (%s)", type(exc).__name__)
