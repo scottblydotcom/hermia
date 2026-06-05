@@ -1,4 +1,4 @@
-from hermia.audit.confusion import grade_response
+from hermia.corpus_audit.confusion import grade_response
 
 
 def test_grade_response_dict_pass():
@@ -24,7 +24,7 @@ def test_grade_response_unknown_test_id_fails():
     assert grade_response("no-such-test", {"action": "fetch_url", "params": {}}) is False
 
 
-from hermia.audit.confusion import confusion_matrix
+from hermia.corpus_audit.confusion import confusion_matrix
 
 
 def _fx(response, expected):

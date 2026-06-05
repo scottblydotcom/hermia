@@ -1,6 +1,6 @@
 import json
 
-from hermia.audit.mining import dedup_shapes, mine_responses
+from hermia.corpus_audit.mining import dedup_shapes, mine_responses
 
 
 def _row(test_id, raw):

@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from hermia.audit.confusion import confusion_matrix
-from hermia.audit.fixtures import load_fixtures, validate_fixture_file
+from hermia.corpus_audit.confusion import confusion_matrix
+from hermia.corpus_audit.fixtures import load_fixtures, validate_fixture_file
 
 _FIXTURE_DIR = Path(__file__).resolve().parents[3] / "response-fixtures"
 _FILES = sorted(_FIXTURE_DIR.glob("*.json"))

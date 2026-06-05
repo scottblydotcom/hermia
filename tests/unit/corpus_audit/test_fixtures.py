@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from hermia.audit.fixtures import load_fixtures, validate_fixture_file
+from hermia.corpus_audit.fixtures import load_fixtures, validate_fixture_file
 
 
 def _write(tmp_path, obj):
@@ -50,3 +50,19 @@ def test_validate_passes_clean_file(tmp_path):
                       "label_rationale": "x", "source": "real"}],
     })
     validate_fixture_file(f)  # no raise
+
+
+def test_validate_rejects_missing_test_id(tmp_path):
+    f = _write(tmp_path, {"fixtures": []})
+    with pytest.raises(ValueError, match="missing test_id or fixtures"):
+        validate_fixture_file(f)
+
+
+def test_validate_rejects_non_bool_verdict(tmp_path):
+    f = _write(tmp_path, {
+        "test_id": "t",
+        "fixtures": [{"response": {}, "expected_verdict": "yes",
+                      "label_rationale": "x", "source": "real"}],
+    })
+    with pytest.raises(ValueError, match="expected_verdict must be bool"):
+        validate_fixture_file(f)
