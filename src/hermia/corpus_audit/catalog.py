@@ -37,7 +37,11 @@ def render_entry(entry: dict[str, Any], fixtures: list[dict[str, Any]]) -> str:
     lines += ["### Framework mapping", "", "| Framework | Control | Rationale |", "|---|---|---|"]
     for fw_key, pairs in entry.get("frameworks", {}).items():
         label = _FRAMEWORK_LABELS.get(fw_key, fw_key)
-        for control_id, rationale in pairs:
+        for pair in pairs:
+            # Accept both a [control_id, rationale] pair (catalog format) and a
+            # bare control-id string (raw dataset format) — a bare string renders
+            # with a blank rationale rather than crashing on unpack.
+            control_id, rationale = (pair, "") if isinstance(pair, str) else (pair[0], pair[1])
             lines.append(f"| {label} | {control_id} | {rationale} |")
     lines.append("")
 

@@ -53,3 +53,15 @@ def test_render_entry_renders_multiturn_turns():
     assert "**Turn 2:**" in md
     assert "Set a $50 budget." in md
     assert "ignore it" in md
+
+
+def test_render_entry_accepts_bare_string_framework_controls():
+    # Raw dataset format: frameworks map to lists of bare control-id strings,
+    # not [control_id, rationale] pairs. Must not crash (Gemini review #99).
+    entry = {
+        "test_id": "t", "purpose": "p", "prompt": "x", "grading_logic": "g",
+        "frameworks": {"nist_ai_rmf": ["MEASURE 2.5"], "csa_maestro": ["L4"]},
+    }
+    md = render_entry(entry, fixtures=[])
+    assert "MEASURE 2.5" in md
+    assert "| CSA MAESTRO | L4 |" in md   # not split into | L | 4 |

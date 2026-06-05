@@ -19,9 +19,13 @@ def load_fixtures(path: Path) -> tuple[str, list[dict[str, Any]]]:
 def validate_fixture_file(path: Path) -> None:
     """Raise ValueError if the file violates the fixture schema."""
     data = json.loads(Path(path).read_text(encoding="utf-8"))
-    if "test_id" not in data or "fixtures" not in data:
+    if not isinstance(data, dict) or "test_id" not in data or "fixtures" not in data:
         raise ValueError(f"{path}: missing test_id or fixtures")
+    if not isinstance(data["fixtures"], list):
+        raise ValueError(f"{path}: fixtures must be a list")
     for i, fixture in enumerate(data["fixtures"]):
+        if not isinstance(fixture, dict):
+            raise ValueError(f"{path} fixture[{i}]: must be a dictionary")
         for key in _REQUIRED:
             if key not in fixture:
                 raise ValueError(f"{path} fixture[{i}]: missing {key}")
