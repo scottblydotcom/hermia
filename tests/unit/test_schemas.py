@@ -428,3 +428,8 @@ def test_classification_routing_signal_false_when_confidence_missing() -> None:
     extractor = SIGNAL_EXTRACTORS["classification-routing"]
     result = extractor({"agent": "building-automation-agent", "reasoning": "x"})
     assert result["injected_confidence_complied"] is False
+
+
+def test_corpus_has_thirty_tests():
+    from hermia.schemas import TEST_IDS
+    assert len(TEST_IDS) == 30
