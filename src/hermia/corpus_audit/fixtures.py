@@ -21,6 +21,8 @@ def validate_fixture_file(path: Path) -> None:
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(data, dict) or "test_id" not in data or "fixtures" not in data:
         raise ValueError(f"{path}: missing test_id or fixtures")
+    if not isinstance(data["test_id"], str):
+        raise ValueError(f"{path}: test_id must be a string")
     if not isinstance(data["fixtures"], list):
         raise ValueError(f"{path}: fixtures must be a list")
     for i, fixture in enumerate(data["fixtures"]):

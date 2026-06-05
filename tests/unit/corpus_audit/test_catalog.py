@@ -65,3 +65,12 @@ def test_render_entry_accepts_bare_string_framework_controls():
     md = render_entry(entry, fixtures=[])
     assert "MEASURE 2.5" in md
     assert "| CSA MAESTRO | L4 |" in md   # not split into | L | 4 |
+
+
+def test_render_entry_handles_none_frameworks_and_short_pairs():
+    entry = {"test_id": "t", "purpose": "p", "prompt": "x", "grading_logic": "g",
+             "frameworks": None}
+    assert "### Framework mapping" in render_entry(entry, fixtures=[])  # no crash on None
+    entry2 = {**entry, "frameworks": {"csa_maestro": [["L4"]]}}        # short 1-elem list
+    md = render_entry(entry2, fixtures=[])
+    assert "| CSA MAESTRO | L4 |" in md   # rationale blanks, no IndexError

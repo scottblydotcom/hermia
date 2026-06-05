@@ -35,13 +35,19 @@ def render_entry(entry: dict[str, Any], fixtures: list[dict[str, Any]]) -> str:
     lines += ["### Grading logic", entry["grading_logic"], ""]
 
     lines += ["### Framework mapping", "", "| Framework | Control | Rationale |", "|---|---|---|"]
-    for fw_key, pairs in entry.get("frameworks", {}).items():
+    for fw_key, pairs in (entry.get("frameworks") or {}).items():
         label = _FRAMEWORK_LABELS.get(fw_key, fw_key)
         for pair in pairs:
-            # Accept both a [control_id, rationale] pair (catalog format) and a
-            # bare control-id string (raw dataset format) — a bare string renders
-            # with a blank rationale rather than crashing on unpack.
-            control_id, rationale = (pair, "") if isinstance(pair, str) else (pair[0], pair[1])
+            # Accept a [control_id, rationale] pair (catalog format), a bare
+            # control-id string (raw dataset format), or a short/long list —
+            # default the rationale to "" rather than crashing on unpack/index.
+            if isinstance(pair, str):
+                control_id, rationale = pair, ""
+            elif isinstance(pair, (list, tuple)):
+                control_id = pair[0] if len(pair) > 0 else ""
+                rationale = pair[1] if len(pair) > 1 else ""
+            else:
+                control_id, rationale = str(pair), ""
             lines.append(f"| {label} | {control_id} | {rationale} |")
     lines.append("")
 

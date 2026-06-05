@@ -84,3 +84,9 @@ def test_validate_rejects_non_dict_fixture_entry(tmp_path):
     f = _write(tmp_path, {"test_id": "t", "fixtures": ["just a string"]})
     with pytest.raises(ValueError, match="must be a dictionary"):
         validate_fixture_file(f)
+
+
+def test_validate_rejects_non_string_test_id(tmp_path):
+    f = _write(tmp_path, {"test_id": 123, "fixtures": []})
+    with pytest.raises(ValueError, match="test_id must be a string"):
+        validate_fixture_file(f)
