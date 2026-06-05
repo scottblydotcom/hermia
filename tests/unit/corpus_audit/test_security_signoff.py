@@ -2,8 +2,6 @@
 import json
 from pathlib import Path
 
-import pytest
-
 _META_DIR = Path(__file__).resolve().parents[3] / "catalog-meta"
 
 _TIER_A = {
@@ -18,7 +16,6 @@ _TIER_A = {
 }
 
 
-@pytest.mark.xfail(reason="signed off in Phase 1", strict=False)
 def test_all_security_policies_signed_off():
     missing = []
     for tid in sorted(_TIER_A):
