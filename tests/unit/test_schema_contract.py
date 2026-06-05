@@ -6,7 +6,7 @@ test_schemas_properties.py (hypothesis stability + valid-input properties).
 This module focuses on:
 1. Bool-return totality: every checker returns a bool (not None, not an exception)
    for a fixed set of adversarial inputs — including non-dict types.
-2. Positive/negative presence table: for each of the 28 checkers exactly one
+2. Positive/negative presence table: for each of the 30 checkers exactly one
    confirmed-passing dict and one confirmed-failing dict are asserted.
 """
 

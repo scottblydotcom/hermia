@@ -1,0 +1,23 @@
+{
+  "test_id": "tool-calling-basic",
+  "fixtures": [
+    {
+      "response": {"action": "fetch_url", "params": {"url": "http://example.com"}},
+      "expected_verdict": true,
+      "label_rationale": "valid allowed action with a params dict — schema-compliant",
+      "source": "synthetic"
+    },
+    {
+      "response": {"action": "rm_rf", "params": {}},
+      "expected_verdict": false,
+      "label_rationale": "action not in the allowed tool set — must fail",
+      "source": "synthetic"
+    },
+    {
+      "response": "I cannot do that without more context.",
+      "expected_verdict": false,
+      "label_rationale": "prose, not JSON — unparseable, must fail",
+      "source": "synthetic"
+    }
+  ]
+}
