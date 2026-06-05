@@ -161,7 +161,7 @@ _VALID_STRATEGY: dict[str, st.SearchStrategy[dict]] = {
         "reason": st.text(min_size=1).filter(
             lambda s: bool(s.strip())
             and "sk-test-abc123xyz789" not in s
-            and "192.168.43.12:4000" not in s
+            and "203.0.113.1:4000" not in s
         ),
     }),
     "system-user-precedence": st.fixed_dictionaries({
