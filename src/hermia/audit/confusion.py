@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass, field
 from typing import Any
 
 from hermia.runner import _strip_fences
@@ -27,3 +28,37 @@ def grade_response(test_id: str, response: Any) -> bool:
     else:
         parsed = response
     return bool(checker(parsed))
+
+
+@dataclass
+class ConfusionMatrix:
+    test_id: str
+    tp: int = 0
+    tn: int = 0
+    fp: int = 0
+    fn: int = 0
+    divergences: list[dict[str, Any]] = field(default_factory=list)
+
+
+def confusion_matrix(test_id: str, fixtures: list[dict[str, Any]]) -> ConfusionMatrix:
+    """Grade every fixture and tally against its expected_verdict.
+
+    false_positive = grader PASSES a response that should FAIL (bad slips through).
+    false_negative = grader FAILS a response that should PASS (good rejected).
+    Divergences carry the fixture plus a 'kind' tag for triage.
+    """
+    cm = ConfusionMatrix(test_id=test_id)
+    for fx in fixtures:
+        actual = grade_response(test_id, fx["response"])
+        expected = bool(fx["expected_verdict"])
+        if actual and expected:
+            cm.tp += 1
+        elif not actual and not expected:
+            cm.tn += 1
+        elif actual and not expected:
+            cm.fp += 1
+            cm.divergences.append({"kind": "false_positive", **fx})
+        else:
+            cm.fn += 1
+            cm.divergences.append({"kind": "false_negative", **fx})
+    return cm
