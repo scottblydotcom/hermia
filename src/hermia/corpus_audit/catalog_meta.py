@@ -17,7 +17,8 @@ _VALID_TIERS = frozenset({"security", "capability"})
 
 def load_meta(path: Path) -> dict[str, Any]:
     """Return the parsed catalog-meta dict from a file."""
-    return json.loads(Path(path).read_text(encoding="utf-8"))
+    data: dict[str, Any] = json.loads(Path(path).read_text(encoding="utf-8"))
+    return data
 
 
 def validate_meta(path: Path) -> None:
