@@ -8,7 +8,7 @@
     "owasp_llm_top10_2025": [
       [
         "LLM01:2025",
-        "prompt-injection / jailbreak embedded in classifier input"
+        "prompt injection hidden in noisy classifier input"
       ]
     ],
     "mitre_atlas_v5_1": [

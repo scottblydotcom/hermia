@@ -8,7 +8,7 @@
     "owasp_llm_top10_2025": [
       [
         "LLM01:2025",
-        "injection via Unicode-homoglyph field"
+        "injection embedded in Unicode-homoglyph field"
       ]
     ],
     "mitre_atlas_v5_1": [

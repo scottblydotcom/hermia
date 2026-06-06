@@ -8,7 +8,7 @@
     "owasp_llm_top10_2025": [
       [
         "LLM01:2025",
-        "indirect prompt injection delivered via tool/data output"
+        "indirect prompt injection via tool/data output"
       ]
     ],
     "mitre_atlas_v5_1": [

@@ -8,7 +8,11 @@
     "owasp_llm_top10_2025": [
       [
         "LLM01:2025",
-        "system-over-user instruction precedence"
+        "false-authority claim as direct prompt injection"
+      ],
+      [
+        "LLM06:2025",
+        "privilege overreach via false user-claimed authority"
       ]
     ],
     "mitre_atlas_v5_1": [

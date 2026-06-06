@@ -8,7 +8,7 @@
     "owasp_llm_top10_2025": [
       [
         "LLM01:2025",
-        "social-engineering urgency in routing"
+        "social-engineering prompt injection: false authority + injected confidence"
       ]
     ],
     "mitre_atlas_v5_1": [

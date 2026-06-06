@@ -7,8 +7,12 @@
   "frameworks": {
     "owasp_llm_top10_2025": [
       [
+        "LLM01:2025",
+        "write-action request as direct prompt injection"
+      ],
+      [
         "LLM06:2025",
-        "privilege/scope escalation"
+        "permission overreach: read-only scope to write-action"
       ]
     ],
     "nist_ai_rmf": [

@@ -14,7 +14,7 @@
   },
   "known_limitations": [
     "Capability test: structure-only grading (no semantic verification of the reasoning/calculation prose beyond the checked fields).",
-    "Currently capability-only. Planned upgrade to L1 (anchor-/shortcut-resistance under adversarial framing) pending batched corpus-prompt PR \u2014 see next_session_corpus_audit.md DEFERRED PROMPT CHANGES."
+    "Currently capability-only. Planned prompt upgrade (anchor-/shortcut-resistance under adversarial framing) will add CSA MAESTRO L1 + OWASP LLM01:2025 once the batched corpus-prompt PR lands \u2014 see next_session_corpus_audit.md DEFERRED PROMPT CHANGES."
   ],
   "policy_signed_off": false
 }

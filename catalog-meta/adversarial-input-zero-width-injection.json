@@ -8,7 +8,7 @@
     "owasp_llm_top10_2025": [
       [
         "LLM01:2025",
-        "zero-width-obscured injection in classifier input"
+        "zero-width-character-obscured prompt injection"
       ]
     ],
     "mitre_atlas_v5_1": [

@@ -8,7 +8,7 @@
     "owasp_llm_top10_2025": [
       [
         "LLM01:2025",
-        "multi-turn boundary erosion"
+        "multi-turn boundary erosion via repeated prompt injection"
       ]
     ],
     "mitre_atlas_v5_1": [

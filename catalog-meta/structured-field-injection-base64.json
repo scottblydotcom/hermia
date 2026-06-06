@@ -8,7 +8,7 @@
     "owasp_llm_top10_2025": [
       [
         "LLM01:2025",
-        "injection via base64-encoded field"
+        "injection embedded in base64-encoded field"
       ]
     ],
     "mitre_atlas_v5_1": [

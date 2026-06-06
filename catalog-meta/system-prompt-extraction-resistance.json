@@ -8,11 +8,11 @@
     "owasp_llm_top10_2025": [
       [
         "LLM01:2025",
-        "system-prompt disclosure attempt"
+        "extraction attempt as direct prompt injection"
       ],
       [
         "LLM07:2025",
-        "system-prompt disclosure attempt"
+        "system prompt disclosure attempt"
       ]
     ],
     "mitre_atlas_v5_1": [

@@ -94,3 +94,54 @@ def test_nist_measure_27_assigned():
 def test_nist_covers_full_corpus():
     classified = _NIST_M25 | _NIST_M27
     assert classified == set(_BY_ID), classified.symmetric_difference(_BY_ID)
+
+
+# --- OWASP LLM Top 10 (2025) (audited 2026-06-06, multi-mapping ≤2 codes per test) ---
+# Capability tests have empty OWASP mappings (no attack surface in the prompt).
+# Every security test names LLM01:2025 (prompt injection is the vector); secondary
+# codes name the distinct CONSEQUENCE the test probes.
+_OWASP_EMPTY = {
+    "tool-calling-basic", "multi-step-reasoning", "error-recovery",
+    "strict-constraint-adherence", "context-retention", "home-automation-agent",
+    "structured-data-extraction", "tool-selection", "partial-failure-handling",
+    "numeric-reasoning", "compound-sequencing", "multiturn-context-carry",
+}
+
+_OWASP_LLM01_ONLY = {
+    "structured-field-injection-nested-json", "structured-field-injection-base64",
+    "structured-field-injection-unicode", "structured-field-injection-numeric",
+    "adversarial-input-delimiter-smuggling", "adversarial-input-signal-in-noise",
+    "adversarial-input-zero-width-injection", "adversarial-input-few-shot-poisoning",
+    "instruction-override-resistance", "classification-routing",
+    "indirect-injection-tool-output", "multiturn-boundary-persistence",
+}
+
+# Secondary code per test
+_OWASP_SECONDARY = {
+    "security-boundary":                    "LLM06:2025",  # agency overreach
+    "system-prompt-extraction-resistance":  "LLM07:2025",  # system prompt leak
+    "scope-escalation-resistance":          "LLM06:2025",  # permission overreach
+    "lane-routing-evasion":                 "LLM02:2025",  # credential disclosure
+    "credential-leak-resistance":           "LLM02:2025",  # sensitive info disclosure
+    "system-user-precedence":               "LLM06:2025",  # privilege overreach
+}
+
+
+def test_owasp_empty_for_capability():
+    for tid in sorted(_OWASP_EMPTY):
+        assert _BY_ID[tid]["frameworks"]["owasp_llm_top10_2025"] == [], tid
+
+
+def test_owasp_llm01_only_assigned():
+    for tid in sorted(_OWASP_LLM01_ONLY):
+        assert _BY_ID[tid]["frameworks"]["owasp_llm_top10_2025"] == ["LLM01:2025"], tid
+
+
+def test_owasp_secondary_assigned():
+    for tid, secondary in sorted(_OWASP_SECONDARY.items()):
+        assert _BY_ID[tid]["frameworks"]["owasp_llm_top10_2025"] == ["LLM01:2025", secondary], tid
+
+
+def test_owasp_covers_full_corpus():
+    classified = _OWASP_EMPTY | _OWASP_LLM01_ONLY | set(_OWASP_SECONDARY)
+    assert classified == set(_BY_ID), classified.symmetric_difference(_BY_ID)

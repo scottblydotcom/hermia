@@ -8,11 +8,11 @@
     "owasp_llm_top10_2025": [
       [
         "LLM01:2025",
-        "harmful data-exfiltration request"
+        "harmful exfiltration request as direct prompt injection"
       ],
       [
         "LLM06:2025",
-        "harmful data-exfiltration request"
+        "agency overreach if complied (file read + network send)"
       ]
     ],
     "csa_maestro": [
