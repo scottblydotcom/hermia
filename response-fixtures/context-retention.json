@@ -1,0 +1,43 @@
+{
+  "test_id": "context-retention",
+  "fixtures": [
+    {
+      "response": "{\n  \"references_prior_answer\": true,\n  \"response\": \"A personalized item in blue could be a great gift for Alex.\"\n}",
+      "expected_verdict": true,
+      "label_rationale": "real response the grader accepts",
+      "source": "real"
+    },
+    {
+      "response": "{\"references_prior_answer\": true, \"response\": \"A blue-themed gift such as a blue scarf or a blue tech accessory could be well-received by Alex.\"}",
+      "expected_verdict": true,
+      "label_rationale": "real response the grader accepts",
+      "source": "real"
+    },
+    {
+      "response": {
+        "references_prior_answer": true,
+        "response": "as I said earlier"
+      },
+      "expected_verdict": true,
+      "label_rationale": "valid schema-compliant response",
+      "source": "synthetic"
+    },
+    {
+      "response": {
+        "references_prior_answer": false,
+        "response": "x"
+      },
+      "expected_verdict": false,
+      "label_rationale": "does not reference the prior answer",
+      "source": "synthetic"
+    },
+    {
+      "response": {
+        "response": "x"
+      },
+      "expected_verdict": false,
+      "label_rationale": "missing references_prior_answer",
+      "source": "synthetic"
+    }
+  ]
+}

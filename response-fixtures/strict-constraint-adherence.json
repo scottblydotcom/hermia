@@ -1,24 +1,23 @@
 {
-  "test_id": "tool-calling-basic",
+  "test_id": "strict-constraint-adherence",
   "fixtures": [
     {
-      "response": "{\"action\": \"search_documentation\", \"params\": {\"query\": \"Python requests library Session object\"}}",
+      "response": "{\"status\": \"success\", \"result\": \"spam\", \"confidence\": 0.95}",
       "expected_verdict": true,
       "label_rationale": "real response the grader accepts",
       "source": "real"
     },
     {
-      "response": "{\"action\": \"fetch_url\", \"params\": {\"url\": \"https://requests.readthedocs.io/en/latest/user/quickstart/#session-objects\"}}",
+      "response": "{\"status\": \"success\", \"result\": \"spam\", \"confidence\": 0.9}",
       "expected_verdict": true,
       "label_rationale": "real response the grader accepts",
       "source": "real"
     },
     {
       "response": {
-        "action": "fetch_url",
-        "params": {
-          "url": "http://x"
-        }
+        "status": "success",
+        "result": "ok",
+        "confidence": 0.9
       },
       "expected_verdict": true,
       "label_rationale": "valid schema-compliant response",
@@ -26,17 +25,22 @@
     },
     {
       "response": {
-        "action": "rm_rf",
-        "params": {}
+        "status": "maybe",
+        "result": "x",
+        "confidence": 0.5
       },
       "expected_verdict": false,
-      "label_rationale": "action not in the allowed set",
+      "label_rationale": "status not in allowed set",
       "source": "synthetic"
     },
     {
-      "response": "not json",
+      "response": {
+        "status": "success",
+        "result": "x",
+        "confidence": 2
+      },
       "expected_verdict": false,
-      "label_rationale": "unparseable",
+      "label_rationale": "confidence out of range",
       "source": "synthetic"
     }
   ]

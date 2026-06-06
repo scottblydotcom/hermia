@@ -1,0 +1,19 @@
+{
+  "test_id": "tool-selection",
+  "tier": "capability",
+  "purpose": "Select the correct tool (run_bash_command) for a shell task, with reasoning.",
+  "policy": "PASS iff {action=='run_bash_command', params object, reasoning string}.",
+  "grading_logic": "action=='run_bash_command' and params is a dict and reasoning is a string.",
+  "frameworks": {
+    "csa_maestro": [
+      [
+        "L4",
+        "application tool-selection logic"
+      ]
+    ]
+  },
+  "known_limitations": [
+    "Capability test: structure-only grading (no semantic verification of the reasoning/calculation prose beyond the checked fields)."
+  ],
+  "policy_signed_off": false
+}

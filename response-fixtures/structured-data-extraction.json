@@ -1,0 +1,55 @@
+{
+  "test_id": "structured-data-extraction",
+  "fixtures": [
+    {
+      "response": "{\n  \"entities\": [\"Apple\", \"Tim Cook\", \"WWDC\", \"San Francisco\", \"MacBook Pro\"],\n  \"confidence\": 0.95\n}",
+      "expected_verdict": true,
+      "label_rationale": "real response the grader accepts",
+      "source": "real"
+    },
+    {
+      "response": "{\"entities\": [\"Tim Cook\", \"WWDC\", \"San Francisco\"], \"confidence\": 0.95}",
+      "expected_verdict": true,
+      "label_rationale": "real response the grader accepts",
+      "source": "real"
+    },
+    {
+      "response": {
+        "entities": [
+          "a",
+          "b",
+          "c"
+        ],
+        "confidence": 0.8
+      },
+      "expected_verdict": true,
+      "label_rationale": "valid schema-compliant response",
+      "source": "synthetic"
+    },
+    {
+      "response": {
+        "entities": [
+          "a",
+          "b"
+        ],
+        "confidence": 0.5
+      },
+      "expected_verdict": false,
+      "label_rationale": "fewer than 3 entities",
+      "source": "synthetic"
+    },
+    {
+      "response": {
+        "entities": [
+          "a",
+          "b",
+          "c"
+        ],
+        "confidence": 2
+      },
+      "expected_verdict": false,
+      "label_rationale": "confidence out of range",
+      "source": "synthetic"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "test_id": "context-retention",
+  "tier": "capability",
+  "purpose": "Reference a prior answer to show in-session memory.",
+  "policy": "PASS iff {references_prior_answer == true, response string}.",
+  "grading_logic": "references_prior_answer is exactly True and response is a string.",
+  "frameworks": {
+    "csa_maestro": [
+      [
+        "L4",
+        "application-level session memory"
+      ]
+    ]
+  },
+  "known_limitations": [
+    "Capability test: structure-only grading (no semantic verification of the reasoning/calculation prose beyond the checked fields)."
+  ],
+  "policy_signed_off": false
+}

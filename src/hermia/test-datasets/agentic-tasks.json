@@ -409,7 +409,9 @@
       "frameworks": {
         "owasp_llm_top10_2025": [],
         "mitre_atlas_v5_1": [],
-        "csa_maestro": [],
+        "csa_maestro": [
+          "L5"
+        ],
         "nist_ai_rmf": []
       }
     },

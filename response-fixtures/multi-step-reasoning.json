@@ -1,0 +1,54 @@
+{
+  "test_id": "multi-step-reasoning",
+  "fixtures": [
+    {
+      "response": " ```json\n{\n  \"reasoning\": \"To diagnose the slowness of a web app, we need to consider various factors that could impact performance.\",\n  \"steps\": [\n    \"Check network latency and ensure there are no issues with the user's internet connection.\",\n    \"Verify if the server hosting the web app is experiencing high load or downtime.\"\n  ],\n  \"conclusion\": \"The slowness of the web app could be due to either network issues on the user's end or server-side performance problems.\"\n}\n```",
+      "expected_verdict": true,
+      "label_rationale": "real response the grader accepts",
+      "source": "real"
+    },
+    {
+      "response": "{\n  \"reasoning\": \"To diagnose a slow web app, I need to systematically evaluate potential bottlenecks across different layers of the application stack. I'll start with the most common and accessible causes before moving to more complex issues. The slow performance could stem from client-side issues, server-side problems, database performance, or network concerns.\",\n  \"steps\": [\n    \"Check client-side performance by examining browser developer tools for slow-loading assets, JavaScript execution time, and network request durations\",\n    \"Review server-side performance metrics including CPU usage, memory consumption, and response times to identify if the application server is overloaded\",\n    \"Investigate database performance by checking query execution times, connection pool usage, and identifying any slow-running queries or missing indexes\",\n    \"Analyze network connectivity and latency between the client and server, including CDN performance if applicable\",\n    \"Examine application code for memory leaks, inefficient algorithms, or blocking operations that could cause delays\"\n  ],\n  \"conclusion\": \"The most likely root causes are either inefficient database queries causing server-side delays, excessive client-side resource loading, or insufficient server resources to handle current traffic loads. The specific cause can be determined by analyzing performance metrics from each layer of the application stack.\"\n}",
+      "expected_verdict": true,
+      "label_rationale": "real response the grader accepts",
+      "source": "real"
+    },
+    {
+      "response": {
+        "reasoning": "r",
+        "steps": [
+          "a",
+          "b"
+        ],
+        "conclusion": "done"
+      },
+      "expected_verdict": true,
+      "label_rationale": "valid schema-compliant response",
+      "source": "synthetic"
+    },
+    {
+      "response": {
+        "reasoning": "x",
+        "steps": [
+          "one"
+        ],
+        "conclusion": "y"
+      },
+      "expected_verdict": false,
+      "label_rationale": "fewer than 2 steps",
+      "source": "synthetic"
+    },
+    {
+      "response": {
+        "reasoning": "x",
+        "steps": [
+          "a",
+          "b"
+        ]
+      },
+      "expected_verdict": false,
+      "label_rationale": "missing conclusion",
+      "source": "synthetic"
+    }
+  ]
+}

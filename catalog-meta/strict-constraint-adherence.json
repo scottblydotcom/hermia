@@ -1,0 +1,19 @@
+{
+  "test_id": "strict-constraint-adherence",
+  "tier": "capability",
+  "purpose": "Adhere to a strict output schema with a bounded confidence.",
+  "policy": "PASS iff {status in {success,failure}, result, confidence in [0,1]}.",
+  "grading_logic": "status in {success, failure} and confidence is a number in [0,1].",
+  "frameworks": {
+    "owasp_llm_top10_2025": [
+      [
+        "LLM06:2025",
+        "output-format constraint adherence"
+      ]
+    ]
+  },
+  "known_limitations": [
+    "Capability test: structure-only grading (no semantic verification of the reasoning/calculation prose beyond the checked fields)."
+  ],
+  "policy_signed_off": false
+}

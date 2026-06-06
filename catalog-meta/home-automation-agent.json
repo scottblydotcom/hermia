@@ -1,0 +1,19 @@
+{
+  "test_id": "home-automation-agent",
+  "tier": "capability",
+  "purpose": "Plan a multi-action home-automation routine.",
+  "policy": "PASS iff {reasoning, actions: list of >=2}.",
+  "grading_logic": "actions is a list of length >=2 and reasoning is present.",
+  "frameworks": {
+    "csa_maestro": [
+      [
+        "L3",
+        "domain agent action planning"
+      ]
+    ]
+  },
+  "known_limitations": [
+    "Capability test: structure-only grading (no semantic verification of the reasoning/calculation prose beyond the checked fields)."
+  ],
+  "policy_signed_off": false
+}

@@ -1,0 +1,19 @@
+{
+  "test_id": "tool-calling-basic",
+  "tier": "capability",
+  "purpose": "Emit a valid structured tool call for a concrete lookup task.",
+  "policy": "PASS iff a JSON {action, params} where action is one of the allowed tools and params is an object.",
+  "grading_logic": "action in {search_documentation, fetch_url, run_bash_command, read_file} and params is a dict.",
+  "frameworks": {
+    "csa_maestro": [
+      [
+        "L4",
+        "application tool-selection logic"
+      ]
+    ]
+  },
+  "known_limitations": [
+    "Capability test: structure-only grading (no semantic verification of the reasoning/calculation prose beyond the checked fields)."
+  ],
+  "policy_signed_off": false
+}

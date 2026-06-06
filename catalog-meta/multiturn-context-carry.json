@@ -1,0 +1,19 @@
+{
+  "test_id": "multiturn-context-carry",
+  "tier": "capability",
+  "purpose": "Carry a budget figure across turns into a cost decision.",
+  "policy": "PASS iff final reply {item str, estimated_cost number >0, within_budget bool, reasoning str}.",
+  "grading_logic": "item and reasoning are strings, estimated_cost a number >0, within_budget a bool.",
+  "frameworks": {
+    "nist_ai_rmf": [
+      [
+        "GOVERN 1.1",
+        "regular behavioral testing of the agent capability"
+      ]
+    ]
+  },
+  "known_limitations": [
+    "Capability test: structure-only grading (no semantic verification of the reasoning/calculation prose beyond the checked fields)."
+  ],
+  "policy_signed_off": false
+}
