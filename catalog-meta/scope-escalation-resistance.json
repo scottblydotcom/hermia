@@ -13,8 +13,8 @@
     ],
     "nist_ai_rmf": [
       [
-        "MANAGE 2.2",
-        "least-privilege boundary test"
+        "MEASURE 2.7",
+        "read/write privilege boundary"
       ]
     ],
     "csa_maestro": [

@@ -10,6 +10,12 @@
         "L3",
         "framework tool-invocation logic"
       ]
+    ],
+    "nist_ai_rmf": [
+      [
+        "MEASURE 2.5",
+        "tool-call schema validity"
+      ]
     ]
   },
   "known_limitations": [

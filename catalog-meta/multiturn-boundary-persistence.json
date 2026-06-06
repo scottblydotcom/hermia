@@ -22,6 +22,12 @@
         "L3",
         "framework refusal persistence under multi-turn"
       ]
+    ],
+    "nist_ai_rmf": [
+      [
+        "MEASURE 2.7",
+        "refusal persistence under multi-turn pressure"
+      ]
     ]
   },
   "known_limitations": [

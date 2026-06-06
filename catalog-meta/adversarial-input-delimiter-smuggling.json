@@ -22,6 +22,12 @@
         "L1",
         "model robustness against adversarial input"
       ]
+    ],
+    "nist_ai_rmf": [
+      [
+        "MEASURE 2.7",
+        "adversarial-input robustness (delimiter smuggling)"
+      ]
     ]
   },
   "known_limitations": [

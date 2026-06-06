@@ -12,7 +12,9 @@
         "csa_maestro": [
           "L3"
         ],
-        "nist_ai_rmf": []
+        "nist_ai_rmf": [
+          "MEASURE 2.5"
+        ]
       }
     },
     {
@@ -61,7 +63,9 @@
         "csa_maestro": [
           "L3"
         ],
-        "nist_ai_rmf": []
+        "nist_ai_rmf": [
+          "MEASURE 2.5"
+        ]
       }
     },
     {
@@ -76,7 +80,9 @@
         "csa_maestro": [
           "L3"
         ],
-        "nist_ai_rmf": []
+        "nist_ai_rmf": [
+          "MEASURE 2.5"
+        ]
       }
     },
     {
@@ -94,7 +100,9 @@
         "csa_maestro": [
           "L1"
         ],
-        "nist_ai_rmf": []
+        "nist_ai_rmf": [
+          "MEASURE 2.7"
+        ]
       }
     },
     {
@@ -109,7 +117,9 @@
         "csa_maestro": [
           "L3"
         ],
-        "nist_ai_rmf": []
+        "nist_ai_rmf": [
+          "MEASURE 2.5"
+        ]
       }
     },
     {
@@ -146,7 +156,9 @@
         "csa_maestro": [
           "L1"
         ],
-        "nist_ai_rmf": []
+        "nist_ai_rmf": [
+          "MEASURE 2.7"
+        ]
       }
     },
     {
@@ -164,7 +176,7 @@
           "L3"
         ],
         "nist_ai_rmf": [
-          "MANAGE 2.2"
+          "MEASURE 2.7"
         ]
       }
     },
@@ -184,7 +196,9 @@
         "csa_maestro": [
           "L3"
         ],
-        "nist_ai_rmf": []
+        "nist_ai_rmf": [
+          "MEASURE 2.7"
+        ]
       }
     },
     {
@@ -203,7 +217,9 @@
         "csa_maestro": [
           "L3"
         ],
-        "nist_ai_rmf": []
+        "nist_ai_rmf": [
+          "MEASURE 2.7"
+        ]
       }
     },
     {
@@ -222,7 +238,9 @@
         "csa_maestro": [
           "L3"
         ],
-        "nist_ai_rmf": []
+        "nist_ai_rmf": [
+          "MEASURE 2.7"
+        ]
       }
     },
     {
@@ -241,7 +259,9 @@
         "csa_maestro": [
           "L3"
         ],
-        "nist_ai_rmf": []
+        "nist_ai_rmf": [
+          "MEASURE 2.7"
+        ]
       }
     },
     {
@@ -260,7 +280,9 @@
         "csa_maestro": [
           "L1"
         ],
-        "nist_ai_rmf": []
+        "nist_ai_rmf": [
+          "MEASURE 2.7"
+        ]
       }
     },
     {
@@ -279,7 +301,9 @@
         "csa_maestro": [
           "L1"
         ],
-        "nist_ai_rmf": []
+        "nist_ai_rmf": [
+          "MEASURE 2.7"
+        ]
       }
     },
     {
@@ -298,7 +322,9 @@
         "csa_maestro": [
           "L1"
         ],
-        "nist_ai_rmf": []
+        "nist_ai_rmf": [
+          "MEASURE 2.7"
+        ]
       }
     },
     {
@@ -317,7 +343,9 @@
         "csa_maestro": [
           "L1"
         ],
-        "nist_ai_rmf": []
+        "nist_ai_rmf": [
+          "MEASURE 2.7"
+        ]
       }
     },
     {
@@ -334,7 +362,9 @@
         "csa_maestro": [
           "L3"
         ],
-        "nist_ai_rmf": []
+        "nist_ai_rmf": [
+          "MEASURE 2.7"
+        ]
       }
     },
     {
@@ -349,7 +379,9 @@
         "csa_maestro": [
           "L3"
         ],
-        "nist_ai_rmf": []
+        "nist_ai_rmf": [
+          "MEASURE 2.5"
+        ]
       }
     },
     {
@@ -385,7 +417,9 @@
         "csa_maestro": [
           "L1"
         ],
-        "nist_ai_rmf": []
+        "nist_ai_rmf": [
+          "MEASURE 2.7"
+        ]
       }
     },
     {
@@ -404,7 +438,9 @@
         "csa_maestro": [
           "L3"
         ],
-        "nist_ai_rmf": []
+        "nist_ai_rmf": [
+          "MEASURE 2.7"
+        ]
       }
     },
     {
@@ -434,7 +470,9 @@
         "csa_maestro": [
           "L3"
         ],
-        "nist_ai_rmf": []
+        "nist_ai_rmf": [
+          "MEASURE 2.5"
+        ]
       }
     },
     {
@@ -454,7 +492,9 @@
         "csa_maestro": [
           "L3"
         ],
-        "nist_ai_rmf": []
+        "nist_ai_rmf": [
+          "MEASURE 2.7"
+        ]
       }
     },
     {
@@ -473,7 +513,9 @@
         "csa_maestro": [
           "L1"
         ],
-        "nist_ai_rmf": []
+        "nist_ai_rmf": [
+          "MEASURE 2.7"
+        ]
       }
     },
     {
@@ -492,7 +534,9 @@
         "csa_maestro": [
           "L1"
         ],
-        "nist_ai_rmf": []
+        "nist_ai_rmf": [
+          "MEASURE 2.7"
+        ]
       }
     },
     {
@@ -512,7 +556,7 @@
           "L3"
         ],
         "nist_ai_rmf": [
-          "GOVERN 1.1"
+          "MEASURE 2.5"
         ]
       }
     },
@@ -536,7 +580,9 @@
         "csa_maestro": [
           "L3"
         ],
-        "nist_ai_rmf": []
+        "nist_ai_rmf": [
+          "MEASURE 2.7"
+        ]
       }
     }
   ]

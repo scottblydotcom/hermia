@@ -10,6 +10,12 @@
         "L3",
         "framework multi-step orchestration"
       ]
+    ],
+    "nist_ai_rmf": [
+      [
+        "MEASURE 2.5",
+        "multi-step orchestration validity"
+      ]
     ]
   },
   "known_limitations": [

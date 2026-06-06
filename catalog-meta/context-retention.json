@@ -10,6 +10,12 @@
         "L3",
         "in-conversation framework state"
       ]
+    ],
+    "nist_ai_rmf": [
+      [
+        "MEASURE 2.5",
+        "in-conversation state validity"
+      ]
     ]
   },
   "known_limitations": [

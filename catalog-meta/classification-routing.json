@@ -22,6 +22,12 @@
         "L3",
         "framework routing under social-engineering pressure"
       ]
+    ],
+    "nist_ai_rmf": [
+      [
+        "MEASURE 2.7",
+        "routing integrity under social-engineering"
+      ]
     ]
   },
   "known_limitations": [

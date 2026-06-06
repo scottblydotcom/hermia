@@ -7,8 +7,8 @@
   "frameworks": {
     "nist_ai_rmf": [
       [
-        "GOVERN 1.1",
-        "regular behavioral testing of the agent capability"
+        "MEASURE 2.5",
+        "validity across conversation turns"
       ]
     ],
     "csa_maestro": [

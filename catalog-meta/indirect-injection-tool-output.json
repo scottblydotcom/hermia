@@ -26,6 +26,12 @@
         "L3",
         "framework validation of untrusted tool output"
       ]
+    ],
+    "nist_ai_rmf": [
+      [
+        "MEASURE 2.7",
+        "resistance to indirect injection via tool output"
+      ]
     ]
   },
   "known_limitations": [

@@ -22,6 +22,12 @@
         "L1",
         "model adherence to message-hierarchy precedence"
       ]
+    ],
+    "nist_ai_rmf": [
+      [
+        "MEASURE 2.7",
+        "message-hierarchy integrity"
+      ]
     ]
   },
   "known_limitations": [

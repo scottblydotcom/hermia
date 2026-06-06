@@ -10,6 +10,12 @@
         "L3",
         "framework multi-step planning"
       ]
+    ],
+    "nist_ai_rmf": [
+      [
+        "MEASURE 2.5",
+        "domain multi-action plan validity"
+      ]
     ]
   },
   "known_limitations": [

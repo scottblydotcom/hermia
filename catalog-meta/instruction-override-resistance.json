@@ -22,6 +22,12 @@
         "L1",
         "model disposition under instruction override"
       ]
+    ],
+    "nist_ai_rmf": [
+      [
+        "MEASURE 2.7",
+        "framework-evasion resistance"
+      ]
     ]
   },
   "known_limitations": [

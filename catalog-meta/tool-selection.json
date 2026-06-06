@@ -10,6 +10,12 @@
         "L3",
         "framework tool-selection logic"
       ]
+    ],
+    "nist_ai_rmf": [
+      [
+        "MEASURE 2.5",
+        "tool-selection validity"
+      ]
     ]
   },
   "known_limitations": [
