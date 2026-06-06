@@ -7,8 +7,8 @@
   "frameworks": {
     "csa_maestro": [
       [
-        "L5",
-        "multi-tool orchestration \u2014 chains >=3 dependent tool calls (L5 vs L4 decided here: L5, orchestration layer)"
+        "L3",
+        "framework multi-step orchestration"
       ]
     ]
   },

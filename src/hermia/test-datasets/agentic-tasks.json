@@ -10,7 +10,7 @@
         "owasp_llm_top10_2025": [],
         "mitre_atlas_v5_1": [],
         "csa_maestro": [
-          "L4"
+          "L3"
         ],
         "nist_ai_rmf": []
       }
@@ -39,7 +39,9 @@
       "frameworks": {
         "owasp_llm_top10_2025": [],
         "mitre_atlas_v5_1": [],
-        "csa_maestro": [],
+        "csa_maestro": [
+          "L3"
+        ],
         "nist_ai_rmf": [
           "MEASURE 2.5"
         ]
@@ -56,7 +58,9 @@
           "LLM06:2025"
         ],
         "mitre_atlas_v5_1": [],
-        "csa_maestro": [],
+        "csa_maestro": [
+          "L3"
+        ],
         "nist_ai_rmf": []
       }
     },
@@ -70,7 +74,7 @@
         "owasp_llm_top10_2025": [],
         "mitre_atlas_v5_1": [],
         "csa_maestro": [
-          "L4"
+          "L3"
         ],
         "nist_ai_rmf": []
       }
@@ -87,7 +91,9 @@
           "LLM06:2025"
         ],
         "mitre_atlas_v5_1": [],
-        "csa_maestro": [],
+        "csa_maestro": [
+          "L1"
+        ],
         "nist_ai_rmf": []
       }
     },
@@ -115,7 +121,9 @@
       "frameworks": {
         "owasp_llm_top10_2025": [],
         "mitre_atlas_v5_1": [],
-        "csa_maestro": [],
+        "csa_maestro": [
+          "L3"
+        ],
         "nist_ai_rmf": [
           "MEASURE 2.5"
         ]
@@ -135,7 +143,9 @@
         "mitre_atlas_v5_1": [
           "AML.T0100"
         ],
-        "csa_maestro": [],
+        "csa_maestro": [
+          "L1"
+        ],
         "nist_ai_rmf": []
       }
     },
@@ -150,7 +160,9 @@
           "LLM06:2025"
         ],
         "mitre_atlas_v5_1": [],
-        "csa_maestro": [],
+        "csa_maestro": [
+          "L3"
+        ],
         "nist_ai_rmf": [
           "MANAGE 2.2"
         ]
@@ -169,7 +181,9 @@
         "mitre_atlas_v5_1": [
           "AML.T0100"
         ],
-        "csa_maestro": [],
+        "csa_maestro": [
+          "L3"
+        ],
         "nist_ai_rmf": []
       }
     },
@@ -186,7 +200,9 @@
         "mitre_atlas_v5_1": [
           "AML.T0100"
         ],
-        "csa_maestro": [],
+        "csa_maestro": [
+          "L3"
+        ],
         "nist_ai_rmf": []
       }
     },
@@ -203,7 +219,9 @@
         "mitre_atlas_v5_1": [
           "AML.T0100"
         ],
-        "csa_maestro": [],
+        "csa_maestro": [
+          "L3"
+        ],
         "nist_ai_rmf": []
       }
     },
@@ -220,7 +238,9 @@
         "mitre_atlas_v5_1": [
           "AML.T0100"
         ],
-        "csa_maestro": [],
+        "csa_maestro": [
+          "L3"
+        ],
         "nist_ai_rmf": []
       }
     },
@@ -327,7 +347,7 @@
         "owasp_llm_top10_2025": [],
         "mitre_atlas_v5_1": [],
         "csa_maestro": [
-          "L4"
+          "L3"
         ],
         "nist_ai_rmf": []
       }
@@ -341,7 +361,9 @@
       "frameworks": {
         "owasp_llm_top10_2025": [],
         "mitre_atlas_v5_1": [],
-        "csa_maestro": [],
+        "csa_maestro": [
+          "L3"
+        ],
         "nist_ai_rmf": [
           "MEASURE 2.5"
         ]
@@ -410,7 +432,7 @@
         "owasp_llm_top10_2025": [],
         "mitre_atlas_v5_1": [],
         "csa_maestro": [
-          "L5"
+          "L3"
         ],
         "nist_ai_rmf": []
       }
@@ -448,7 +470,9 @@
         "mitre_atlas_v5_1": [
           "AML.T0098"
         ],
-        "csa_maestro": [],
+        "csa_maestro": [
+          "L1"
+        ],
         "nist_ai_rmf": []
       }
     },
@@ -484,7 +508,9 @@
       "frameworks": {
         "owasp_llm_top10_2025": [],
         "mitre_atlas_v5_1": [],
-        "csa_maestro": [],
+        "csa_maestro": [
+          "L3"
+        ],
         "nist_ai_rmf": [
           "GOVERN 1.1"
         ]
@@ -508,7 +534,7 @@
           "AML.T0051"
         ],
         "csa_maestro": [
-          "L5"
+          "L3"
         ],
         "nist_ai_rmf": []
       }

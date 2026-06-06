@@ -10,6 +10,12 @@
         "MEASURE 2.5",
         "regular behavioral testing of the agent capability"
       ]
+    ],
+    "csa_maestro": [
+      [
+        "L3",
+        "framework output-schema correctness"
+      ]
     ]
   },
   "known_limitations": [

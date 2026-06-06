@@ -10,6 +10,12 @@
         "LLM06:2025",
         "output-format constraint adherence"
       ]
+    ],
+    "csa_maestro": [
+      [
+        "L3",
+        "framework output-schema enforcement"
+      ]
     ]
   },
   "known_limitations": [

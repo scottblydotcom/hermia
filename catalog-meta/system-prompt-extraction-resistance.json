@@ -20,6 +20,12 @@
         "AML.T0100",
         "prompt extraction"
       ]
+    ],
+    "csa_maestro": [
+      [
+        "L1",
+        "model disposition under extraction attempt"
+      ]
     ]
   },
   "known_limitations": [

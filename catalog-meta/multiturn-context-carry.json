@@ -10,6 +10,12 @@
         "GOVERN 1.1",
         "regular behavioral testing of the agent capability"
       ]
+    ],
+    "csa_maestro": [
+      [
+        "L3",
+        "framework conversation-state persistence"
+      ]
     ]
   },
   "known_limitations": [

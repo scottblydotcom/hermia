@@ -24,7 +24,7 @@
     "csa_maestro": [
       [
         "L3",
-        "framework / tool-output processing layer"
+        "framework validation of untrusted tool output"
       ]
     ]
   },

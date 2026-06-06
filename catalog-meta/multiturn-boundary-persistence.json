@@ -19,8 +19,8 @@
     ],
     "csa_maestro": [
       [
-        "L5",
-        "policy layer"
+        "L3",
+        "framework refusal persistence under multi-turn"
       ]
     ]
   },

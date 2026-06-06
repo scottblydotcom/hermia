@@ -20,7 +20,7 @@
     "csa_maestro": [
       [
         "L1",
-        "input layer \u2014 adversarial data record"
+        "model robustness against adversarial input"
       ]
     ]
   },

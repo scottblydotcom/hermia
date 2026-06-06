@@ -7,8 +7,8 @@
   "frameworks": {
     "csa_maestro": [
       [
-        "L4",
-        "application tool-selection logic"
+        "L3",
+        "framework tool-invocation logic"
       ]
     ]
   },

@@ -16,6 +16,12 @@
         "MANAGE 2.2",
         "least-privilege boundary test"
       ]
+    ],
+    "csa_maestro": [
+      [
+        "L3",
+        "framework scope/tool boundary enforcement"
+      ]
     ]
   },
   "known_limitations": [

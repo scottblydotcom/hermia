@@ -16,6 +16,12 @@
         "AML.T0100",
         "encoded-field prompt injection"
       ]
+    ],
+    "csa_maestro": [
+      [
+        "L3",
+        "input-validation attacks (CSA L3)"
+      ]
     ]
   },
   "known_limitations": [

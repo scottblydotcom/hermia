@@ -20,7 +20,7 @@
     "csa_maestro": [
       [
         "L1",
-        "policy layer"
+        "model adherence to message-hierarchy precedence"
       ]
     ]
   },

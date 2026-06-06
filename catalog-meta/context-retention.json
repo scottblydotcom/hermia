@@ -7,8 +7,8 @@
   "frameworks": {
     "csa_maestro": [
       [
-        "L4",
-        "application-level session memory"
+        "L3",
+        "in-conversation framework state"
       ]
     ]
   },

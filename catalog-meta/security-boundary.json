@@ -14,6 +14,12 @@
         "LLM06:2025",
         "harmful data-exfiltration request"
       ]
+    ],
+    "csa_maestro": [
+      [
+        "L1",
+        "model disposition under harmful-task request"
+      ]
     ]
   },
   "known_limitations": [
