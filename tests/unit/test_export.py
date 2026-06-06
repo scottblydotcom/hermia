@@ -293,8 +293,8 @@ def test_main_dsn_from_env(tmp_path: Path, monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 _FW = {
-    "owasp_llm_top10_2025": ["LLM01:2025", "LLM07:2025"],
-    "mitre_atlas_v5_1": ["AML.T0100"],
+    "owasp_llm_top10": ["LLM01:2025", "LLM07:2025"],
+    "mitre_atlas": ["AML.T0100"],
     "csa_maestro": [],
     "nist_ai_rmf": [],
 }

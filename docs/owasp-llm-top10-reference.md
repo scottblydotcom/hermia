@@ -2,6 +2,7 @@
 
 **Status:** Authoritative internal reference for all Hermia → OWASP LLM Top 10 (2025) mappings.
 **Primary source:** OWASP Gen AI Security Project. *OWASP Top 10 for Large Language Model Applications 2025.* Released **2025-03-12** (v2025 1.0).
+**Version reference:** Authoritative version string lives in `agentic-tasks.json::framework_versions.owasp_llm_top10`. Runtime field key is the version-agnostic `owasp_llm_top10` (renamed from `owasp_llm_top10_2025` on 2026-06-06 — version moved to the sidecar so a version bump touches one line, not 30 tests).
 **Canonical index:** <https://genai.owasp.org/llm-top-10/>
 **Companion downloads:** <https://owasp.org/www-project-top-10-for-large-language-model-applications/> · v2025 PDF: <https://owasp.org/www-project-top-10-for-large-language-model-applications/assets/PDF/OWASP-Top-10-for-LLMs-v2025.pdf>
 

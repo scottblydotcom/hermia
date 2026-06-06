@@ -2,6 +2,7 @@
 
 **Status:** Authoritative internal reference for all Hermia → NIST AI RMF mappings.
 **Primary source:** *Artificial Intelligence Risk Management Framework (AI RMF 1.0)*, NIST AI 100-1, January 2023. <https://doi.org/10.6028/NIST.AI.100-1>
+**Version reference:** Authoritative version string lives in `agentic-tasks.json::framework_versions.nist_ai_rmf`. Runtime field key is `nist_ai_rmf`.
 **Companion resource:** *NIST AI RMF Playbook* (living document) — voluntary subcategory-level guidance. <https://www.nist.gov/itl/ai-risk-management-framework> · JSON copy on disk: `docs/nist_ai_rmf_playbook.json`
 
 > **Reproduction note.** Function definitions, category names, and subcategory text below are reproduced from NIST AI 100-1 and the Playbook JSON as fetched 2026-06-06. Direct-quoted passages are in quotation marks. Where the framework is silent or implicit on cross-cutting concerns (tool calling, multi-turn, prompt injection), the placement guidance is Hermia's reasoned interpretation against the trustworthiness-characteristic axes.

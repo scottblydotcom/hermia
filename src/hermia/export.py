@@ -81,8 +81,8 @@ def compute_score(row: dict[str, object]) -> int:
 
 
 _FW_MAP = {
-    "framework_owasp": "owasp_llm_top10_2025",
-    "framework_mitre": "mitre_atlas_v5_1",
+    "framework_owasp": "owasp_llm_top10",
+    "framework_mitre": "mitre_atlas",
     "framework_maestro": "csa_maestro",
     "framework_nist": "nist_ai_rmf",
 }

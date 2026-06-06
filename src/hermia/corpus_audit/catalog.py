@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 _FRAMEWORK_LABELS = {
-    "owasp_llm_top10_2025": "OWASP LLM Top 10 (2025)",
-    "mitre_atlas_v5_1": "MITRE ATLAS v5.1",
+    "owasp_llm_top10": "OWASP LLM Top 10",
+    "mitre_atlas": "MITRE ATLAS",
     "csa_maestro": "CSA MAESTRO",
     "nist_ai_rmf": "NIST AI RMF",
 }

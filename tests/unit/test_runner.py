@@ -272,8 +272,8 @@ def test_run_test_tokens_per_sec_computed() -> None:
 
 def test_run_test_carries_frameworks_from_test() -> None:
     fw = {
-        "owasp_llm_top10_2025": ["LLM01:2025"],
-        "mitre_atlas_v5_1": ["AML.T0100"],
+        "owasp_llm_top10": ["LLM01:2025"],
+        "mitre_atlas": ["AML.T0100"],
         "csa_maestro": [],
         "nist_ai_rmf": [],
     }
@@ -303,8 +303,8 @@ def test_load_tests_includes_frameworks_field() -> None:
     results = load_tests(["system-prompt-extraction-resistance"])
     assert len(results) == 1
     fw = results[0]["frameworks"]
-    assert "LLM01:2025" in fw["owasp_llm_top10_2025"]
-    assert "AML.T0100" in fw["mitre_atlas_v5_1"]
+    assert "LLM01:2025" in fw["owasp_llm_top10"]
+    assert "AML.T0056" in fw["mitre_atlas"]
 
 
 # ---------------------------------------------------------------------------

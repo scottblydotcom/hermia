@@ -2,6 +2,7 @@
 
 **Status:** Authoritative internal reference for all Hermia → MAESTRO mappings.
 **Source:** Huang, Ken. *"Agentic AI Threat Modeling Framework: MAESTRO."* Cloud Security Alliance, Industry Insights, 6 February 2025. <https://cloudsecurityalliance.org/blog/2025/02/06/agentic-ai-threat-modeling-framework-maestro>
+**Version reference:** Authoritative version string lives in `agentic-tasks.json::framework_versions.csa_maestro`. Runtime field key is `csa_maestro`.
 **Companion tool (open source):** <https://github.com/CloudSecurityAlliance/MAESTRO> — Next.js + Genkit web app; AI-generated per-layer threat analysis from an architecture description. No programmatic API as of 2026-06.
 
 > **Reproduction note.** Layer names, descriptions, and threat lists below are reproduced from the CSA paper as fetched 2026-06-06. Direct-quoted definitions are marked with quotation marks and attributed to Huang (2025). Where the paper is silent or implicit on cross-layer concerns (tool calling, memory, routing, prompt injection), the placement guidance below is Hermia's reasoned interpretation, not a CSA pronouncement.
