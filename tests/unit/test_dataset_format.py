@@ -9,10 +9,16 @@ visible as `\\u…` escapes during review.
 """
 
 import json
+from pathlib import Path
 
-from hermia.runner import PACKAGE_DIR
-
-_DATASET = PACKAGE_DIR / "test-datasets" / "agentic-tasks.json"
+# Resolve the dataset path relative to the source tree rather than importing
+# PACKAGE_DIR from hermia.runner. This avoids pulling runner's runtime
+# dependencies into a pure file-format test, and pins resolution to the
+# source tree even when hermia is editable-installed into site-packages.
+_DATASET = (
+    Path(__file__).resolve().parents[2]
+    / "src" / "hermia" / "test-datasets" / "agentic-tasks.json"
+)
 
 
 def _canonical(data: object) -> str:
@@ -26,7 +32,8 @@ def test_dataset_is_in_canonical_format():
         "agentic-tasks.json is not in canonical format. Re-run:\n"
         "  python -c \"import json,pathlib; p=pathlib.Path('src/hermia/"
         "test-datasets/agentic-tasks.json'); "
-        "p.write_text(json.dumps(json.loads(p.read_text()), ensure_ascii=True, indent=2)+chr(10))\""
+        "p.write_text(json.dumps(json.loads(p.read_text(encoding='utf-8')), "
+        "ensure_ascii=True, indent=2)+chr(10), encoding='utf-8')\""
     )
 
 
