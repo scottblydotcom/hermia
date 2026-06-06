@@ -2,11 +2,11 @@
 
 **Source of truth:** `src/hermia/test-datasets/agentic-tasks.json` (prompts) and `src/hermia/schemas.py` (graders).
 
-**Framework versions in effect:**
-- OWASP LLM Top 10: `2025 (released 2025-03-12)` — see `docs/owasp-llm-top10-reference.md`
-- CSA MAESTRO: `Huang 2025-02-06` — see `docs/maestro-reference.md`
-- NIST AI RMF: `AI RMF 1.0 (2023-01)` — see `docs/nist-ai-rmf-reference.md`
-- MITRE ATLAS: `6.0.0 / 2026.05` — see `docs/mitre-atlas-reference.md`
+**Framework versions in effect** (canonical version strings live in `src/hermia/test-datasets/agentic-tasks.json::framework_versions`):
+- OWASP LLM Top 10: `2025 (released 2025-03-12)` — <https://genai.owasp.org/llm-top-10/>
+- CSA MAESTRO: `Huang 2025-02-06` — <https://cloudsecurityalliance.org/blog/2025/02/06/agentic-ai-threat-modeling-framework-maestro>
+- NIST AI RMF: `AI RMF 1.0 (2023-01)` — <https://doi.org/10.6028/NIST.AI.100-1>
+- MITRE ATLAS: `6.0.0 / 2026.05` — <https://atlas.mitre.org/>
 
 **Branch:** `plan/track5-plan2`. 30 tests, single-turn unless noted.
 
