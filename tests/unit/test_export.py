@@ -348,6 +348,47 @@ def test_push_framework_columns_populated_from_nested_dict() -> None:
     assert rec["framework_nist"] == []
 
 
+def test_push_framework_columns_back_compat_with_legacy_key_names() -> None:
+    """Pre-2026-06-06 JSONLs use owasp_llm_top10_2025 / mitre_atlas_v5_1 keys.
+
+    Re-exporting them after the rename must still populate the renamed
+    Postgres columns, not silently zero them out.
+    """
+    import sys
+
+    legacy_fw = {
+        "owasp_llm_top10_2025": ["LLM01:2025", "LLM07:2025"],
+        "mitre_atlas_v5_1": ["AML.T0100"],
+        "csa_maestro": [],
+        "nist_ai_rmf": [],
+    }
+    row = {**_ROW, "frameworks": legacy_fw}
+
+    captured_records: list = []
+    mock_pg = MagicMock()
+    mock_extras = MagicMock()
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_cur.__enter__ = MagicMock(return_value=mock_cur)
+    mock_cur.__exit__ = MagicMock(return_value=False)
+    mock_conn.cursor.return_value = mock_cur
+    mock_pg.connect.return_value = mock_conn
+    mock_extras.execute_batch.side_effect = (
+        lambda cur, sql, records: captured_records.extend(records)
+    )
+
+    with patch.dict(sys.modules, {"psycopg2": mock_pg, "psycopg2.extras": mock_extras}):
+        push([row], dsn="postgresql://test", dry_run=False)
+
+    rec = captured_records[0]
+    # Legacy owasp_llm_top10_2025 / mitre_atlas_v5_1 keys should still populate
+    # the framework_owasp / framework_mitre columns via the back-compat fallback.
+    assert rec["framework_owasp"] == ["LLM01:2025", "LLM07:2025"]
+    assert rec["framework_mitre"] == ["AML.T0100"]
+
+
 # ---------------------------------------------------------------------------
 # hermia-0ws: new repeat/aggregate column tests
 # ---------------------------------------------------------------------------
