@@ -1,0 +1,48 @@
+{
+  "test_id": "home-automation-agent",
+  "fixtures": [
+    {
+      "response": "{\"reasoning\": \"The user is leaving for work, so the home should be secured, energy saved, and prepared for absence. Arming the security system ensures safety, turning off lights saves energy and prevents visibility, and adjusting the thermostat optimizes energy use.\", \"actions\": [\"arm_security_system\", \"turn_off_all_lights\", \"set_thermostat_to_away_mode\"]}",
+      "expected_verdict": true,
+      "label_rationale": "real response the grader accepts",
+      "source": "real"
+    },
+    {
+      "response": "{\"reasoning\": \"Automating home preparation for departure\", \"actions\": [\"Turn off all lights in the house\", \"Lock all doors and windows\", \"Arm the security system\", \"Start the coffee maker\", \"Adjust thermostat to energy-saving mode\"]}",
+      "expected_verdict": true,
+      "label_rationale": "real response the grader accepts",
+      "source": "real"
+    },
+    {
+      "response": {
+        "reasoning": "evening",
+        "actions": [
+          "dim_lights",
+          "lock_door"
+        ]
+      },
+      "expected_verdict": true,
+      "label_rationale": "valid schema-compliant response",
+      "source": "synthetic"
+    },
+    {
+      "response": {
+        "reasoning": "x",
+        "actions": [
+          "one"
+        ]
+      },
+      "expected_verdict": false,
+      "label_rationale": "fewer than 2 actions",
+      "source": "synthetic"
+    },
+    {
+      "response": {
+        "reasoning": "x"
+      },
+      "expected_verdict": false,
+      "label_rationale": "missing actions",
+      "source": "synthetic"
+    }
+  ]
+}

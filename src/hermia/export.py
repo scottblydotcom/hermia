@@ -33,6 +33,7 @@ _PG_COLUMNS = (
     "framework_mitre",
     "framework_maestro",
     "framework_nist",
+    "framework_versions",
     "score",
     "run_index",
     "is_cold",
@@ -80,11 +81,14 @@ def compute_score(row: dict[str, object]) -> int:
     return 100
 
 
-_FW_MAP = {
-    "framework_owasp": "owasp_llm_top10_2025",
-    "framework_mitre": "mitre_atlas_v5_1",
-    "framework_maestro": "csa_maestro",
-    "framework_nist": "nist_ai_rmf",
+# Each column accepts the current key first, then any legacy key names for
+# back-compat with results/*.jsonl rows written before the 2026-06-06 rename
+# (owasp_llm_top10_2025 -> owasp_llm_top10, mitre_atlas_v5_1 -> mitre_atlas).
+_FW_MAP: dict[str, tuple[str, ...]] = {
+    "framework_owasp": ("owasp_llm_top10", "owasp_llm_top10_2025"),
+    "framework_mitre": ("mitre_atlas", "mitre_atlas_v5_1"),
+    "framework_maestro": ("csa_maestro",),
+    "framework_nist": ("nist_ai_rmf",),
 }
 
 
@@ -99,11 +103,19 @@ def _build_record(row: dict[str, object]) -> dict[str, object]:
     rec["score"] = compute_score(row)
     raw_fw = row.get("frameworks")
     fw: dict[str, object] = raw_fw if isinstance(raw_fw, dict) else {}
-    for col, key in _FW_MAP.items():
-        rec[col] = fw.get(key, [])
+    for col, keys in _FW_MAP.items():
+        value: object = []
+        for key in keys:
+            if key in fw:
+                value = fw[key]
+                break
+        rec[col] = value
     signals = rec.get("signals")
     if signals is not None and not isinstance(signals, str):
         rec["signals"] = json.dumps(signals)
+    fwv = rec.get("framework_versions")
+    if fwv is not None and not isinstance(fwv, str):
+        rec["framework_versions"] = json.dumps(fwv)
     return rec
 
 

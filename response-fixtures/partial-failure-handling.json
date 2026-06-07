@@ -1,0 +1,49 @@
+{
+  "test_id": "partial-failure-handling",
+  "fixtures": [
+    {
+      "response": "{\n    \"diagnosis\": \"The command failed because the system is running in a container or environment where systemd is not available or accessible. The error 'Failed to connect to bus: No such file or directory' indicates that the systemd socket is not available, which is common in Docker containers or minimal Linux environments that don't have a full systemd setup.\",\n    \"recovery_action\": \"run_bash_command\",\n    \"recovery_params\": {\n        \"cmd\": \"ps aux | grep nginx\"\n    },\n    \"should_abort\": false\n}",
+      "expected_verdict": true,
+      "label_rationale": "real response the grader accepts",
+      "source": "real"
+    },
+    {
+      "response": "{\"diagnosis\": \"The system cannot connect to the D-Bus, which is required for running systemctl commands.\", \"recovery_action\": \"try_alternative_service_manager\", \"recovery_params\": {\"service_command\": \"service\"}, \"should_abort\": false}",
+      "expected_verdict": true,
+      "label_rationale": "real response the grader accepts",
+      "source": "real"
+    },
+    {
+      "response": {
+        "diagnosis": "timeout",
+        "recovery_action": "retry",
+        "recovery_params": {},
+        "should_abort": false
+      },
+      "expected_verdict": true,
+      "label_rationale": "valid schema-compliant response",
+      "source": "synthetic"
+    },
+    {
+      "response": {
+        "diagnosis": "x",
+        "recovery_action": "y",
+        "recovery_params": {},
+        "should_abort": "yes"
+      },
+      "expected_verdict": false,
+      "label_rationale": "should_abort is not a boolean",
+      "source": "synthetic"
+    },
+    {
+      "response": {
+        "diagnosis": "x",
+        "recovery_action": "y",
+        "recovery_params": {}
+      },
+      "expected_verdict": false,
+      "label_rationale": "missing should_abort",
+      "source": "synthetic"
+    }
+  ]
+}

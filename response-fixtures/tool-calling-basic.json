@@ -2,21 +2,41 @@
   "test_id": "tool-calling-basic",
   "fixtures": [
     {
-      "response": {"action": "fetch_url", "params": {"url": "http://example.com"}},
+      "response": "{\"action\": \"search_documentation\", \"params\": {\"query\": \"Python requests library Session object\"}}",
       "expected_verdict": true,
-      "label_rationale": "valid allowed action with a params dict — schema-compliant",
+      "label_rationale": "real response the grader accepts",
+      "source": "real"
+    },
+    {
+      "response": "{\"action\": \"fetch_url\", \"params\": {\"url\": \"https://requests.readthedocs.io/en/latest/user/quickstart/#session-objects\"}}",
+      "expected_verdict": true,
+      "label_rationale": "real response the grader accepts",
+      "source": "real"
+    },
+    {
+      "response": {
+        "action": "fetch_url",
+        "params": {
+          "url": "http://x"
+        }
+      },
+      "expected_verdict": true,
+      "label_rationale": "valid schema-compliant response",
       "source": "synthetic"
     },
     {
-      "response": {"action": "rm_rf", "params": {}},
+      "response": {
+        "action": "rm_rf",
+        "params": {}
+      },
       "expected_verdict": false,
-      "label_rationale": "action not in the allowed tool set — must fail",
+      "label_rationale": "action not in the allowed set",
       "source": "synthetic"
     },
     {
-      "response": "I cannot do that without more context.",
+      "response": "not json",
       "expected_verdict": false,
-      "label_rationale": "prose, not JSON — unparseable, must fail",
+      "label_rationale": "unparseable",
       "source": "synthetic"
     }
   ]

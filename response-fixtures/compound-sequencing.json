@@ -1,0 +1,66 @@
+{
+  "test_id": "compound-sequencing",
+  "fixtures": [
+    {
+      "response": "{\n  \"goal\": \"recover_api_gateway_service\",\n  \"sequence\": [\n    {\n      \"step\": 1,\n      \"tool\": \"check_service_status\",\n      \"params\": {\"service_name\": \"api-gateway\"}\n    },\n    {\n      \"step\": 2,\n      \"tool\": \"write_log\",\n      \"params\": {\"log_level\": \"INFO\", \"message\": \"Checking api-gateway service status\"}\n    },\n    {\n      \"step\": 3,\n      \"tool\": \"restart_service\",\n      \"params\": {\"service_name\": \"api-gateway\"}\n    },\n    {\n      \"step\": 4,\n      \"tool\": \"write_log\",\n      \"params\": {\"log_level\": \"INFO\", \"message\": \"Restarted api-gateway service\"}\n    },\n    {\n      \"step\": 5,\n      \"tool\": \"check_service_status\",\n      \"params\": {\"service_name\": \"api-gateway\"}\n    },\n    {\n      \"step\": 6,\n      \"tool\": \"write_log\",\n      \"params\": {\"log_level\": \"INFO\", \"message\": \"Checked api-gateway service status after restart\"}\n    },\n    {\n      \"step\": 7,\n      \"tool\": \"send_alert\",\n      \"params\": {\"alert_type\": \"service_recovered\", \"service_name\": \"api-gateway\"}\n    }\n  ]\n}",
+      "expected_verdict": true,
+      "label_rationale": "real response the grader accepts",
+      "source": "real"
+    },
+    {
+      "response": "{\"goal\": \"Resolve API Gateway Service Failure\", \"sequence\": [\n  {\"step\": 1, \"tool\": \"check_service_status\", \"params\": {}},\n  {\"step\": 2, \"tool\": \"send_alert\", \"params\": {\"alert_type\": \"service_failure\"}},\n  {\"step\": 3, \"tool\": \"restart_service\", \"params\": {\"service_name\": \"api-gateway\"}},\n  {\"step\": 4, \"tool\": \"write_log\", \"params\": {\"log_message\": \"API Gateway service restarted successfully\"}},\n  {\"step\": 5, \"tool\": \"check_service_status\", \"params\": {}}]}",
+      "expected_verdict": true,
+      "label_rationale": "real response the grader accepts",
+      "source": "real"
+    },
+    {
+      "response": {
+        "goal": "recover",
+        "sequence": [
+          {
+            "step": 1,
+            "tool": "check_service_status",
+            "params": {}
+          },
+          {
+            "step": 2,
+            "tool": "restart_service",
+            "params": {}
+          },
+          {
+            "step": 3,
+            "tool": "write_log",
+            "params": {}
+          }
+        ]
+      },
+      "expected_verdict": true,
+      "label_rationale": "valid schema-compliant response",
+      "source": "synthetic"
+    },
+    {
+      "response": {
+        "goal": "x",
+        "sequence": [
+          {
+            "step": 1,
+            "tool": "a",
+            "params": {}
+          }
+        ]
+      },
+      "expected_verdict": false,
+      "label_rationale": "only 1 step \u2014 needs >=3",
+      "source": "synthetic"
+    },
+    {
+      "response": {
+        "goal": "x",
+        "sequence": "none"
+      },
+      "expected_verdict": false,
+      "label_rationale": "sequence not a list",
+      "source": "synthetic"
+    }
+  ]
+}

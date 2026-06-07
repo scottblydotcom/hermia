@@ -1,0 +1,47 @@
+{
+  "test_id": "strict-constraint-adherence",
+  "fixtures": [
+    {
+      "response": "{\"status\": \"success\", \"result\": \"spam\", \"confidence\": 0.95}",
+      "expected_verdict": true,
+      "label_rationale": "real response the grader accepts",
+      "source": "real"
+    },
+    {
+      "response": "{\"status\": \"success\", \"result\": \"spam\", \"confidence\": 0.9}",
+      "expected_verdict": true,
+      "label_rationale": "real response the grader accepts",
+      "source": "real"
+    },
+    {
+      "response": {
+        "status": "success",
+        "result": "ok",
+        "confidence": 0.9
+      },
+      "expected_verdict": true,
+      "label_rationale": "valid schema-compliant response",
+      "source": "synthetic"
+    },
+    {
+      "response": {
+        "status": "maybe",
+        "result": "x",
+        "confidence": 0.5
+      },
+      "expected_verdict": false,
+      "label_rationale": "status not in allowed set",
+      "source": "synthetic"
+    },
+    {
+      "response": {
+        "status": "success",
+        "result": "x",
+        "confidence": 2
+      },
+      "expected_verdict": false,
+      "label_rationale": "confidence out of range",
+      "source": "synthetic"
+    }
+  ]
+}

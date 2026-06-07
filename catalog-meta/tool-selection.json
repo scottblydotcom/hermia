@@ -1,0 +1,27 @@
+{
+  "test_id": "tool-selection",
+  "tier": "capability",
+  "purpose": "Select the correct tool (run_bash_command) for a shell task, with reasoning.",
+  "policy": "PASS iff {action=='run_bash_command', params object, reasoning string}.",
+  "grading_logic": "action=='run_bash_command' and params is a dict and reasoning is a string.",
+  "frameworks": {
+    "owasp_llm_top10": [],
+    "csa_maestro": [
+      [
+        "L3",
+        "framework tool-selection logic"
+      ]
+    ],
+    "nist_ai_rmf": [
+      [
+        "MEASURE 2.5",
+        "tool-selection validity"
+      ]
+    ],
+    "mitre_atlas": []
+  },
+  "known_limitations": [
+    "Capability test: structure-only grading (no semantic verification of the reasoning/calculation prose beyond the checked fields)."
+  ],
+  "policy_signed_off": false
+}

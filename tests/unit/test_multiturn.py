@@ -45,8 +45,8 @@ _MT_TEST = {
     "prompt": "",
     "turns": ["hello", 'now reply {"ok": true}'],
     "frameworks": {
-        "owasp_llm_top10_2025": [],
-        "mitre_atlas_v5_1": [],
+        "owasp_llm_top10": [],
+        "mitre_atlas": [],
         "csa_maestro": [],
         "nist_ai_rmf": [],
     },
@@ -141,8 +141,8 @@ def test_play_turns_passes_independent_message_snapshots() -> None:
         "prompt": "",
         "turns": ["first", "second"],
         "frameworks": {
-            "owasp_llm_top10_2025": [],
-            "mitre_atlas_v5_1": [],
+            "owasp_llm_top10": [],
+            "mitre_atlas": [],
             "csa_maestro": [],
             "nist_ai_rmf": [],
         },
@@ -178,8 +178,8 @@ def test_play_turns_returns_none_when_generate_returns_none():
         "prompt": "",
         "turns": ["hello"],
         "frameworks": {
-            "owasp_llm_top10_2025": [],
-            "mitre_atlas_v5_1": [],
+            "owasp_llm_top10": [],
+            "mitre_atlas": [],
             "csa_maestro": [],
             "nist_ai_rmf": [],
         },
@@ -204,8 +204,8 @@ def test_single_turn_missing_prompt_does_not_crash():
         "system": "SYS",
         # intentionally no "prompt" key
         "frameworks": {
-            "owasp_llm_top10_2025": [],
-            "mitre_atlas_v5_1": [],
+            "owasp_llm_top10": [],
+            "mitre_atlas": [],
             "csa_maestro": [],
             "nist_ai_rmf": [],
         },
@@ -262,8 +262,8 @@ def test_play_turns_coerces_none_assistant_text_to_empty_string():
         "prompt": "",
         "turns": ["hello", 'now reply {"ok": true}'],
         "frameworks": {
-            "owasp_llm_top10_2025": [],
-            "mitre_atlas_v5_1": [],
+            "owasp_llm_top10": [],
+            "mitre_atlas": [],
             "csa_maestro": [],
             "nist_ai_rmf": [],
         },

@@ -204,6 +204,28 @@ def load_tests(selected_ids: list[str]) -> list[dict[str, Any]]:
     return [t for t in load_tests_all() if t["id"] in selected_ids]
 
 
+_FRAMEWORK_VERSIONS_CACHE: dict[str, str] | None = None
+
+
+def load_framework_versions() -> dict[str, str]:
+    """Return the top-level framework_versions sidecar from agentic-tasks.json.
+
+    Stamped onto every result row so downstream consumers (Postgres,
+    dashboards, retroactive audits) can tie a result to the exact framework
+    revision used to score it without git archaeology. Module-cached: the
+    file is small and the sidecar does not change during a process lifetime.
+    """
+    global _FRAMEWORK_VERSIONS_CACHE
+    if _FRAMEWORK_VERSIONS_CACHE is None:
+        path = PACKAGE_DIR / "test-datasets" / "agentic-tasks.json"
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        _FRAMEWORK_VERSIONS_CACHE = data.get("framework_versions") or {}
+    # Defensive copy — callers occasionally stamp this dict onto rows and would
+    # otherwise mutate the shared cache for the rest of the process.
+    return dict(_FRAMEWORK_VERSIONS_CACHE)
+
+
 def _play_turns(
     transport: Any,
     model: str,
@@ -354,6 +376,7 @@ def run_test(
         "test_id": test["id"],
         "dimension": test.get("dimension", ""),
         "frameworks": test.get("frameworks", {}),
+        "framework_versions": load_framework_versions(),
         "failure_reason": failure_reason,
         "had_markdown_fence": had_markdown_fence,
         "json_valid": json_valid,

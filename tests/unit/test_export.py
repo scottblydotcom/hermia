@@ -293,8 +293,8 @@ def test_main_dsn_from_env(tmp_path: Path, monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 _FW = {
-    "owasp_llm_top10_2025": ["LLM01:2025", "LLM07:2025"],
-    "mitre_atlas_v5_1": ["AML.T0100"],
+    "owasp_llm_top10": ["LLM01:2025", "LLM07:2025"],
+    "mitre_atlas": ["AML.T0100"],
     "csa_maestro": [],
     "nist_ai_rmf": [],
 }
@@ -346,6 +346,82 @@ def test_push_framework_columns_populated_from_nested_dict() -> None:
     assert rec["framework_mitre"] == ["AML.T0100"]
     assert rec["framework_maestro"] == []
     assert rec["framework_nist"] == []
+
+
+def test_build_record_handles_row_missing_framework_versions() -> None:
+    """Legacy JSONL rows pre-2026-06-07 do not carry framework_versions.
+    The key MUST still be present in the projected record (set to None) so the
+    psycopg2 %(framework_versions)s SQL parameter resolves cleanly. Gemini PR
+    #101 review repeatedly claimed this would KeyError; this test exists to
+    document that it does not — `rec` is built via {c: row.get(c) for c in
+    _PG_COLUMNS}, so the key is always present in the dict regardless of
+    whether the input row had it.
+    """
+    from hermia.export import _build_record
+    row = {"run_id": "r", "host": "h", "model": "m", "test_id": "t"}  # no framework_versions
+    rec = _build_record(row)
+    assert "framework_versions" in rec, "key must be present even when row omits it"
+    assert rec["framework_versions"] is None, "missing-row value should project to None"
+
+
+def test_build_record_serializes_framework_versions() -> None:
+    """Code-review 2026-06-07: framework_versions stamped onto each row by the
+    runner must reach Postgres as a JSON string (the column is TEXT for
+    dependency-free dry-run compatibility, matching the signals pattern).
+    """
+    from hermia.export import _build_record
+    row = {
+        "run_id": "r", "host": "h", "model": "m", "test_id": "t",
+        "framework_versions": {
+            "owasp_llm_top10": "2025 (released 2025-03-12)",
+            "mitre_atlas": "6.0.0 / 2026.05",
+        },
+    }
+    rec = _build_record(row)
+    fwv = rec["framework_versions"]
+    assert isinstance(fwv, str)
+    assert json.loads(fwv)["mitre_atlas"] == "6.0.0 / 2026.05"
+
+
+def test_push_framework_columns_back_compat_with_legacy_key_names() -> None:
+    """Pre-2026-06-06 JSONLs use owasp_llm_top10_2025 / mitre_atlas_v5_1 keys.
+
+    Re-exporting them after the rename must still populate the renamed
+    Postgres columns, not silently zero them out.
+    """
+    import sys
+
+    legacy_fw = {
+        "owasp_llm_top10_2025": ["LLM01:2025", "LLM07:2025"],
+        "mitre_atlas_v5_1": ["AML.T0100"],
+        "csa_maestro": [],
+        "nist_ai_rmf": [],
+    }
+    row = {**_ROW, "frameworks": legacy_fw}
+
+    captured_records: list = []
+    mock_pg = MagicMock()
+    mock_extras = MagicMock()
+    mock_conn = MagicMock()
+    mock_cur = MagicMock()
+    mock_conn.__enter__ = MagicMock(return_value=mock_conn)
+    mock_conn.__exit__ = MagicMock(return_value=False)
+    mock_cur.__enter__ = MagicMock(return_value=mock_cur)
+    mock_cur.__exit__ = MagicMock(return_value=False)
+    mock_conn.cursor.return_value = mock_cur
+    mock_pg.connect.return_value = mock_conn
+    mock_extras.execute_batch.side_effect = (
+        lambda cur, sql, records: captured_records.extend(records)
+    )
+
+    with patch.dict(sys.modules, {"psycopg2": mock_pg, "psycopg2.extras": mock_extras}):
+        push([row], dsn="postgresql://test", dry_run=False)
+
+    rec = captured_records[0]
+    # Legacy owasp_llm_top10_2025 / mitre_atlas_v5_1 keys should still populate
+    # the framework_owasp / framework_mitre columns via the back-compat fallback.
+    assert rec["framework_owasp"] == ["LLM01:2025", "LLM07:2025"]
+    assert rec["framework_mitre"] == ["AML.T0100"]
 
 
 # ---------------------------------------------------------------------------

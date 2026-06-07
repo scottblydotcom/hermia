@@ -141,6 +141,24 @@ def test_load_tests_empty_selection() -> None:
 
 # ── run_test ──────────────────────────────────────────────────────────────────
 
+def test_run_test_stamps_framework_versions_on_row() -> None:
+    """Code-review 2026-06-07: every result row must carry the framework_versions
+    sidecar so downstream consumers can tie the row to the framework revision
+    used to score it without git archaeology.
+    """
+    payload = '{"action": "search_documentation", "params": {}}'
+    transport = MagicMock()
+    transport.generate.return_value = TransportResponse(
+        text=payload, tokens=10, elapsed_sec=1.0,
+        orchestration="ollama", orchestration_version="0.24.0", is_api_mode=False,
+    )
+    with patch("hermia.runner.fetch_server_ps_data", return_value=_PS_EMPTY):
+        result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler(), transport=transport)
+    fwv = result["framework_versions"]
+    assert isinstance(fwv, dict)
+    assert set(fwv) == {"owasp_llm_top10", "csa_maestro", "nist_ai_rmf", "mitre_atlas"}
+
+
 def test_run_test_success_json_valid() -> None:
     # Response is valid JSON but wrong schema for tool-calling-basic (action not in valid set)
     # json_valid=True, schema_compliant=False, failure_reason=SCHEMA_FAIL
@@ -272,8 +290,8 @@ def test_run_test_tokens_per_sec_computed() -> None:
 
 def test_run_test_carries_frameworks_from_test() -> None:
     fw = {
-        "owasp_llm_top10_2025": ["LLM01:2025"],
-        "mitre_atlas_v5_1": ["AML.T0100"],
+        "owasp_llm_top10": ["LLM01:2025"],
+        "mitre_atlas": ["AML.T0100"],
         "csa_maestro": [],
         "nist_ai_rmf": [],
     }
@@ -303,8 +321,21 @@ def test_load_tests_includes_frameworks_field() -> None:
     results = load_tests(["system-prompt-extraction-resistance"])
     assert len(results) == 1
     fw = results[0]["frameworks"]
-    assert "LLM01:2025" in fw["owasp_llm_top10_2025"]
-    assert "AML.T0100" in fw["mitre_atlas_v5_1"]
+    assert "LLM01:2025" in fw["owasp_llm_top10"]
+    assert "AML.T0056" in fw["mitre_atlas"]
+
+
+def test_load_framework_versions_returns_sidecar() -> None:
+    """Code-review 2026-06-07: framework_versions sidecar is the single source
+    of truth for which framework revision was applied; loader exposes it so
+    runner can stamp it onto each result row.
+    """
+    from hermia.runner import load_framework_versions
+    fwv = load_framework_versions()
+    # All four canonical framework keys present after the 2026-06-06 audit.
+    assert set(fwv) == {"owasp_llm_top10", "csa_maestro", "nist_ai_rmf", "mitre_atlas"}
+    # Each value is a non-empty version string (free-form for now).
+    assert all(isinstance(v, str) and v for v in fwv.values())
 
 
 # ---------------------------------------------------------------------------

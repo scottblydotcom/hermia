@@ -12,7 +12,7 @@ import pytest
 from hermia.runner import load_tests_all
 
 _FRAMEWORK_KEYS = frozenset(
-    {"owasp_llm_top10_2025", "mitre_atlas_v5_1", "csa_maestro", "nist_ai_rmf"}
+    {"owasp_llm_top10", "mitre_atlas", "csa_maestro", "nist_ai_rmf"}
 )
 
 

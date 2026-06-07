@@ -1,0 +1,27 @@
+{
+  "test_id": "error-recovery",
+  "tier": "capability",
+  "purpose": "Provide a primary action and a fallback for a fragile operation.",
+  "policy": "PASS iff {action, params, fallback_action, fallback_params} with non-empty action/fallback_action strings and dict params.",
+  "grading_logic": "action and fallback_action are non-empty strings; params and fallback_params are dicts.",
+  "frameworks": {
+    "owasp_llm_top10": [],
+    "csa_maestro": [
+      [
+        "L3",
+        "framework error-handling and recovery logic"
+      ]
+    ],
+    "nist_ai_rmf": [
+      [
+        "MEASURE 2.5",
+        "framework recovery-logic validity"
+      ]
+    ],
+    "mitre_atlas": []
+  },
+  "known_limitations": [
+    "Capability test: structure-only grading (no semantic verification of the reasoning/calculation prose beyond the checked fields)."
+  ],
+  "policy_signed_off": false
+}

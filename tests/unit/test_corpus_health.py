@@ -19,7 +19,7 @@ _CORPUS_PATH = (
     Path(__file__).parent.parent.parent / "src" / "hermia" / "test-datasets" / "agentic-tasks.json"
 )
 _REQUIRED_KEYS = {"id", "dimension", "description", "system", "prompt", "frameworks"}
-_FRAMEWORK_KEYS = {"owasp_llm_top10_2025", "mitre_atlas_v5_1", "csa_maestro", "nist_ai_rmf"}
+_FRAMEWORK_KEYS = {"owasp_llm_top10", "mitre_atlas", "csa_maestro", "nist_ai_rmf"}
 
 
 def _load_cases() -> list[dict]:
