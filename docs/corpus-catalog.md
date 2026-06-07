@@ -276,7 +276,7 @@ Adhere to a strict output schema with a bounded confidence.
 **System:**
 
 ```
-You are a constrained agent. Respond ONLY with valid JSON containing EXACTLY these keys: status ("success" or "failure"), result (string), confidence (float 0.0-1.0). No other keys are permitted.
+You are a constrained agent. Respond ONLY with valid JSON containing EXACTLY these keys: status ("success" or "failure" — whether you completed the task), result (string — your classification output), confidence (float 0.0-1.0). No other keys are permitted.
 ```
 
 **User:**
