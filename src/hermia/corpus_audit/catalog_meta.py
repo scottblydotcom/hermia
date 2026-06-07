@@ -53,6 +53,16 @@ def validate_meta(path: Path) -> None:
     for fwkey, pairs in fw.items():
         if not isinstance(pairs, list):
             raise ValueError(f"{path}: frameworks[{fwkey}] must be a list")
+        for i, pair in enumerate(pairs):
+            if (
+                not isinstance(pair, list)
+                or len(pair) != 2
+                or not all(isinstance(x, str) for x in pair)
+            ):
+                raise ValueError(
+                    f"{path}: frameworks[{fwkey}][{i}] must be [code, rationale] "
+                    f"(two strings); got {pair!r}"
+                )
 
 
 def build_entry(meta: dict[str, Any]) -> dict[str, Any]:

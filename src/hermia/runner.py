@@ -221,7 +221,9 @@ def load_framework_versions() -> dict[str, str]:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
         _FRAMEWORK_VERSIONS_CACHE = data.get("framework_versions") or {}
-    return _FRAMEWORK_VERSIONS_CACHE
+    # Defensive copy — callers occasionally stamp this dict onto rows and would
+    # otherwise mutate the shared cache for the rest of the process.
+    return dict(_FRAMEWORK_VERSIONS_CACHE)
 
 
 def _play_turns(
