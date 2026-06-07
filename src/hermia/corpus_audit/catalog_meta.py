@@ -44,11 +44,20 @@ def validate_meta(path: Path) -> None:
     fw = data["frameworks"]
     if not isinstance(fw, dict):
         raise ValueError(f"{path}: frameworks must be an object")
-    missing_fw = _REQUIRED_FRAMEWORK_KEYS - set(fw.keys())
+    fw_keys = set(fw.keys())
+    missing_fw = _REQUIRED_FRAMEWORK_KEYS - fw_keys
     if missing_fw:
         raise ValueError(
             f"{path}: frameworks missing keys {sorted(missing_fw)} — "
             f"empty list [] is required when a test does not map to a framework"
+        )
+    extra_fw = fw_keys - _REQUIRED_FRAMEWORK_KEYS
+    if extra_fw:
+        raise ValueError(
+            f"{path}: frameworks has unexpected keys {sorted(extra_fw)} — "
+            f"only {sorted(_REQUIRED_FRAMEWORK_KEYS)} are recognized "
+            f"(legacy keys like 'owasp_llm_top10_2025' or 'mitre_atlas_v5_1' "
+            f"must be migrated to the renamed canonical keys)"
         )
     for fwkey, pairs in fw.items():
         if not isinstance(pairs, list):
