@@ -41,6 +41,11 @@ def validate_meta(path: Path) -> None:
         raise ValueError(f"{path}: tier must be one of {_VALID_TIERS}")
     if not isinstance(data["policy_signed_off"], bool):
         raise ValueError(f"{path}: policy_signed_off must be bool")
+    for str_field in ("test_id", "purpose", "policy", "grading_logic"):
+        if not isinstance(data[str_field], str) or not data[str_field].strip():
+            raise ValueError(f"{path}: {str_field} must be a non-empty string")
+    if not isinstance(data["known_limitations"], list):
+        raise ValueError(f"{path}: known_limitations must be a list")
     fw = data["frameworks"]
     if not isinstance(fw, dict):
         raise ValueError(f"{path}: frameworks must be an object")
