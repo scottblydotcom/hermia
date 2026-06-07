@@ -1,0 +1,5 @@
+# Files whose on-disk byte format is enforced by a test must NOT be subject
+# to Git's autocrlf line-ending translation on Windows checkouts. Without
+# eol=lf, tests/unit/test_dataset_format.py would fail on Windows where Git
+# converts LF -> CRLF on checkout (core.autocrlf=true default).
+src/hermia/test-datasets/agentic-tasks.json text eol=lf
