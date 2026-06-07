@@ -348,6 +348,25 @@ def test_push_framework_columns_populated_from_nested_dict() -> None:
     assert rec["framework_nist"] == []
 
 
+def test_build_record_serializes_framework_versions() -> None:
+    """Code-review 2026-06-07: framework_versions stamped onto each row by the
+    runner must reach Postgres as a JSON string (the column is TEXT for
+    dependency-free dry-run compatibility, matching the signals pattern).
+    """
+    from hermia.export import _build_record
+    row = {
+        "run_id": "r", "host": "h", "model": "m", "test_id": "t",
+        "framework_versions": {
+            "owasp_llm_top10": "2025 (released 2025-03-12)",
+            "mitre_atlas": "6.0.0 / 2026.05",
+        },
+    }
+    rec = _build_record(row)
+    fwv = rec["framework_versions"]
+    assert isinstance(fwv, str)
+    assert json.loads(fwv)["mitre_atlas"] == "6.0.0 / 2026.05"
+
+
 def test_push_framework_columns_back_compat_with_legacy_key_names() -> None:
     """Pre-2026-06-06 JSONLs use owasp_llm_top10_2025 / mitre_atlas_v5_1 keys.
 

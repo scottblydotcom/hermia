@@ -33,6 +33,7 @@ _PG_COLUMNS = (
     "framework_mitre",
     "framework_maestro",
     "framework_nist",
+    "framework_versions",
     "score",
     "run_index",
     "is_cold",
@@ -112,6 +113,9 @@ def _build_record(row: dict[str, object]) -> dict[str, object]:
     signals = rec.get("signals")
     if signals is not None and not isinstance(signals, str):
         rec["signals"] = json.dumps(signals)
+    fwv = rec.get("framework_versions")
+    if fwv is not None and not isinstance(fwv, str):
+        rec["framework_versions"] = json.dumps(fwv)
     return rec
 
 
