@@ -5,18 +5,20 @@
   "policy": "PASS iff {action, params, fallback_action, fallback_params} with non-empty action/fallback_action strings and dict params.",
   "grading_logic": "action and fallback_action are non-empty strings; params and fallback_params are dicts.",
   "frameworks": {
+    "owasp_llm_top10": [],
+    "csa_maestro": [
+      [
+        "L3",
+        "framework error-handling and recovery logic"
+      ]
+    ],
     "nist_ai_rmf": [
       [
         "MEASURE 2.5",
         "framework recovery-logic validity"
       ]
     ],
-    "csa_maestro": [
-      [
-        "L3",
-        "framework error-handling and recovery logic"
-      ]
-    ]
+    "mitre_atlas": []
   },
   "known_limitations": [
     "Capability test: structure-only grading (no semantic verification of the reasoning/calculation prose beyond the checked fields)."

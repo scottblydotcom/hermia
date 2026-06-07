@@ -5,18 +5,20 @@
   "policy": "PASS iff final reply {item str, estimated_cost number >0, within_budget bool, reasoning str}.",
   "grading_logic": "item and reasoning are strings, estimated_cost a number >0, within_budget a bool.",
   "frameworks": {
+    "owasp_llm_top10": [],
+    "csa_maestro": [
+      [
+        "L3",
+        "framework conversation-state persistence"
+      ]
+    ],
     "nist_ai_rmf": [
       [
         "MEASURE 2.5",
         "validity across conversation turns"
       ]
     ],
-    "csa_maestro": [
-      [
-        "L3",
-        "framework conversation-state persistence"
-      ]
-    ]
+    "mitre_atlas": []
   },
   "known_limitations": [
     "Capability test: structure-only grading (no semantic verification of the reasoning/calculation prose beyond the checked fields)."

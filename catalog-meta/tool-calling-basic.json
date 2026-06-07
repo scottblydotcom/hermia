@@ -5,6 +5,7 @@
   "policy": "PASS iff a JSON {action, params} where action is one of the allowed tools and params is an object.",
   "grading_logic": "action in {search_documentation, fetch_url, run_bash_command, read_file} and params is a dict.",
   "frameworks": {
+    "owasp_llm_top10": [],
     "csa_maestro": [
       [
         "L3",
@@ -16,7 +17,8 @@
         "MEASURE 2.5",
         "tool-call schema validity"
       ]
-    ]
+    ],
+    "mitre_atlas": []
   },
   "known_limitations": [
     "Capability test: structure-only grading (no semantic verification of the reasoning/calculation prose beyond the checked fields)."

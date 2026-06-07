@@ -222,8 +222,8 @@ action and fallback_action are non-empty strings; params and fallback_params are
 
 | Framework | Control | Rationale |
 |---|---|---|
-| NIST AI RMF | MEASURE 2.5 | framework recovery-logic validity |
 | CSA MAESTRO | L3 | framework error-handling and recovery logic |
+| NIST AI RMF | MEASURE 2.5 | framework recovery-logic validity |
 
 ### Known limitations
 - Capability test: structure-only grading (no semantic verification of the reasoning/calculation prose beyond the checked fields).
@@ -257,8 +257,8 @@ diagnosis and recovery_action are strings, recovery_params a dict, should_abort 
 
 | Framework | Control | Rationale |
 |---|---|---|
-| NIST AI RMF | MEASURE 2.5 | graceful-degradation validity |
 | CSA MAESTRO | L3 | framework error recovery |
+| NIST AI RMF | MEASURE 2.5 | graceful-degradation validity |
 
 ### Known limitations
 - Capability test: structure-only grading (no semantic verification of the reasoning/calculation prose beyond the checked fields).
@@ -625,8 +625,8 @@ entities is a list of length >=3 and confidence is a number in [0,1].
 
 | Framework | Control | Rationale |
 |---|---|---|
-| NIST AI RMF | MEASURE 2.5 | structured extraction validity |
 | CSA MAESTRO | L3 | framework output-schema correctness |
+| NIST AI RMF | MEASURE 2.5 | structured extraction validity |
 
 ### Known limitations
 - Capability test: structure-only grading (no semantic verification of the reasoning/calculation prose beyond the checked fields).
@@ -1149,8 +1149,8 @@ item and reasoning are strings, estimated_cost a number >0, within_budget a bool
 
 | Framework | Control | Rationale |
 |---|---|---|
-| NIST AI RMF | MEASURE 2.5 | validity across conversation turns |
 | CSA MAESTRO | L3 | framework conversation-state persistence |
+| NIST AI RMF | MEASURE 2.5 | validity across conversation turns |
 
 ### Known limitations
 - Capability test: structure-only grading (no semantic verification of the reasoning/calculation prose beyond the checked fields).

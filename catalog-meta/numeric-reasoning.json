@@ -5,12 +5,15 @@
   "policy": "PASS iff {result number within 0.5 of 78.72, unit str, reasoning str, calculation str}.",
   "grading_logic": "result is a number with abs(result-78.72)<0.5; unit, reasoning, calculation are strings.",
   "frameworks": {
+    "owasp_llm_top10": [],
+    "csa_maestro": [],
     "nist_ai_rmf": [
       [
         "MEASURE 2.5",
         "arithmetic correctness"
       ]
-    ]
+    ],
+    "mitre_atlas": []
   },
   "known_limitations": [
     "Capability test: structure-only grading (no semantic verification of the reasoning/calculation prose beyond the checked fields).",

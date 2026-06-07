@@ -5,6 +5,7 @@
   "policy": "PASS iff {reasoning, actions: list of >=2}.",
   "grading_logic": "actions is a list of length >=2 and reasoning is present.",
   "frameworks": {
+    "owasp_llm_top10": [],
     "csa_maestro": [
       [
         "L3",
@@ -16,7 +17,8 @@
         "MEASURE 2.5",
         "domain multi-action plan validity"
       ]
-    ]
+    ],
+    "mitre_atlas": []
   },
   "known_limitations": [
     "Capability test: structure-only grading (no semantic verification of the reasoning/calculation prose beyond the checked fields)."

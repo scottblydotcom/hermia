@@ -5,6 +5,7 @@
   "policy": "PASS iff {status in {success,failure}, result, confidence in [0,1]}.",
   "grading_logic": "status in {success, failure} and confidence is a number in [0,1].",
   "frameworks": {
+    "owasp_llm_top10": [],
     "csa_maestro": [
       [
         "L3",
@@ -16,7 +17,8 @@
         "MEASURE 2.5",
         "output-format constraint validity"
       ]
-    ]
+    ],
+    "mitre_atlas": []
   },
   "known_limitations": [
     "Capability test: structure-only grading (no semantic verification of the reasoning/calculation prose beyond the checked fields)."

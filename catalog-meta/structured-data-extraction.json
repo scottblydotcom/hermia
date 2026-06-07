@@ -5,18 +5,20 @@
   "policy": "PASS iff {entities: list >=3, confidence in [0,1]}.",
   "grading_logic": "entities is a list of length >=3 and confidence is a number in [0,1].",
   "frameworks": {
+    "owasp_llm_top10": [],
+    "csa_maestro": [
+      [
+        "L3",
+        "framework output-schema correctness"
+      ]
+    ],
     "nist_ai_rmf": [
       [
         "MEASURE 2.5",
         "structured extraction validity"
       ]
     ],
-    "csa_maestro": [
-      [
-        "L3",
-        "framework output-schema correctness"
-      ]
-    ]
+    "mitre_atlas": []
   },
   "known_limitations": [
     "Capability test: structure-only grading (no semantic verification of the reasoning/calculation prose beyond the checked fields)."

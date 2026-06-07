@@ -13,6 +13,14 @@ _REQUIRED = (
     "frameworks", "known_limitations", "policy_signed_off",
 )
 _VALID_TIERS = frozenset({"security", "capability"})
+# Every catalog-meta frameworks dict must carry all four framework keys —
+# absent vs present-with-[] was a shape mismatch with the runtime dataset
+# (agentic-tasks.json) that downstream consumers tripped over. Convention
+# locked in 2026-06-07: always present, value is a list of [code, rationale]
+# pairs (which can be empty for tests that do not map to that framework).
+_REQUIRED_FRAMEWORK_KEYS = frozenset({
+    "owasp_llm_top10", "csa_maestro", "nist_ai_rmf", "mitre_atlas",
+})
 
 
 def load_meta(path: Path) -> dict[str, Any]:
@@ -33,6 +41,18 @@ def validate_meta(path: Path) -> None:
         raise ValueError(f"{path}: tier must be one of {_VALID_TIERS}")
     if not isinstance(data["policy_signed_off"], bool):
         raise ValueError(f"{path}: policy_signed_off must be bool")
+    fw = data["frameworks"]
+    if not isinstance(fw, dict):
+        raise ValueError(f"{path}: frameworks must be an object")
+    missing_fw = _REQUIRED_FRAMEWORK_KEYS - set(fw.keys())
+    if missing_fw:
+        raise ValueError(
+            f"{path}: frameworks missing keys {sorted(missing_fw)} — "
+            f"empty list [] is required when a test does not map to a framework"
+        )
+    for fwkey, pairs in fw.items():
+        if not isinstance(pairs, list):
+            raise ValueError(f"{path}: frameworks[{fwkey}] must be a list")
 
 
 def build_entry(meta: dict[str, Any]) -> dict[str, Any]:
