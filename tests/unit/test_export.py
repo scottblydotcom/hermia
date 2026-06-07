@@ -348,6 +348,22 @@ def test_push_framework_columns_populated_from_nested_dict() -> None:
     assert rec["framework_nist"] == []
 
 
+def test_build_record_handles_row_missing_framework_versions() -> None:
+    """Legacy JSONL rows pre-2026-06-07 do not carry framework_versions.
+    The key MUST still be present in the projected record (set to None) so the
+    psycopg2 %(framework_versions)s SQL parameter resolves cleanly. Gemini PR
+    #101 review repeatedly claimed this would KeyError; this test exists to
+    document that it does not — `rec` is built via {c: row.get(c) for c in
+    _PG_COLUMNS}, so the key is always present in the dict regardless of
+    whether the input row had it.
+    """
+    from hermia.export import _build_record
+    row = {"run_id": "r", "host": "h", "model": "m", "test_id": "t"}  # no framework_versions
+    rec = _build_record(row)
+    assert "framework_versions" in rec, "key must be present even when row omits it"
+    assert rec["framework_versions"] is None, "missing-row value should project to None"
+
+
 def test_build_record_serializes_framework_versions() -> None:
     """Code-review 2026-06-07: framework_versions stamped onto each row by the
     runner must reach Postgres as a JSON string (the column is TEXT for
