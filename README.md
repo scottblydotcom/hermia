@@ -211,6 +211,7 @@ The tool steals answers from the Oracle and tells you which one to trust.
 
 - [Getting Started Guide](docs/usage.md) — install, run, interpret results, fleet mode, Postgres export
 - [Roadmap](docs/roadmap.md) — v0.2 endpoint bus, v0.3 eval bus, full backlog
+- [GUARDS Framework](docs/GUARDS.md) — six-dimension standard for LLM system-prompt guardrail construction (Goal/Unit/Actions/Response/Detect/Stop)
 
 ---
 
