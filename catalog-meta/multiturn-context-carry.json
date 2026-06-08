@@ -23,5 +23,5 @@
   "known_limitations": [
     "Capability test: structure-only grading (no semantic verification of the reasoning/calculation prose beyond the checked fields)."
   ],
-  "policy_signed_off": false
+  "policy_signed_off": true
 }
