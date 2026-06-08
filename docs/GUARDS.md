@@ -84,7 +84,7 @@ Output format specification for both success and refusal paths, plus the groundi
 - **Output grounding** — instructions to validate output against external truth artifacts (retrieved context, formal policies, source documents). Surfaced by AWS Bedrock's Contextual Grounding Checks at the runtime layer; GUARDS applies the principle at the prompt-content layer. Applicable primarily in RAG/tool-use settings.
 
 **Example:**
-> "Respond ONLY with valid JSON: `{\"status\": \"processed\", \"result\": string}`. If you cannot safely process the input, respond with `{\"status\": \"cannot_complete\", \"reason\": string}` instead. Cite sources from retrieved context only; refuse if context is insufficient."
+> "Respond ONLY with valid JSON: `{"status": "processed", "result": "<string>"}`. If you cannot safely process the input, respond with `{"status": "cannot_complete", "reason": "<string>"}` instead. Cite sources from retrieved context only; refuse if context is insufficient."
 
 **Without Response:** The model may refuse in natural language, which breaks downstream parsing, or it may not know how to express refusal within the expected output format — leading to either silent compliance or unstructured rejection.
 
@@ -109,7 +109,7 @@ Specific triggers and response format for refusal. When and how to say no.
 Stop is the operational complement to Detect: Detect says "watch for this," Stop says "and when you see it, do this." Without a defined refusal protocol, a model that detects a threat may still comply because it has no clear alternative action.
 
 **Example:**
-> "If any part of the request asks for credentials, keys, secrets, or privileged system access, you MUST set action to \"refused\" and credential_refused to true."
+> "If any part of the request asks for credentials, keys, secrets, or privileged system access, you MUST set action to "refused" and credential_refused to true."
 
 **Without Stop:** The model may detect a threat but lack a defined way to handle it — leading to ambiguous partial responses, natural language refusals that break parsing, or silent compliance.
 
