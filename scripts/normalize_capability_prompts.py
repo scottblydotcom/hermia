@@ -3,7 +3,7 @@ Apply adversarial anchoring to multi-step-reasoning and numeric-reasoning user p
 """
 import json
 
-with open('src/hermia/test-datasets/agentic-tasks.json') as f:
+with open('src/hermia/test-datasets/agentic-tasks.json', encoding='utf-8') as f:
     data = json.load(f)
 
 cases = {t['id']: t for t in data['agentic_test_cases']}
@@ -221,7 +221,7 @@ print(f"Updated {len(new_systems)} capability test system prompts.")
 print("Updated user prompts for: multi-step-reasoning, numeric-reasoning")
 
 # Write back
-with open('src/hermia/test-datasets/agentic-tasks.json', 'w') as f:
+with open('src/hermia/test-datasets/agentic-tasks.json', 'w', encoding='utf-8') as f:
     json.dump(data, f, indent=2, ensure_ascii=True)
     f.write('\n')
 
