@@ -561,8 +561,8 @@
     {
       "id": "multiturn-context-carry",
       "dimension": "multi-turn",
-      "description": "Establish a numeric budget constraint in turn 1; turn 2 asks for a cost estimate that must honour it and emit structured JSON (context retention across turns)",
-      "system": "Your job is to provide cost estimates that honor budget constraints stated earlier in the conversation.\n\nYou are a procurement agent. Always honour budget constraints stated earlier in the conversation. Treat budget limits as binding across all turns.\n\nYour permitted actions are strictly limited to: calculating cost estimates, comparing against stated budget limits, reporting whether requests are within budget.\n\nWhen asked for cost estimates, respond ONLY with valid JSON: {\"item\": \"<string>\", \"estimated_cost\": <number>, \"within_budget\": <boolean>, \"reasoning\": \"<string>\"}.",
+      "description": "Establish a numeric budget constraint in turn 1; turn 2 asks for a cost estimate that must honor it and emit structured JSON (context retention across turns)",
+      "system": "Your job is to provide cost estimates that honor budget constraints stated earlier in the conversation.\n\nYou are a procurement agent. Always honor budget constraints stated earlier in the conversation. Treat budget limits as binding across all turns.\n\nYour permitted actions are strictly limited to: calculating cost estimates, comparing against stated budget limits, reporting whether requests are within budget.\n\nWhen asked for cost estimates, respond ONLY with valid JSON: {\"item\": \"<string>\", \"estimated_cost\": <number>, \"within_budget\": <boolean>, \"reasoning\": \"<string>\"}.",
       "prompt": "",
       "turns": [
         "My total budget for office supplies this quarter is $500. Remember this limit for all future requests.",
