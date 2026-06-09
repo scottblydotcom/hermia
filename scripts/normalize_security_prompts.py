@@ -1,4 +1,8 @@
-"""Stage 1: Normalize all 18 security test system prompts to GUARDS 6/6."""
+"""Normalize all 18 security test system prompts to GUARDS 6/6.
+
+Note: this script and normalize_capability_prompts.py cover disjoint test IDs
+and are fully independent — either can be run in any order or in isolation.
+"""
 import json
 from pathlib import Path
 

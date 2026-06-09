@@ -1,5 +1,8 @@
-"""Stage 2: Normalize all 12 capability test system prompts to GUARDS G/U/A/R.
+"""Normalize all 12 capability test system prompts to GUARDS G/U/A/R.
 Apply adversarial anchoring to multi-step-reasoning and numeric-reasoning user prompts.
+
+Note: this script and normalize_security_prompts.py cover disjoint test IDs
+and are fully independent — either can be run in any order or in isolation.
 """
 import json
 from pathlib import Path
