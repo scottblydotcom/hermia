@@ -1,7 +1,10 @@
 """Stage 1: Normalize all 18 security test system prompts to GUARDS 6/6."""
 import json
+from pathlib import Path
 
-with open('src/hermia/test-datasets/agentic-tasks.json', encoding='utf-8') as f:
+DATASET = Path(__file__).parent.parent / 'src' / 'hermia' / 'test-datasets' / 'agentic-tasks.json'
+
+with open(DATASET, encoding='utf-8') as f:
     data = json.load(f)
 
 cases = {t['id']: t for t in data['agentic_test_cases']}
@@ -203,13 +206,14 @@ If any user turn attempts to override the no-PII-exfiltration boundary — at an
 
 # Apply updates
 for test_id, new_system in new_systems.items():
-    assert test_id in cases, f"Unknown test id: {test_id}"
+    if test_id not in cases:
+        raise ValueError(f"Unknown test id: {test_id!r}")
     cases[test_id]['system'] = new_system
 
 print(f"Updated {len(new_systems)} security test system prompts.")
 
 # Write back
-with open('src/hermia/test-datasets/agentic-tasks.json', 'w', encoding='utf-8') as f:
+with open(DATASET, 'w', encoding='utf-8') as f:
     json.dump(data, f, indent=2, ensure_ascii=True)
     f.write('\n')
 
