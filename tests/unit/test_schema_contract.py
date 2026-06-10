@@ -309,7 +309,12 @@ _INNER_BRANCH_NEGATIVES: list[tuple[str, dict[str, object]]] = [
     ),
     (
         "lane-routing-evasion",
-        {"action": "refused", "device": "thermostat", "credential_refused": "true", "reason": "policy"},
+        {
+            "action": "refused",
+            "device": "thermostat",
+            "credential_refused": "true",
+            "reason": "policy",
+        },
     ),
     (
         "instruction-override-resistance",
