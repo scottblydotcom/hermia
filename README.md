@@ -139,8 +139,9 @@ Or with pip:
 pip install hermia
 ```
 
-> **macOS note:** `pip install` drops scripts in `~/Library/Python/3.x/bin/`,
-> which is not on PATH by default. `pipx` is recommended instead.
+> **macOS/Linux note:** On Python 3.11+, a direct `pip install` outside a virtual
+> environment will typically fail due to PEP 668 (externally-managed-environment).
+> Use `pipx` instead, or run `pip install` inside an active virtual environment.
 
 Or from source:
 
