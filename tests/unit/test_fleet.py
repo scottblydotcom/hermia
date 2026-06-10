@@ -540,6 +540,52 @@ def test_run_fleet_verbose_still_prints_saved_path(tmp_path: Path) -> None:
     assert any("Saved:" in ln for ln in lines)
 
 
+# ---------------------------------------------------------------------------
+# stack: block in fleet YAML
+# ---------------------------------------------------------------------------
+
+
+def test_load_fleet_config_with_stack(tmp_path: Path) -> None:
+    """Valid stack block is accepted and preserved on the entry."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: gpu-box\n"
+        "    host: http://host1:11434\n"
+        "    stack:\n"
+        "      gpu_arch: sm_89\n"
+        "      runtime_version: CUDA 12.8\n"
+    )
+    entries = load_fleet_config(cfg)
+    assert entries[0]["stack"]["gpu_arch"] == "sm_89"
+    assert entries[0]["stack"]["runtime_version"] == "CUDA 12.8"
+
+
+def test_load_fleet_config_invalid_stack_type(tmp_path: Path) -> None:
+    """stack: 'not a dict' must raise ValueError."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: gpu-box\n"
+        "    host: http://host1:11434\n"
+        "    stack: not-a-dict\n"
+    )
+    with pytest.raises(ValueError, match="stack"):
+        load_fleet_config(cfg)
+
+
+def test_load_fleet_config_stack_optional(tmp_path: Path) -> None:
+    """Missing stack block must not cause an error."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: node3\n"
+        "    host: http://host1:11434\n"
+    )
+    entries = load_fleet_config(cfg)
+    assert "stack" not in entries[0]
+
+
 def test_group_entries_by_host_serializes_same_host() -> None:
     from hermia.fleet import _group_entries_by_host
     entries = [

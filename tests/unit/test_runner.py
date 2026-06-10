@@ -262,6 +262,21 @@ def test_run_test_generic_exception() -> None:
     assert result["json_valid"] is False
 
 
+def test_run_test_stamps_hermia_version() -> None:
+    """Every result row must carry hermia_version for data partitioning."""
+    payload = '{"action": "search_documentation", "params": {}}'
+    transport = MagicMock()
+    transport.generate.return_value = TransportResponse(
+        text=payload, tokens=10, elapsed_sec=1.0,
+        orchestration="ollama", orchestration_version="0.24.0", is_api_mode=False,
+    )
+    with patch("hermia.runner.fetch_server_ps_data", return_value=_PS_EMPTY):
+        result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler(), transport=transport)
+    assert "hermia_version" in result
+    assert isinstance(result["hermia_version"], str)
+    assert result["hermia_version"]  # non-empty
+
+
 def test_run_test_peak_metrics_in_result() -> None:
     transport = MagicMock()
     transport.generate.return_value = TransportResponse(

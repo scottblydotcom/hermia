@@ -53,6 +53,10 @@ _PG_COLUMNS = (
     "raw_system",
     "raw_prompt",
     "raw_response",
+    "hermia_version",
+    "gpu_arch",
+    "runtime_version",
+    "backend_stack",
 )
 
 _INSERT_SQL = (

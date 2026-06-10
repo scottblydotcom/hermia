@@ -1,0 +1,7 @@
+-- Add hermia_version and backend stack tagging columns.
+-- Idempotent — safe to run multiple times.
+
+ALTER TABLE hermia_results ADD COLUMN IF NOT EXISTS hermia_version TEXT;
+ALTER TABLE hermia_results ADD COLUMN IF NOT EXISTS gpu_arch TEXT;
+ALTER TABLE hermia_results ADD COLUMN IF NOT EXISTS runtime_version TEXT;
+ALTER TABLE hermia_results ADD COLUMN IF NOT EXISTS backend_stack TEXT;
