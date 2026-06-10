@@ -130,6 +130,7 @@ Recommended (via pipx):
 
 ```bash
 pipx install hermia
+pipx ensurepath        # ensures ~/.local/bin is on your PATH (one-time step)
 ```
 
 Or with pip:
@@ -137,6 +138,9 @@ Or with pip:
 ```bash
 pip install hermia
 ```
+
+> **macOS note:** `pip install` drops scripts in `~/Library/Python/3.x/bin/`,
+> which is not on PATH by default. `pipx` is recommended instead.
 
 Or from source:
 
