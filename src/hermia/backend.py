@@ -26,10 +26,10 @@ def resolve_stack(
         stack = {}
 
     raw_arch = stack.get("gpu_arch")
-    gpu_arch = raw_arch.strip() if isinstance(raw_arch, str) else None
+    gpu_arch = (raw_arch.strip() or None) if isinstance(raw_arch, str) else None
 
     raw_rt = stack.get("runtime_version")
-    runtime_version = raw_rt.strip() if isinstance(raw_rt, str) else None
+    runtime_version = (raw_rt.strip() or None) if isinstance(raw_rt, str) else None
 
     components = [orchestration_version, gpu_arch, runtime_version]
     non_none = [c for c in components if isinstance(c, str) and c.strip()]
