@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 
 import requests
 
+from hermia import __version__
 from hermia.metrics import MetricsSampler, get_gpu_stats
 from hermia.schemas import SCHEMA_CHECKS, SIGNAL_EXTRACTORS
 from hermia.transport.base import Response, TransportError
@@ -403,4 +404,5 @@ def run_test(
         "orchestration_version": orchestration_version,
         "turn_count": len(user_turns),
         "raw_turns": user_turns,
+        "hermia_version": __version__,
     }

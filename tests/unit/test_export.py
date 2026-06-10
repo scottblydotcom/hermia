@@ -634,6 +634,61 @@ def test_pg_columns_includes_raw_response() -> None:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# hermia_version + backend stack tagging columns
+# ---------------------------------------------------------------------------
+
+
+def test_pg_columns_includes_hermia_version() -> None:
+    assert "hermia_version" in _PG_COLUMNS
+
+
+def test_pg_columns_includes_backend_stack_fields() -> None:
+    assert "gpu_arch" in _PG_COLUMNS
+    assert "runtime_version" in _PG_COLUMNS
+    assert "backend_stack" in _PG_COLUMNS
+
+
+def test_pg_columns_no_duplicates() -> None:
+    assert len(_PG_COLUMNS) == len(set(_PG_COLUMNS))
+
+
+def test_build_record_projects_hermia_version() -> None:
+    from hermia.export import _build_record
+    row = {**_ROW, "hermia_version": "0.2.0"}
+    rec = _build_record(row)
+    assert rec["hermia_version"] == "0.2.0"
+
+
+def test_build_record_projects_backend_fields() -> None:
+    from hermia.export import _build_record
+    row = {
+        **_ROW,
+        "gpu_arch": "sm_89",
+        "runtime_version": "CUDA 12.8",
+        "backend_stack": "0.24.0 | sm_89 | CUDA 12.8",
+    }
+    rec = _build_record(row)
+    assert rec["gpu_arch"] == "sm_89"
+    assert rec["runtime_version"] == "CUDA 12.8"
+    assert rec["backend_stack"] == "0.24.0 | sm_89 | CUDA 12.8"
+
+
+def test_build_record_backend_fields_default_none() -> None:
+    """Legacy rows without backend fields must project to None."""
+    from hermia.export import _build_record
+    rec = _build_record(_ROW)
+    assert rec["hermia_version"] is None
+    assert rec["gpu_arch"] is None
+    assert rec["runtime_version"] is None
+    assert rec["backend_stack"] is None
+
+
+# ---------------------------------------------------------------------------
+# --version flag
+# ---------------------------------------------------------------------------
+
+
 def test_main_version_flag(monkeypatch, capsys) -> None:
     """--version should print the package version and exit 0."""
     import sys

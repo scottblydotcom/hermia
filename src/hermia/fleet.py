@@ -40,6 +40,11 @@ def load_fleet_config(path: Path) -> list[dict[str, Any]]:
                 f"Fleet entry '{entry.get('name', '?')}': transport must be 'ollama' or "
                 f"'openai-compat', got '{transport}'"
             )
+        stack = entry.get("stack")
+        if stack is not None and not isinstance(stack, dict):
+            raise ValueError(
+                f"Fleet entry [{i}] 'stack' must be a mapping, got {type(stack).__name__}"
+            )
     return entries
 
 
@@ -103,6 +108,7 @@ def _run_host_eval(
     """
     from datetime import UTC, datetime
 
+    from hermia.backend import resolve_stack
     from hermia.metrics import MetricsSampler
     from hermia.results import append_result
     from hermia.robustness import score_rows
@@ -166,6 +172,9 @@ def _run_host_eval(
                 result["cold_warm_delta_tps"] = None
                 result["fleet_host_name"] = name
                 result["fleet_host_start"] = host_start
+                result.update(resolve_stack(
+                    entry, result.get("orchestration_version"),
+                ))
                 run_results.append(result)
 
             # Compute robustness aggregates across all repeat runs for this pair
