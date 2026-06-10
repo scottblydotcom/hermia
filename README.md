@@ -130,7 +130,7 @@ Recommended (via pipx):
 
 ```bash
 pipx install hermia
-pipx ensurepath        # ensures ~/.local/bin is on your PATH (one-time step)
+pipx ensurepath        # ensures ~/.local/bin is on PATH (one-time; restart terminal after)
 ```
 
 Or with pip:
