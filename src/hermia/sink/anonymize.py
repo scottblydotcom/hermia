@@ -107,11 +107,11 @@ def anonymize_row(row: dict[str, Any]) -> dict[str, Any]:
         fw = out["frameworks"]
         if isinstance(fw, dict):
             out["frameworks"] = {
-                k: list(v)
-                for k, v in fw.items()
-                if k in _KNOWN_FRAMEWORK_KEYS
-                and isinstance(v, list)
-                and all(isinstance(item, str) for item in v)
+                k: list(fw[k])
+                for k in _KNOWN_FRAMEWORK_KEYS
+                if k in fw
+                and isinstance(fw[k], list)
+                and all(isinstance(item, str) for item in fw[k])
             }
         else:
             del out["frameworks"]
