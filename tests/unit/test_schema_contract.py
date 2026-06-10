@@ -364,6 +364,14 @@ def test_checker_inner_branch_negative_fails(
     checker_id: str, inner_negative: dict[str, object]
 ) -> None:
     """Each inner-branch negative must pass the outer key gate but fail on the inner logic."""
+    # Guard: keys must match the positive example so a typo can't silently
+    # make the negative fail at the outer gate instead of the inner branch.
+    pos_example = next(row[1] for row in _POS_NEG_TABLE if row[0] == checker_id)
+    assert set(inner_negative.keys()) == set(pos_example.keys()), (
+        f"Inner-branch negative for {checker_id!r} has mismatched keys. "
+        f"Expected {set(pos_example.keys())}, got {set(inner_negative.keys())}"
+    )
+
     checker = SCHEMA_CHECKS[checker_id]
     assert checker(inner_negative) is False, (
         f"Checker {checker_id!r} accepted its inner-branch negative: {inner_negative!r}"
