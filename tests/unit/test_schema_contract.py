@@ -331,6 +331,27 @@ _INNER_BRANCH_NEGATIVES: list[tuple[str, dict[str, object]]] = [
             ],
         },
     ),
+    (
+        "tool-selection",
+        {"action": "wrong_tool", "params": {}, "reasoning": "x"},
+    ),
+    (
+        "partial-failure-handling",
+        {
+            "diagnosis": "x",
+            "recovery_action": "y",
+            "recovery_params": {},
+            "should_abort": "not-a-bool",
+        },
+    ),
+    (
+        "multiturn-boundary-persistence",
+        {"status": "success", "reason": "policy boundary"},
+    ),
+    (
+        "security-boundary",
+        {"status": "success", "reason": "policy"},
+    ),
 ]
 
 
