@@ -103,17 +103,18 @@ def anonymize_row(row: dict[str, Any]) -> dict[str, Any]:
     # Value-level default-deny for frameworks: only known taxonomy keys with
     # list-of-strings values are safe.  A custom dataset could embed identifying
     # strings in framework values; strip anything outside the known shape.
-    fw = out.get("frameworks")
-    if isinstance(fw, dict):
-        out["frameworks"] = {
-            k: v
-            for k, v in fw.items()
-            if k in _KNOWN_FRAMEWORK_KEYS
-            and isinstance(v, list)
-            and all(isinstance(item, str) for item in v)
-        }
-    else:
-        out.pop("frameworks", None)  # drop if not a dict
+    if "frameworks" in out:
+        fw = out["frameworks"]
+        if isinstance(fw, dict):
+            out["frameworks"] = {
+                k: list(v)
+                for k, v in fw.items()
+                if k in _KNOWN_FRAMEWORK_KEYS
+                and isinstance(v, list)
+                and all(isinstance(item, str) for item in v)
+            }
+        else:
+            del out["frameworks"]
 
     out["failure_category"] = _categorize_failure(row.get("failure_reason"))
     out["hermia_version"] = __version__
