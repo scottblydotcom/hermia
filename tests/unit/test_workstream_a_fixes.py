@@ -266,9 +266,14 @@ def test_build_record_serializes_signals_and_keeps_orchestration() -> None:
 
 
 def test_add_backend_columns_sql_has_hermia_version_index() -> None:
-    """Migration must include an index on hermia_version for version-partition queries."""
+    """Migration must include an active (non-commented) CREATE INDEX for hermia_version."""
     sql_file = _SCRIPTS_DIR / "add_backend_columns.sql"
     text = sql_file.read_text()
+    # Strip SQL comments so a commented-out CREATE INDEX can't produce a false green.
+    clean = re.sub(r"--.*$", "", text, flags=re.MULTILINE)
+    clean = re.sub(r"/\*.*?\*/", "", clean, flags=re.DOTALL)
     assert re.search(
-        r"CREATE INDEX.*hermia_version", text, re.IGNORECASE | re.DOTALL
-    ), "add_backend_columns.sql is missing a CREATE INDEX for hermia_version"
+        r"CREATE\s+INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?\w+\s+ON\s+hermia_results\s*\(\s*hermia_version\s*\)",
+        clean,
+        re.IGNORECASE,
+    ), "add_backend_columns.sql is missing an active CREATE INDEX for hermia_version"

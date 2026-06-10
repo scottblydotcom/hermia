@@ -125,3 +125,25 @@ def test_resolve_stack_whitespace_only_values_stored_as_none() -> None:
     assert result["gpu_arch"] is None
     assert result["runtime_version"] is None
     assert result["backend_stack"] == "0.24.0"
+
+
+def test_resolve_stack_strips_orchestration_version_whitespace() -> None:
+    """Trailing whitespace on orchestration_version must be stripped in backend_stack."""
+    entry = {
+        "name": "gpu-box",
+        "host": "http://10.0.0.5:11434",
+        "stack": {"gpu_arch": "sm_89"},
+    }
+    result = resolve_stack(entry, "0.24.0 ")
+    assert result["backend_stack"] == "0.24.0 | sm_89"
+
+
+def test_resolve_stack_whitespace_only_orchestration_version_excluded() -> None:
+    """Whitespace-only orchestration_version must not appear in backend_stack."""
+    entry = {
+        "name": "gpu-box",
+        "host": "http://10.0.0.5:11434",
+        "stack": {"gpu_arch": "sm_89"},
+    }
+    result = resolve_stack(entry, "   ")
+    assert result["backend_stack"] == "sm_89"

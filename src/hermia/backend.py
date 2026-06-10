@@ -10,6 +10,11 @@ from __future__ import annotations
 from typing import Any
 
 
+def _normalize_str(val: Any) -> str | None:
+    """Return stripped string, or None for non-strings and whitespace-only strings."""
+    return (val.strip() or None) if isinstance(val, str) else None
+
+
 def resolve_stack(
     entry: dict[str, Any],
     orchestration_version: str | None = None,
@@ -25,14 +30,11 @@ def resolve_stack(
     if not isinstance(stack, dict):
         stack = {}
 
-    raw_arch = stack.get("gpu_arch")
-    gpu_arch = (raw_arch.strip() or None) if isinstance(raw_arch, str) else None
+    gpu_arch = _normalize_str(stack.get("gpu_arch"))
+    runtime_version = _normalize_str(stack.get("runtime_version"))
 
-    raw_rt = stack.get("runtime_version")
-    runtime_version = (raw_rt.strip() or None) if isinstance(raw_rt, str) else None
-
-    components = [orchestration_version, gpu_arch, runtime_version]
-    non_none = [c for c in components if isinstance(c, str) and c.strip()]
+    components = [_normalize_str(orchestration_version), gpu_arch, runtime_version]
+    non_none = [c for c in components if c is not None]
     backend_stack = " | ".join(non_none) if non_none else None
 
     return {
