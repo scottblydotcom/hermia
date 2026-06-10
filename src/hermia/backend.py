@@ -32,7 +32,7 @@ def resolve_stack(
     runtime_version = raw_rt if isinstance(raw_rt, str) else None
 
     components = [orchestration_version, gpu_arch, runtime_version]
-    non_none = [c for c in components if c is not None]
+    non_none = [c for c in components if isinstance(c, str) and c.strip()]
     backend_stack = " | ".join(non_none) if non_none else None
 
     return {
