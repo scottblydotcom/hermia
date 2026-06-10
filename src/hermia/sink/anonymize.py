@@ -61,6 +61,11 @@ _KNOWN_FAILURE_PREFIXES: tuple[str, ...] = (
 )
 
 
+_KNOWN_FRAMEWORK_KEYS: frozenset[str] = frozenset(
+    {"owasp_llm_top10_2025", "mitre_atlas_v5_1", "csa_maestro", "nist_ai_rmf"}
+)
+
+
 def _categorize_failure(reason: object) -> str:
     """Reduce a failure_reason string to its category prefix.
 
@@ -94,6 +99,22 @@ def anonymize_row(row: dict[str, Any]) -> dict[str, Any]:
         out["signals"] = {k: v for k, v in sig.items() if isinstance(v, bool)}
     else:
         out.pop("signals", None)  # drop if not a bool dict
+
+    # Value-level default-deny for frameworks: only known taxonomy keys with
+    # list-of-strings values are safe.  A custom dataset could embed identifying
+    # strings in framework values; strip anything outside the known shape.
+    if "frameworks" in out:
+        fw = out["frameworks"]
+        if isinstance(fw, dict):
+            out["frameworks"] = {
+                k: list(fw[k])
+                for k in _KNOWN_FRAMEWORK_KEYS
+                if k in fw
+                and isinstance(fw[k], list)
+                and all(isinstance(item, str) for item in fw[k])
+            }
+        else:
+            del out["frameworks"]
 
     out["failure_category"] = _categorize_failure(row.get("failure_reason"))
     out["hermia_version"] = __version__

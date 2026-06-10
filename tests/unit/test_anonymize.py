@@ -157,6 +157,46 @@ def test_signals_non_dict_is_dropped() -> None:
     assert "SENSITIVE" not in repr(out)
 
 
+def test_frameworks_unknown_keys_stripped() -> None:
+    """Only known taxonomy keys survive; unknown keys with identifying data are dropped."""
+    row = {
+        "model": "m",
+        "frameworks": {
+            "owasp_llm_top10_2025": ["LLM01:2025"],
+            "custom_sentinel": ["scott-lab-internal-id-12345"],
+            "mitre_atlas_v5_1": ["AML.T0051"],
+        },
+    }
+    out = anonymize_row(row)
+    assert "custom_sentinel" not in out["frameworks"]
+    assert "scott-lab" not in repr(out)
+    assert out["frameworks"] == {
+        "owasp_llm_top10_2025": ["LLM01:2025"],
+        "mitre_atlas_v5_1": ["AML.T0051"],
+    }
+
+
+def test_frameworks_non_string_list_values_stripped() -> None:
+    """Framework values that aren't list-of-strings are dropped."""
+    row = {
+        "model": "m",
+        "frameworks": {
+            "owasp_llm_top10_2025": ["LLM01:2025"],
+            "csa_maestro": "not-a-list",
+            "nist_ai_rmf": [123, "ME 2.3"],
+        },
+    }
+    out = anonymize_row(row)
+    assert out["frameworks"] == {"owasp_llm_top10_2025": ["LLM01:2025"]}
+
+
+def test_frameworks_non_dict_is_dropped() -> None:
+    """A frameworks value that is not a dict must be dropped entirely."""
+    out = anonymize_row({"model": "m", "frameworks": "owasp=SENSITIVE"})
+    assert "frameworks" not in out
+    assert "SENSITIVE" not in repr(out)
+
+
 # ---------------------------------------------------------------------------
 # Hypothesis property tests
 # ---------------------------------------------------------------------------
