@@ -258,3 +258,17 @@ def test_build_record_serializes_signals_and_keeps_orchestration() -> None:
     assert rec["orchestration_version"] == "0.24.0"
     # signals must be a JSON string so psycopg2 can store it without a dict adapter
     assert rec["signals"] == json.dumps({"injected_confidence_complied": True})
+
+
+# ---------------------------------------------------------------------------
+# hermia_version index (PR #109 follow-up)
+# ---------------------------------------------------------------------------
+
+
+def test_add_backend_columns_sql_has_hermia_version_index() -> None:
+    """Migration must include an index on hermia_version for version-partition queries."""
+    sql_file = _SCRIPTS_DIR / "add_backend_columns.sql"
+    text = sql_file.read_text()
+    assert re.search(
+        r"CREATE INDEX.*hermia_version", text, re.IGNORECASE | re.DOTALL
+    ), "add_backend_columns.sql is missing a CREATE INDEX for hermia_version"

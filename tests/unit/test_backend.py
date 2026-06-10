@@ -99,3 +99,16 @@ def test_backend_stack_only_orchestration_version() -> None:
     entry = {"name": "gpu-box", "host": "http://10.0.0.5:11434"}
     result = resolve_stack(entry, "0.24.0")
     assert result["backend_stack"] == "0.24.0"
+
+
+def test_resolve_stack_strips_whitespace_from_yaml_values() -> None:
+    """Leading/trailing whitespace in YAML string values must be stripped before storage."""
+    entry = {
+        "name": "gpu-box",
+        "host": "http://10.0.0.5:11434",
+        "stack": {"gpu_arch": "  sm_89  ", "runtime_version": "  CUDA 12.8  "},
+    }
+    result = resolve_stack(entry, "0.24.0")
+    assert result["gpu_arch"] == "sm_89"
+    assert result["runtime_version"] == "CUDA 12.8"
+    assert result["backend_stack"] == "0.24.0 | sm_89 | CUDA 12.8"
