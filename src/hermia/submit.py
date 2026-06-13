@@ -44,8 +44,11 @@ _PATH_PREFIXES = ("/Users/", "/home/", "C:\\")
 # Redact the user-home dir INCLUDING the username segment. Redacting the prefix
 # alone leaves the username exposed (e.g. "scott" in "/Users/scott/...") — a
 # privacy leak in a community dataset.
+# Match the whole user-dir segment up to the next path separator (NOT stopping
+# at whitespace) so usernames with spaces (e.g. "C:\Users\Scott Bly") are fully
+# redacted. Bias is intentionally toward over-redaction for a privacy tool.
 _PATH_USER_PATTERN = re.compile(
-    r"(?:/Users/|/home/|[A-Za-z]:\\Users\\)([^/\\\s]+)", re.IGNORECASE
+    r"(?:/Users/|/home/|[A-Za-z]:\\Users\\)([^/\\]+)", re.IGNORECASE
 )
 _TILDE_PATTERN = re.compile(r"(?:^|(?<=\s))~/")
 _HOSTNAME_PATTERN = re.compile(
@@ -91,8 +94,16 @@ def load_or_create_install_id(config_path: Path | None = None) -> str:
         pass  # malformed/hand-broken config — fall through and regenerate
 
     install_id = str(uuid4())
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(f'[hermia]\ninstall_id = "{install_id}"\n', encoding="utf-8")
+    try:
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(
+            f'[hermia]\ninstall_id = "{install_id}"\n', encoding="utf-8"
+        )
+    except OSError:
+        # Read-only / permission-restricted home (e.g. locked-down container):
+        # use the id for this run without persisting. It won't be stable across
+        # runs, but the CLI still works instead of crashing.
+        pass
     return install_id
 
 
@@ -389,9 +400,14 @@ def submit_command(
     if resp.status_code == 201:
         try:
             data = resp.json()
-            public_url = data.get("public_url", "(no URL returned)")
-        except (ValueError, KeyError):
-            public_url = "(could not parse response)"
+        except ValueError:
+            data = None
+        # A valid-but-non-dict JSON body (list/string/bool) must not crash on .get().
+        public_url = (
+            data.get("public_url", "(no URL returned)")
+            if isinstance(data, dict)
+            else "(could not parse response)"
+        )
         print(f"Submitted. Public URL: {public_url}")
     else:
         print(

@@ -69,6 +69,22 @@ def test_load_or_create_install_id_regenerates_on_malformed(tmp_path: Path) -> N
     assert load_or_create_install_id(config_path) == install_id
 
 
+def test_load_or_create_install_id_read_only_does_not_crash(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A read-only/permission-restricted home must not crash the CLI — the id is
+    returned for this run even though it can't be persisted."""
+
+    def _boom(*args, **kwargs):
+        raise PermissionError("read-only filesystem")
+
+    monkeypatch.setattr(Path, "write_text", _boom)
+    config_path = tmp_path / "config.toml"
+    install_id = load_or_create_install_id(config_path)
+    assert install_id  # a usable id was still produced
+    assert not config_path.exists()  # but nothing was persisted
+
+
 def test_load_or_create_install_id_creates_parent_dir(tmp_path: Path) -> None:
     """Parent directory is created if it does not exist."""
     config_path = tmp_path / "subdir" / "config.toml"
@@ -258,6 +274,16 @@ def test_redact_string_redacts_username_across_platforms() -> None:
     for path in ("/Users/scott/x", "/home/scott/x", "C:\\Users\\scott\\x"):
         result = _redact_string(path)
         assert "scott" not in result, path
+        assert "[REDACTED]" in result
+
+
+def test_redact_string_redacts_username_with_spaces() -> None:
+    """A username containing spaces must be fully redacted, not truncated at the
+    first space."""
+    for path in ("/Users/Scott Bly/x", "C:\\Users\\Scott Bly\\x"):
+        result = _redact_string(path)
+        assert "Scott" not in result, path
+        assert "Bly" not in result, path
         assert "[REDACTED]" in result
 
 
@@ -467,6 +493,27 @@ def test_submit_command_success_201(
     captured = capsys.readouterr()
     assert "Submitted. Public URL:" in captured.out
     assert "hermia.scottbly.com" in captured.out
+
+
+def test_submit_command_non_dict_json_response_does_not_crash(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A valid-but-non-dict 201 JSON body (e.g. a list) must not raise on .get()."""
+    jf = _make_jsonl(tmp_path)
+    mock_resp = MagicMock()
+    mock_resp.status_code = 201
+    mock_resp.json.return_value = ["unexpected", "list"]
+    with (
+        patch("hermia.submit.detect_gpu", return_value=_GPU_INFO),
+        patch("hermia.submit.load_or_create_install_id", return_value="uuid-ok"),
+        patch("requests.post", return_value=mock_resp),
+    ):
+        submit_command(results_path=jf, dry_run=False, yes=True)
+
+    captured = capsys.readouterr()
+    assert "Submitted." in captured.out
+    assert "could not parse response" in captured.out
 
 
 def test_submit_command_503_exits_1(
