@@ -253,3 +253,13 @@ def test_list_models_skips_empty_and_whitespace_ids():
 
         transport = OpenAICompatTransport(base_url="http://localhost:11435")
         assert transport.list_models() == ["good", "also-good"]
+
+
+def test_list_models_strips_surrounding_whitespace_from_ids():
+    with patch("hermia.transport.openai_compat.requests.get") as mock_get:
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"data": [{"id": "  padded  "}]}
+        mock_get.return_value = mock_response
+
+        transport = OpenAICompatTransport(base_url="http://localhost:11435")
+        assert transport.list_models() == ["padded"]

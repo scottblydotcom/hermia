@@ -131,7 +131,12 @@ def _run_host_eval(
     tests = load_tests_all()
     name = entry["name"]
     host_url = _normalize_host(entry["host"])
-    headers = _build_auth_headers(entry)
+    try:
+        headers = _build_auth_headers(entry)
+    except RuntimeError as exc:
+        with print_lock:
+            stderr_fn(f"  ERROR: host '{name}' auth setup failed ({exc}) — skipping host")
+        return False
     transport_type = entry.get("transport", "ollama")
     host_transport = (
         OpenAICompatTransport(host_url, headers)

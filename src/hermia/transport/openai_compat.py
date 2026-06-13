@@ -44,13 +44,13 @@ class OpenAICompatTransport:
         items = data.get("data")
         if not isinstance(items, list):
             return []
-        return [
-            it["id"]
-            for it in items
-            if isinstance(it, dict)
-            and isinstance(it.get("id"), str)
-            and it["id"].strip()
-        ]
+        ids: list[str] = []
+        for it in items:
+            if isinstance(it, dict) and isinstance(it.get("id"), str):
+                model_id = it["id"].strip()
+                if model_id:
+                    ids.append(model_id)
+        return ids
 
     def generate(self, model: str, messages: list[dict[str, str]], **opts: object) -> Response:
         payload = {
