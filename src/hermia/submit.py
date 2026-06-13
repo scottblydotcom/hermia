@@ -39,17 +39,20 @@ CORPUS_VERSION = "v0.2"
 SUBMIT_URL = "https://hermia.scottbly.com/v1/submit"
 
 # Value-level anonymization patterns (mirror lambda/anonymization.py)
-_URL_PATTERN = re.compile(r"https?://|://")
-_PATH_PREFIXES = ("/Users/", "/home/", "C:\\")
+# Redact the FULL URL, not just the scheme. Matching only "https://" left the
+# host/path/query exposed (e.g. "example.com/secret" after redacting the prefix).
+_URL_PATTERN = re.compile(r"\w*://\S+")
 # Redact the user-home dir INCLUDING the username segment. Redacting the prefix
 # alone leaves the username exposed (e.g. "scott" in "/Users/scott/...") — a
-# privacy leak in a community dataset.
-# Match the whole user-dir segment up to the next path separator (NOT stopping
-# at whitespace) so usernames with spaces (e.g. "C:\Users\Scott Bly") are fully
-# redacted. Bias is intentionally toward over-redaction for a privacy tool.
+# privacy leak in a community dataset. Match the whole user-dir segment up to the
+# next path separator (NOT stopping at whitespace) so usernames with spaces
+# (e.g. "C:\Users\Scott Bly") are fully redacted. Bias toward over-redaction.
 _PATH_USER_PATTERN = re.compile(
     r"(?:/Users/|/home/|[A-Za-z]:\\Users\\)([^/\\]+)", re.IGNORECASE
 )
+# Bare home/drive prefixes — case-insensitive so "/users/" and "c:\" are caught
+# too. Applied after _PATH_USER_PATTERN (which removes the username segment).
+_BARE_PREFIX_PATTERN = re.compile(r"(?:/Users/|/home/|[A-Za-z]:\\)", re.IGNORECASE)
 _TILDE_PATTERN = re.compile(r"(?:^|(?<=\s))~/")
 _HOSTNAME_PATTERN = re.compile(
     r"\b\w[\w.-]*\.(?:local|internal|lan|home|localdomain)\b",
@@ -85,7 +88,10 @@ def load_or_create_install_id(config_path: Path | None = None) -> str:
     try:
         with config_path.open("rb") as f:
             data = tomllib.load(f)
-        existing = data.get("hermia", {}).get("install_id")
+        # `[hermia]` may be absent or (in a hand-broken file) not a table —
+        # guard isinstance before .get() so a non-dict section can't crash.
+        section = data.get("hermia")
+        existing = section.get("install_id") if isinstance(section, dict) else None
         if isinstance(existing, str) and existing:
             return existing
     except FileNotFoundError:
@@ -227,9 +233,7 @@ def _redact_string(value: str, field_path: str = "") -> str:
     # Redact home dir + username first (prefix-only redaction would leak the
     # username), then collapse any remaining bare prefixes (e.g. non-user C:\ paths).
     value = _PATH_USER_PATTERN.sub("[REDACTED]", value)
-    if any(prefix in value for prefix in _PATH_PREFIXES):
-        for prefix in _PATH_PREFIXES:
-            value = value.replace(prefix, "[REDACTED]")
+    value = _BARE_PREFIX_PATTERN.sub("[REDACTED]", value)
 
     value = _TILDE_PATTERN.sub("[REDACTED]", value)
 
@@ -367,7 +371,7 @@ def submit_command(
             answer = input()
         except EOFError:
             answer = ""
-        if answer.strip() != "y":
+        if answer.strip().lower() != "y":
             print("Aborted.")
             sys.exit(0)
 

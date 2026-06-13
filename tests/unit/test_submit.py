@@ -85,6 +85,15 @@ def test_load_or_create_install_id_read_only_does_not_crash(
     assert not config_path.exists()  # but nothing was persisted
 
 
+def test_load_or_create_install_id_non_dict_section_regenerates(tmp_path: Path) -> None:
+    """A valid TOML where [hermia] isn't a table must not crash — it regenerates."""
+    config_path = tmp_path / "config.toml"
+    config_path.write_text('hermia = "not-a-table"\n', encoding="utf-8")
+    install_id = load_or_create_install_id(config_path)
+    assert install_id
+    assert load_or_create_install_id(config_path) == install_id
+
+
 def test_load_or_create_install_id_creates_parent_dir(tmp_path: Path) -> None:
     """Parent directory is created if it does not exist."""
     config_path = tmp_path / "subdir" / "config.toml"
@@ -258,6 +267,25 @@ def test_redact_string_url_replaced() -> None:
     result = _redact_string("connect to https://server.example/api")
     assert "https://" not in result
     assert "[REDACTED]" in result
+    # The host/path must be redacted too, not just the scheme.
+    assert "server.example" not in result
+    assert "/api" not in result
+
+
+def test_redact_string_public_domain_url_fully_redacted() -> None:
+    """A non-.local URL must be fully redacted (host wouldn't be caught by the
+    hostname rule)."""
+    result = _redact_string("see https://example.com/secret?token=abc")
+    assert "example.com" not in result
+    assert "secret" not in result
+
+
+def test_redact_string_bare_prefix_case_insensitive() -> None:
+    """Lowercase home/drive prefixes must still be redacted."""
+    for path in ("/users/data", "c:\\temp\\x"):
+        result = _redact_string(path)
+        assert "[REDACTED]" in result, path
+        assert result.startswith("[REDACTED]"), path
 
 
 def test_redact_string_file_path_users() -> None:
@@ -493,6 +521,25 @@ def test_submit_command_success_201(
     captured = capsys.readouterr()
     assert "Submitted. Public URL:" in captured.out
     assert "hermia.scottbly.com" in captured.out
+
+
+def test_submit_command_confirm_prompt_accepts_uppercase_y(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Typing 'Y' at the confirmation prompt must proceed (case-insensitive)."""
+    jf = _make_jsonl(tmp_path)
+    mock_resp = MagicMock()
+    mock_resp.status_code = 201
+    mock_resp.json.return_value = {"public_url": "https://hermia.scottbly.com/v1/r/x"}
+    with (
+        patch("hermia.submit.detect_gpu", return_value=_GPU_INFO),
+        patch("hermia.submit.load_or_create_install_id", return_value="uuid-ok"),
+        patch("requests.post", return_value=mock_resp),
+        patch("builtins.input", return_value="Y"),
+    ):
+        submit_command(results_path=jf, dry_run=False, yes=False)
+    assert "Submitted." in capsys.readouterr().out
 
 
 def test_submit_command_non_dict_json_response_does_not_crash(
