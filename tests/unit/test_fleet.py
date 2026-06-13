@@ -468,6 +468,65 @@ def test_run_fleet_models_auto_discovery_failure_skips_host(tmp_path: Path) -> N
     assert any("kwaainet" in line for line in errors)
 
 
+def test_run_fleet_openai_compat_explicit_list_still_runs(tmp_path: Path) -> None:
+    """An explicit models list on an openai-compat host evaluates each id (no discovery)."""
+    from hermia.fleet import run_fleet
+
+    _tests = [{"id": "t1", "system": "s", "prompt": "p"}]
+    _run_files = (tmp_path / "out.jsonl", tmp_path / "out.csv")
+
+    entries = [{
+        "name": "litellm",
+        "host": "https://gateway:4000",
+        "transport": "openai-compat",
+        "models": ["coder-lane", "manager-lane"],
+    }]
+
+    with (
+        patch("hermia.runner.load_tests_all", return_value=_tests),
+        patch(
+            "hermia.transport.openai_compat.OpenAICompatTransport.list_models",
+        ) as mock_list,
+        patch("hermia.runner.run_test", return_value=dict(_MINIMAL_RESULT)) as mock_run,
+        patch("hermia.results.open_run", return_value=_run_files),
+        patch("hermia.results.append_result"),
+        patch("hermia.metrics.MetricsSampler", return_value=MagicMock()),
+    ):
+        run_fleet(entries, repeat=1, results_dir=tmp_path)
+
+    # Explicit list must NOT trigger discovery.
+    mock_list.assert_not_called()
+    called_models = {call.args[0] for call in mock_run.call_args_list}
+    assert called_models == {"coder-lane", "manager-lane"}
+
+
+def test_run_fleet_openai_compat_omitted_models_warns_and_skips(tmp_path: Path) -> None:
+    """Omitting models on an openai-compat host warns and skips (no eval rows)."""
+    from hermia.fleet import run_fleet
+
+    _tests = [{"id": "t1", "system": "s", "prompt": "p"}]
+    _run_files = (tmp_path / "out.jsonl", tmp_path / "out.csv")
+    errors: list[str] = []
+
+    entries = [{
+        "name": "litellm",
+        "host": "https://gateway:4000",
+        "transport": "openai-compat",
+    }]
+
+    with (
+        patch("hermia.runner.load_tests_all", return_value=_tests),
+        patch("hermia.runner.run_test", return_value=dict(_MINIMAL_RESULT)) as mock_run,
+        patch("hermia.results.open_run", return_value=_run_files),
+        patch("hermia.results.append_result"),
+        patch("hermia.metrics.MetricsSampler", return_value=MagicMock()),
+    ):
+        run_fleet(entries, repeat=1, results_dir=tmp_path, stderr_fn=errors.append)
+
+    assert mock_run.call_args_list == []
+    assert any("litellm" in line and "models" in line for line in errors)
+
+
 # ---------------------------------------------------------------------------
 # transport: field in load_fleet_config
 # ---------------------------------------------------------------------------

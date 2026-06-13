@@ -142,7 +142,7 @@ def _run_host_eval(
         # openai-compat has no /api/tags, but it does serve GET /v1/models.
         try:
             discovered = host_transport.list_models()  # type: ignore[union-attr]
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — warn-and-skip: network/JSON/TransportError all degrade alike
             with print_lock:
                 stderr_fn(
                     f"  ERROR: openai-compat host '{name}' model discovery failed"
