@@ -637,6 +637,41 @@ def test_run_fleet_no_summary_when_nothing_skipped(tmp_path: Path) -> None:
     assert not any("skipped" in line for line in lines)
 
 
+def test_run_fleet_quiet_mode_suppresses_skipped_summary(tmp_path: Path) -> None:
+    """verbosity=-1 keeps stdout to just 'Saved:'; the skip still surfaces on stderr."""
+    from hermia.fleet import run_fleet
+
+    entries = [{
+        "name": "kwaainet",
+        "host": "http://localhost:11435",
+        "transport": "openai-compat",
+        "models": "auto",
+    }]
+
+    _tests = [{"id": "t1", "system": "s", "prompt": "p"}]
+    _run_files = (tmp_path / "out.jsonl", tmp_path / "out.csv")
+    out: list[str] = []
+    err: list[str] = []
+    with (
+        patch("hermia.runner.load_tests_all", return_value=_tests),
+        patch("hermia.transport.openai_compat.OpenAICompatTransport.list_models", return_value=[]),
+        patch("hermia.runner.run_test", return_value=dict(_MINIMAL_RESULT)),
+        patch("hermia.results.open_run", return_value=_run_files),
+        patch("hermia.results.append_result"),
+        patch("hermia.metrics.MetricsSampler", return_value=MagicMock()),
+    ):
+        run_fleet(
+            entries, repeat=1, results_dir=tmp_path,
+            print_fn=out.append, stderr_fn=err.append, verbosity=-1,
+        )
+
+    # stdout: only "Saved:", no aggregate summary
+    assert not any("skipped" in line or "Evaluated" in line for line in out)
+    assert any("Saved:" in line for line in out)
+    # stderr: the per-host skip is still surfaced even in quiet mode
+    assert any("skipping host" in line for line in err)
+
+
 def test_run_fleet_zero_models_counts_as_skipped(tmp_path: Path) -> None:
     """A host that resolves zero models is counted skipped (not a silent empty pass)."""
     from hermia.fleet import run_fleet

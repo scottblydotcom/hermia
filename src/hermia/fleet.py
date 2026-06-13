@@ -322,7 +322,9 @@ def run_fleet(
 
     total_evaluated = sum(r[0] for r in results)
     total_skipped = sum(r[1] for r in results)
-    if total_skipped > 0:
+    # Quiet mode (-1) keeps stdout to just "Saved:"; per-host skip warnings still
+    # surface on stderr, so quiet automation is not blind to skips.
+    if total_skipped > 0 and verbosity >= 0:
         print_fn(f"Evaluated {total_evaluated} host(s), skipped {total_skipped}")
 
     print_fn(f"Saved: {jsonl_path}")
