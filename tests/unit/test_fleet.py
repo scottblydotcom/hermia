@@ -579,6 +579,32 @@ def test_run_fleet_no_summary_when_nothing_skipped(tmp_path: Path) -> None:
     assert not any("skipped" in line for line in lines)
 
 
+def test_run_fleet_zero_models_counts_as_skipped(tmp_path: Path) -> None:
+    """A host that resolves zero models is counted skipped (not a silent empty pass)."""
+    from hermia.fleet import run_fleet
+
+    entries = [{"name": "gateway", "host": "http://host1:11434"}]
+
+    _tests = [{"id": "t1", "system": "s", "prompt": "p"}]
+    _run_files = (tmp_path / "out.jsonl", tmp_path / "out.csv")
+    lines: list[str] = []
+    with (
+        patch("hermia.runner.load_tests_all", return_value=_tests),
+        patch("hermia.runner.get_available_models", return_value=[]),
+        patch("hermia.runner.run_test", return_value=dict(_MINIMAL_RESULT)) as mock_run,
+        patch("hermia.results.open_run", return_value=_run_files),
+        patch("hermia.results.append_result"),
+        patch("hermia.metrics.MetricsSampler", return_value=MagicMock()),
+    ):
+        run_fleet(
+            entries, repeat=1, results_dir=tmp_path,
+            print_fn=lines.append, stderr_fn=lambda *_: None,
+        )
+
+    assert not mock_run.called
+    assert any("skipped 1" in line for line in lines)
+
+
 # ---------------------------------------------------------------------------
 # transport: field in load_fleet_config
 # ---------------------------------------------------------------------------

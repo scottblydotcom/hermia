@@ -188,6 +188,11 @@ def _run_host_eval(
                 f"  WARNING: models not found on {name}: {', '.join(sorted(missing))}"
             )
 
+    if not models:
+        with print_lock:
+            stderr_fn(f"  WARNING: no models to evaluate on '{name}' — skipping host")
+        return False
+
     if verbosity >= 0:
         with print_lock:
             print_fn(
