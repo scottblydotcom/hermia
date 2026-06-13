@@ -197,6 +197,16 @@ def test_list_models_skips_non_dict_and_idless_elements():
         assert transport.list_models() == ["good"]
 
 
+def test_list_models_non_json_body_returns_empty():
+    with patch("hermia.transport.openai_compat.requests.get") as mock_get:
+        mock_response = MagicMock()
+        mock_response.json.side_effect = ValueError("not json")
+        mock_get.return_value = mock_response
+
+        transport = OpenAICompatTransport(base_url="http://localhost:11435")
+        assert transport.list_models() == []
+
+
 def test_list_models_non_dict_body_returns_empty():
     with patch("hermia.transport.openai_compat.requests.get") as mock_get:
         mock_response = MagicMock()

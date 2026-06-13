@@ -141,7 +141,13 @@ def _run_host_eval(
     if transport_type == "openai-compat" and requested == "auto":
         # openai-compat has no /api/tags, but it does serve GET /v1/models.
         try:
-            discovered = host_transport.list_models()  # type: ignore[union-attr]
+            # isinstance narrows the transport union (guaranteed by transport_type
+            # above; the else is unreachable but keeps this type-safe).
+            discovered = (
+                host_transport.list_models()
+                if isinstance(host_transport, OpenAICompatTransport)
+                else []
+            )
         except Exception as exc:  # noqa: BLE001 — warn-and-skip: network/JSON/TransportError all degrade alike
             with print_lock:
                 stderr_fn(

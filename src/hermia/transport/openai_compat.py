@@ -31,7 +31,12 @@ class OpenAICompatTransport:
             timeout=15,
         )
         resp.raise_for_status()
-        data = resp.json()
+        try:
+            data = resp.json()
+        except ValueError:
+            # Non-JSON 200 (empty body, HTML error page) — honor the tolerate-
+            # malformed-body contract rather than raising.
+            return []
         if not isinstance(data, dict):
             return []
         if data.get("error"):
