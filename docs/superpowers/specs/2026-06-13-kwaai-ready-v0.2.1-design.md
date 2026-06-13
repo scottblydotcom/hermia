@@ -1,9 +1,9 @@
-# v0.2.1 "Kwaai-Ready" — Design
+# Kwaai-Ready (v0.2.0) — Design
 
 **Date:** 2026-06-13
-**Status:** Approved (design); pending spec review
-**Branch:** `feat/v0.2.1-kwaai-ready`
-**Target release:** v0.2.1 (patch on top of v0.2.0)
+**Status:** Approved — proceeding to implementation
+**Branch:** `feat/v0.2-kwaai-ready`
+**Target release:** v0.2.0 (folds into the pending v0.2.0 launch)
 
 ## Problem
 
@@ -161,9 +161,8 @@ _resolve_models → per-model eval loop (unchanged downstream)
 
 ## Release mechanics
 
-- Branch `feat/v0.2.1-kwaai-ready` off `dev`.
-- Lands after v0.2.0 ships (this is a patch on top). If v0.2.0 has not yet been
-  tagged when this is ready, it can fold into v0.2.0 — but it is designed as an
-  independent, additive 0.2.1.
-- Version bump `pyproject.toml` to `0.2.1` as the final step of the
-  implementation plan (not before v0.2.0 exists).
+- Branch `feat/v0.2-kwaai-ready` off `dev`.
+- Folds into the pending **v0.2.0** launch — the additive client convenience +
+  example + doc ride into the same release. No separate version bump here: the
+  existing 0.2.0 step (`0.1.3 → 0.2.0` in `pyproject.toml`) already covers it.
+- Goal: land today so it is exercised in today's test/fleet pass ahead of launch.
