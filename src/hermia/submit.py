@@ -15,6 +15,7 @@ import argparse
 import json
 import re
 import sys
+import tomllib
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -37,11 +38,15 @@ RESULTS_DIR = Path("results")
 CORPUS_VERSION = "v0.2"
 SUBMIT_URL = "https://hermia.scottbly.com/v1/submit"
 
-_INSTALL_ID_RE = re.compile(r'install_id\s*=\s*"([^"]+)"')
-
 # Value-level anonymization patterns (mirror lambda/anonymization.py)
 _URL_PATTERN = re.compile(r"https?://|://")
 _PATH_PREFIXES = ("/Users/", "/home/", "C:\\")
+# Redact the user-home dir INCLUDING the username segment. Redacting the prefix
+# alone leaves the username exposed (e.g. "scott" in "/Users/scott/...") — a
+# privacy leak in a community dataset.
+_PATH_USER_PATTERN = re.compile(
+    r"(?:/Users/|/home/|[A-Za-z]:\\Users\\)([^/\\\s]+)", re.IGNORECASE
+)
 _TILDE_PATTERN = re.compile(r"(?:^|(?<=\s))~/")
 _HOSTNAME_PATTERN = re.compile(
     r"\b\w[\w.-]*\.(?:local|internal|lan|home|localdomain)\b",
@@ -57,10 +62,14 @@ _HOSTNAME_PATTERN = re.compile(
 def load_or_create_install_id(config_path: Path | None = None) -> str:
     """Load install_id from config or create and persist a new one.
 
-    The config file is plain TOML written by hand (no tomllib/tomli_w dep):
+    The config file is TOML:
 
         [hermia]
         install_id = "<uuid4>"
+
+    Parsed with the stdlib ``tomllib`` (Python 3.11+) so a hand-edited file
+    with comments or reordered keys is read correctly. A malformed file is
+    treated as absent and regenerated.
 
     Parameters
     ----------
@@ -71,12 +80,15 @@ def load_or_create_install_id(config_path: Path | None = None) -> str:
         config_path = CONFIG_PATH
 
     try:
-        content = config_path.read_text(encoding="utf-8")
-        match = _INSTALL_ID_RE.search(content)
-        if match:
-            return match.group(1)
+        with config_path.open("rb") as f:
+            data = tomllib.load(f)
+        existing = data.get("hermia", {}).get("install_id")
+        if isinstance(existing, str) and existing:
+            return existing
     except FileNotFoundError:
         pass
+    except tomllib.TOMLDecodeError:
+        pass  # malformed/hand-broken config — fall through and regenerate
 
     install_id = str(uuid4())
     config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -92,7 +104,7 @@ _NVIDIA_MATCHERS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"RTX\s+5090"), "local:cuda/rtx-5090"),
     (re.compile(r"RTX\s+4090"), "local:cuda/rtx-4090"),
     (re.compile(r"RTX\s+3090"), "local:cuda/rtx-3090"),
-    (re.compile(r"RTX\s+30[678][05]"), "local:cuda/rtx-30xx"),
+    (re.compile(r"RTX\s+30[5678]0"), "local:cuda/rtx-30xx"),
     (re.compile(r"RTX\s+A\d"), "local:cuda/rtx-a-series"),
     (re.compile(r"GTX\s+(?:9|10)\d\d"), "local:cuda/gtx-legacy"),
 ]
@@ -161,10 +173,16 @@ def compute_unified_memory_gb(gpu_info: dict[str, Any]) -> float | None:
     vram: float = gpu_info.get("vram_total_gb", 0.0)
 
     try:
-        if vendor in ("apple", "nvidia", "amd"):
-            if vram > 0.0:
-                return float(vram)
-            # Fall through to psutil if vram is unknown
+        if vendor in ("nvidia", "amd"):
+            # Discrete GPUs do NOT share system RAM. If VRAM detection failed
+            # (vram == 0.0), report None rather than a misleading system-RAM
+            # figure — let the server decide how to handle the missing value.
+            return float(vram) if vram > 0.0 else None
+        if vendor == "apple" and vram > 0.0:
+            # Apple Silicon: unified memory == measured VRAM when available.
+            return float(vram)
+        # Apple w/o measured VRAM, Intel iGPU, and CPU-only systems: total
+        # system RAM is the meaningful figure.
         return float(psutil.virtual_memory().total) / (1024 ** 3)
     except Exception:  # noqa: BLE001
         return None
@@ -195,6 +213,9 @@ def _redact_string(value: str, field_path: str = "") -> str:
     if not is_attribution_url and _URL_PATTERN.search(value):
         value = _URL_PATTERN.sub("[REDACTED]", value)
 
+    # Redact home dir + username first (prefix-only redaction would leak the
+    # username), then collapse any remaining bare prefixes (e.g. non-user C:\ paths).
+    value = _PATH_USER_PATTERN.sub("[REDACTED]", value)
     if any(prefix in value for prefix in _PATH_PREFIXES):
         for prefix in _PATH_PREFIXES:
             value = value.replace(prefix, "[REDACTED]")

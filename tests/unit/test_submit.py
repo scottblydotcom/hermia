@@ -49,6 +49,26 @@ def test_load_or_create_install_id_stable(tmp_path: Path) -> None:
     assert len(set(ids)) == 1
 
 
+def test_load_or_create_install_id_parses_handedited_toml(tmp_path: Path) -> None:
+    """tomllib reads a hand-edited config with comments and extra keys."""
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        '# hermia config\n[hermia]\nother = 1\ninstall_id = "abc-123"\n',
+        encoding="utf-8",
+    )
+    assert load_or_create_install_id(config_path) == "abc-123"
+
+
+def test_load_or_create_install_id_regenerates_on_malformed(tmp_path: Path) -> None:
+    """A malformed config is treated as absent and regenerated (not crashed on)."""
+    config_path = tmp_path / "config.toml"
+    config_path.write_text("this is not valid toml ===", encoding="utf-8")
+    install_id = load_or_create_install_id(config_path)
+    assert install_id
+    # The regenerated file is now valid TOML and reads back stably.
+    assert load_or_create_install_id(config_path) == install_id
+
+
 def test_load_or_create_install_id_creates_parent_dir(tmp_path: Path) -> None:
     """Parent directory is created if it does not exist."""
     config_path = tmp_path / "subdir" / "config.toml"
@@ -79,8 +99,20 @@ def test_compute_host_class_nvidia_rtx3090() -> None:
 
 
 def test_compute_host_class_nvidia_rtx30xx() -> None:
-    gpu = {"vendor": "nvidia", "card": "NVIDIA GeForce RTX 3080"}
-    assert compute_host_class(gpu) == "local:cuda/rtx-30xx"
+    # 3050/3060/3070/3080 and Ti variants all map to rtx-30xx (3090 is separate).
+    for card in (
+        "NVIDIA GeForce RTX 3050",
+        "NVIDIA GeForce RTX 3060 Ti",
+        "NVIDIA GeForce RTX 3070",
+        "NVIDIA GeForce RTX 3080 Ti",
+    ):
+        gpu = {"vendor": "nvidia", "card": card}
+        assert compute_host_class(gpu) == "local:cuda/rtx-30xx", card
+
+
+def test_compute_host_class_nvidia_rtx3090_is_distinct() -> None:
+    gpu = {"vendor": "nvidia", "card": "NVIDIA GeForce RTX 3090"}
+    assert compute_host_class(gpu) == "local:cuda/rtx-3090"
 
 
 def test_compute_host_class_nvidia_rtx_a_series() -> None:
@@ -171,8 +203,18 @@ def test_compute_unified_memory_gb_apple() -> None:
     assert result == pytest.approx(36.0)
 
 
-def test_compute_unified_memory_gb_zero_vram_falls_back_to_psutil() -> None:
-    gpu = {"vendor": "nvidia", "card": "RTX 3090", "vram_total_gb": 0.0}
+def test_compute_unified_memory_gb_discrete_zero_vram_returns_none() -> None:
+    # Discrete GPUs don't share system RAM — vram=0 must yield None, not a
+    # misleading system-RAM figure. (No psutil patch: psutil must NOT be called.)
+    for vendor in ("nvidia", "amd"):
+        gpu = {"vendor": vendor, "card": "RTX 3090", "vram_total_gb": 0.0}
+        assert compute_unified_memory_gb(gpu) is None, vendor
+
+
+def test_compute_unified_memory_gb_apple_zero_vram_uses_psutil() -> None:
+    # Apple Silicon unified memory == system RAM, so a 0.0 vram reading still
+    # falls back to total RAM.
+    gpu = {"vendor": "apple", "card": "M3", "vram_total_gb": 0.0}
     with patch("hermia.submit.psutil") as mock_psutil:
         mock_vm = MagicMock()
         mock_vm.total = 32 * (1024 ** 3)  # 32 GiB
@@ -206,6 +248,23 @@ def test_redact_string_file_path_users() -> None:
     result = _redact_string("path is /Users/scott/data")
     assert "/Users/" not in result
     assert "[REDACTED]" in result
+    # The username segment must also be redacted, not just the prefix (privacy leak).
+    assert "scott" not in result
+
+
+def test_redact_string_redacts_username_across_platforms() -> None:
+    """Username in the home-dir segment must be redacted on macOS, Linux, and
+    Windows — redacting only the prefix would ship the username."""
+    for path in ("/Users/scott/x", "/home/scott/x", "C:\\Users\\scott\\x"):
+        result = _redact_string(path)
+        assert "scott" not in result, path
+        assert "[REDACTED]" in result
+
+
+def test_redact_string_non_user_windows_path_still_redacted() -> None:
+    """A non-user C:\\ path keeps its prefix redacted (no regression)."""
+    result = _redact_string("C:\\Windows\\System32")
+    assert result.startswith("[REDACTED]")
 
 
 def test_redact_string_file_path_home() -> None:
