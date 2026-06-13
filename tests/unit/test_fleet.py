@@ -373,6 +373,332 @@ def test_run_fleet_no_model_filter_runs_all(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# models: auto — openai-compat model auto-discovery
+# ---------------------------------------------------------------------------
+
+
+def test_load_fleet_config_models_auto_openai_compat(tmp_path: Path) -> None:
+    """models: auto is accepted for openai-compat transport."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: kwaainet\n"
+        "    host: http://localhost:11435\n"
+        "    transport: openai-compat\n"
+        "    models: auto\n"
+    )
+    entries = load_fleet_config(cfg)
+    assert entries[0]["models"] == "auto"
+
+
+def test_load_fleet_config_models_auto_rejected_for_ollama(tmp_path: Path) -> None:
+    """models: auto on an ollama host raises (ollama auto-discovers via omission)."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: local\n"
+        "    host: http://localhost:11434\n"
+        "    models: auto\n"
+    )
+    with pytest.raises(ValueError, match="auto"):
+        load_fleet_config(cfg)
+
+
+def test_run_fleet_models_auto_discovers(tmp_path: Path) -> None:
+    """models: auto discovers ids via the transport and evaluates each."""
+    from hermia.fleet import run_fleet
+
+    _tests = [{"id": "t1", "system": "s", "prompt": "p"}]
+    _run_files = (tmp_path / "out.jsonl", tmp_path / "out.csv")
+
+    entries = [{
+        "name": "kwaainet",
+        "host": "http://localhost:11435",
+        "transport": "openai-compat",
+        "models": "auto",
+    }]
+
+    with (
+        patch("hermia.runner.load_tests_all", return_value=_tests),
+        patch(
+            "hermia.transport.openai_compat.OpenAICompatTransport.list_models",
+            return_value=["disc-a", "disc-b"],
+        ),
+        patch("hermia.runner.run_test", return_value=dict(_MINIMAL_RESULT)) as mock_run,
+        patch("hermia.results.open_run", return_value=_run_files),
+        patch("hermia.results.append_result"),
+        patch("hermia.metrics.MetricsSampler", return_value=MagicMock()),
+    ):
+        run_fleet(entries, repeat=1, results_dir=tmp_path)
+
+    called_models = {call.args[0] for call in mock_run.call_args_list}
+    assert called_models == {"disc-a", "disc-b"}
+
+
+def test_run_fleet_models_auto_discovery_failure_skips_host(tmp_path: Path) -> None:
+    """If discovery fails, the host is skipped (no eval rows) with a warning."""
+    from hermia.fleet import run_fleet
+    from hermia.transport.base import TransportError
+
+    _tests = [{"id": "t1", "system": "s", "prompt": "p"}]
+    _run_files = (tmp_path / "out.jsonl", tmp_path / "out.csv")
+    errors: list[str] = []
+
+    entries = [{
+        "name": "kwaainet",
+        "host": "http://localhost:11435",
+        "transport": "openai-compat",
+        "models": "auto",
+    }]
+
+    with (
+        patch("hermia.runner.load_tests_all", return_value=_tests),
+        patch(
+            "hermia.transport.openai_compat.OpenAICompatTransport.list_models",
+            side_effect=TransportError("boom", kind="openai-compat"),
+        ),
+        patch("hermia.runner.run_test", return_value=dict(_MINIMAL_RESULT)) as mock_run,
+        patch("hermia.results.open_run", return_value=_run_files),
+        patch("hermia.results.append_result"),
+        patch("hermia.metrics.MetricsSampler", return_value=MagicMock()),
+    ):
+        run_fleet(entries, repeat=1, results_dir=tmp_path, stderr_fn=errors.append)
+
+    assert mock_run.call_args_list == []
+    assert any("kwaainet" in line for line in errors)
+
+
+def test_run_fleet_openai_compat_explicit_list_still_runs(tmp_path: Path) -> None:
+    """An explicit models list on an openai-compat host evaluates each id (no discovery)."""
+    from hermia.fleet import run_fleet
+
+    _tests = [{"id": "t1", "system": "s", "prompt": "p"}]
+    _run_files = (tmp_path / "out.jsonl", tmp_path / "out.csv")
+
+    entries = [{
+        "name": "litellm",
+        "host": "https://gateway:4000",
+        "transport": "openai-compat",
+        "models": ["coder-lane", "manager-lane"],
+    }]
+
+    with (
+        patch("hermia.runner.load_tests_all", return_value=_tests),
+        patch(
+            "hermia.transport.openai_compat.OpenAICompatTransport.list_models",
+        ) as mock_list,
+        patch("hermia.runner.run_test", return_value=dict(_MINIMAL_RESULT)) as mock_run,
+        patch("hermia.results.open_run", return_value=_run_files),
+        patch("hermia.results.append_result"),
+        patch("hermia.metrics.MetricsSampler", return_value=MagicMock()),
+    ):
+        run_fleet(entries, repeat=1, results_dir=tmp_path)
+
+    # Explicit list must NOT trigger discovery.
+    mock_list.assert_not_called()
+    called_models = {call.args[0] for call in mock_run.call_args_list}
+    assert called_models == {"coder-lane", "manager-lane"}
+
+
+def test_run_fleet_openai_compat_omitted_models_warns_and_skips(tmp_path: Path) -> None:
+    """Omitting models on an openai-compat host warns and skips (no eval rows)."""
+    from hermia.fleet import run_fleet
+
+    _tests = [{"id": "t1", "system": "s", "prompt": "p"}]
+    _run_files = (tmp_path / "out.jsonl", tmp_path / "out.csv")
+    errors: list[str] = []
+
+    entries = [{
+        "name": "litellm",
+        "host": "https://gateway:4000",
+        "transport": "openai-compat",
+    }]
+
+    with (
+        patch("hermia.runner.load_tests_all", return_value=_tests),
+        patch("hermia.runner.run_test", return_value=dict(_MINIMAL_RESULT)) as mock_run,
+        patch("hermia.results.open_run", return_value=_run_files),
+        patch("hermia.results.append_result"),
+        patch("hermia.metrics.MetricsSampler", return_value=MagicMock()),
+    ):
+        run_fleet(entries, repeat=1, results_dir=tmp_path, stderr_fn=errors.append)
+
+    assert mock_run.call_args_list == []
+    assert any("litellm" in line and "models" in line for line in errors)
+
+
+def test_run_fleet_openai_compat_empty_list_skips_with_clear_message(tmp_path: Path) -> None:
+    """models: [] on openai-compat skips with the accurate 'no models' message, not the
+    'requires an explicit list' one (the user did provide a list — it's just empty)."""
+    from hermia.fleet import run_fleet
+
+    entries = [{
+        "name": "litellm",
+        "host": "https://gateway:4000",
+        "transport": "openai-compat",
+        "models": [],
+    }]
+
+    _tests = [{"id": "t1", "system": "s", "prompt": "p"}]
+    _run_files = (tmp_path / "out.jsonl", tmp_path / "out.csv")
+    errors: list[str] = []
+    with (
+        patch("hermia.runner.load_tests_all", return_value=_tests),
+        patch("hermia.runner.run_test", return_value=dict(_MINIMAL_RESULT)) as mock_run,
+        patch("hermia.results.open_run", return_value=_run_files),
+        patch("hermia.results.append_result"),
+        patch("hermia.metrics.MetricsSampler", return_value=MagicMock()),
+    ):
+        run_fleet(entries, repeat=1, results_dir=tmp_path, stderr_fn=errors.append)
+
+    assert mock_run.call_args_list == []
+    assert any("no models to evaluate" in line for line in errors)
+
+
+def test_run_fleet_auth_failure_skips_host_not_crash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A missing bearer-auth env var skips the host instead of crashing the whole run."""
+    from hermia.fleet import run_fleet
+
+    monkeypatch.delenv("HERMIA_MISSING_BEARER", raising=False)
+    entries = [
+        {
+            "name": "secured",
+            "host": "http://host1:11434",
+            "auth": {"bearer": {"key_env": "HERMIA_MISSING_BEARER"}},
+        }
+    ]
+    _tests = [{"id": "t1", "system": "s", "prompt": "p"}]
+    _run_files = (tmp_path / "out.jsonl", tmp_path / "out.csv")
+    errors: list[str] = []
+    with (
+        patch("hermia.runner.load_tests_all", return_value=_tests),
+        patch("hermia.runner.get_available_models", return_value=[{"name": "m1"}]),
+        patch("hermia.runner.run_test", return_value=dict(_MINIMAL_RESULT)) as mock_run,
+        patch("hermia.results.open_run", return_value=_run_files),
+        patch("hermia.results.append_result"),
+        patch("hermia.metrics.MetricsSampler", return_value=MagicMock()),
+    ):
+        run_fleet(entries, repeat=1, results_dir=tmp_path, stderr_fn=errors.append)
+    assert not mock_run.called
+    assert any("secured" in line for line in errors)
+
+
+def test_run_fleet_prints_skipped_summary_when_host_skipped(tmp_path: Path) -> None:
+    """A skipped host produces an 'Evaluated N, skipped M' summary line."""
+    from hermia.fleet import run_fleet
+
+    entries = [{
+        "name": "kwaainet",
+        "host": "http://localhost:11435",
+        "transport": "openai-compat",
+        "models": "auto",
+    }]
+
+    _tests = [{"id": "t1", "system": "s", "prompt": "p"}]
+    _run_files = (tmp_path / "out.jsonl", tmp_path / "out.csv")
+    lines: list[str] = []
+    with (
+        patch("hermia.runner.load_tests_all", return_value=_tests),
+        patch("hermia.transport.openai_compat.OpenAICompatTransport.list_models", return_value=[]),
+        patch("hermia.runner.run_test", return_value=dict(_MINIMAL_RESULT)),
+        patch("hermia.results.open_run", return_value=_run_files),
+        patch("hermia.results.append_result"),
+        patch("hermia.metrics.MetricsSampler", return_value=MagicMock()),
+    ):
+        run_fleet(
+            entries, repeat=1, results_dir=tmp_path,
+            print_fn=lines.append, stderr_fn=lambda *_: None,
+        )
+
+    assert any("skipped 1" in line for line in lines)
+
+
+def test_run_fleet_no_summary_when_nothing_skipped(tmp_path: Path) -> None:
+    """A clean run (no skips) prints no skipped-summary line."""
+    from hermia.fleet import run_fleet
+
+    entries = [{"name": "gateway", "host": "http://host1:11434"}]
+
+    _tests = [{"id": "t1", "system": "s", "prompt": "p"}]
+    _run_files = (tmp_path / "out.jsonl", tmp_path / "out.csv")
+    lines: list[str] = []
+    with (
+        patch("hermia.runner.load_tests_all", return_value=_tests),
+        patch("hermia.runner.get_available_models", return_value=[{"name": "m1"}]),
+        patch("hermia.runner.run_test", return_value=dict(_MINIMAL_RESULT)),
+        patch("hermia.results.open_run", return_value=_run_files),
+        patch("hermia.results.append_result"),
+        patch("hermia.metrics.MetricsSampler", return_value=MagicMock()),
+    ):
+        run_fleet(entries, repeat=1, results_dir=tmp_path, print_fn=lines.append)
+
+    assert not any("skipped" in line for line in lines)
+
+
+def test_run_fleet_quiet_mode_suppresses_skipped_summary(tmp_path: Path) -> None:
+    """verbosity=-1 keeps stdout to just 'Saved:'; the skip still surfaces on stderr."""
+    from hermia.fleet import run_fleet
+
+    entries = [{
+        "name": "kwaainet",
+        "host": "http://localhost:11435",
+        "transport": "openai-compat",
+        "models": "auto",
+    }]
+
+    _tests = [{"id": "t1", "system": "s", "prompt": "p"}]
+    _run_files = (tmp_path / "out.jsonl", tmp_path / "out.csv")
+    out: list[str] = []
+    err: list[str] = []
+    with (
+        patch("hermia.runner.load_tests_all", return_value=_tests),
+        patch("hermia.transport.openai_compat.OpenAICompatTransport.list_models", return_value=[]),
+        patch("hermia.runner.run_test", return_value=dict(_MINIMAL_RESULT)),
+        patch("hermia.results.open_run", return_value=_run_files),
+        patch("hermia.results.append_result"),
+        patch("hermia.metrics.MetricsSampler", return_value=MagicMock()),
+    ):
+        run_fleet(
+            entries, repeat=1, results_dir=tmp_path,
+            print_fn=out.append, stderr_fn=err.append, verbosity=-1,
+        )
+
+    # stdout: only "Saved:", no aggregate summary
+    assert not any("skipped" in line or "Evaluated" in line for line in out)
+    assert any("Saved:" in line for line in out)
+    # stderr: the per-host skip is still surfaced even in quiet mode
+    assert any("skipping host" in line for line in err)
+
+
+def test_run_fleet_zero_models_counts_as_skipped(tmp_path: Path) -> None:
+    """A host that resolves zero models is counted skipped (not a silent empty pass)."""
+    from hermia.fleet import run_fleet
+
+    entries = [{"name": "gateway", "host": "http://host1:11434"}]
+
+    _tests = [{"id": "t1", "system": "s", "prompt": "p"}]
+    _run_files = (tmp_path / "out.jsonl", tmp_path / "out.csv")
+    lines: list[str] = []
+    with (
+        patch("hermia.runner.load_tests_all", return_value=_tests),
+        patch("hermia.runner.get_available_models", return_value=[]),
+        patch("hermia.runner.run_test", return_value=dict(_MINIMAL_RESULT)) as mock_run,
+        patch("hermia.results.open_run", return_value=_run_files),
+        patch("hermia.results.append_result"),
+        patch("hermia.metrics.MetricsSampler", return_value=MagicMock()),
+    ):
+        run_fleet(
+            entries, repeat=1, results_dir=tmp_path,
+            print_fn=lines.append, stderr_fn=lambda *_: None,
+        )
+
+    assert not mock_run.called
+    assert any("skipped 1" in line for line in lines)
+
+
+# ---------------------------------------------------------------------------
 # transport: field in load_fleet_config
 # ---------------------------------------------------------------------------
 

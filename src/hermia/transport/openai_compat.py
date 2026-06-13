@@ -16,6 +16,42 @@ class OpenAICompatTransport:
         self._base_url = base_url.rstrip("/").removesuffix("/v1")
         self._headers = headers or {}
 
+    def list_models(self) -> list[str]:
+        """Discover model ids via ``GET /v1/models`` (OpenAI-standard listing).
+
+        Lightweight metadata call — uses a short timeout, not generate()'s 90s.
+        Tolerates a malformed body (non-dict, missing/``null`` ``data``, non-dict
+        or id-less elements) by returning what it can rather than raising. Raises
+        ``TransportError`` only on an explicit in-body ``error`` (HTTP errors
+        propagate via ``raise_for_status``).
+        """
+        resp = requests.get(  # nosec B113 — short fixed timeout below
+            f"{self._base_url}/v1/models",
+            headers=self._headers,
+            timeout=15,
+        )
+        resp.raise_for_status()
+        try:
+            data = resp.json()
+        except ValueError:
+            # Non-JSON 200 (empty body, HTML error page) — honor the tolerate-
+            # malformed-body contract rather than raising.
+            return []
+        if not isinstance(data, dict):
+            return []
+        if data.get("error"):
+            raise TransportError(str(data["error"]), kind="openai-compat")
+        items = data.get("data")
+        if not isinstance(items, list):
+            return []
+        ids: list[str] = []
+        for it in items:
+            if isinstance(it, dict) and isinstance(it.get("id"), str):
+                model_id = it["id"].strip()
+                if model_id:
+                    ids.append(model_id)
+        return ids
+
     def generate(self, model: str, messages: list[dict[str, str]], **opts: object) -> Response:
         payload = {
             "model": model,

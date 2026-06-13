@@ -30,16 +30,25 @@ def load_fleet_config(path: Path) -> list[dict[str, Any]]:
             raise ValueError(f"Fleet entry [{i}] missing or invalid 'name'")
         if not isinstance(entry.get("host"), str) or not entry["host"]:
             raise ValueError(f"Fleet entry [{i}] missing or invalid 'host'")
-        models = entry.get("models")
-        if models is not None:
-            if not isinstance(models, list) or not all(isinstance(m, str) for m in models):
-                raise ValueError(f"Fleet entry [{i}] 'models' must be a list of strings")
         transport = entry.get("transport", "ollama")
         if transport not in ("ollama", "openai-compat"):
             raise ValueError(
                 f"Fleet entry '{entry.get('name', '?')}': transport must be 'ollama' or "
                 f"'openai-compat', got '{transport}'"
             )
+        models = entry.get("models")
+        if models is not None:
+            if models == "auto":
+                if transport != "openai-compat":
+                    raise ValueError(
+                        f"Fleet entry [{i}] 'models: auto' is only valid for "
+                        "openai-compat transport (ollama auto-discovers when "
+                        "'models' is omitted)"
+                    )
+            elif not isinstance(models, list) or not all(isinstance(m, str) for m in models):
+                raise ValueError(
+                    f"Fleet entry [{i}] 'models' must be a list of strings or 'auto'"
+                )
         stack = entry.get("stack")
         if stack is not None and not isinstance(stack, dict):
             raise ValueError(
@@ -100,8 +109,11 @@ def _run_host_eval(
     print_fn: Callable[[str], None],
     stderr_fn: Callable[[str], None],
     verbosity: int,
-) -> None:
+) -> bool:
     """Evaluate every (model, test, repeat) for one fleet host. Writes rows as it goes.
+
+    Returns True if the host was evaluated, False if it was skipped (e.g. model
+    discovery failed or no models resolved).
 
     Models run strictly sequentially within the host (VRAM-aware: one model loaded
     at a time). Safe to call concurrently for *different* hosts.
@@ -119,7 +131,12 @@ def _run_host_eval(
     tests = load_tests_all()
     name = entry["name"]
     host_url = _normalize_host(entry["host"])
-    headers = _build_auth_headers(entry)
+    try:
+        headers = _build_auth_headers(entry)
+    except RuntimeError as exc:
+        with print_lock:
+            stderr_fn(f"  ERROR: host '{name}' auth setup failed ({exc}) — skipping host")
+        return False
     transport_type = entry.get("transport", "ollama")
     host_transport = (
         OpenAICompatTransport(host_url, headers)
@@ -129,25 +146,59 @@ def _run_host_eval(
     host_start = datetime.now(UTC).isoformat()
 
     requested = entry.get("models")
-    if transport_type == "openai-compat" and not requested:
+    if transport_type == "openai-compat" and requested == "auto":
+        # openai-compat has no /api/tags, but it does serve GET /v1/models.
+        try:
+            # isinstance narrows the transport union (guaranteed by transport_type
+            # above; the else is unreachable but keeps this type-safe).
+            discovered = (
+                host_transport.list_models()
+                if isinstance(host_transport, OpenAICompatTransport)
+                else []
+            )
+        except Exception as exc:  # noqa: BLE001 — warn-and-skip: network/JSON/TransportError all degrade alike
+            with print_lock:
+                stderr_fn(
+                    f"  ERROR: openai-compat host '{name}' model discovery failed"
+                    f" ({exc}) — skipping host"
+                )
+            return False
+        if not discovered:
+            with print_lock:
+                stderr_fn(
+                    f"  ERROR: openai-compat host '{name}' returned no models from"
+                    f" /v1/models — skipping host"
+                )
+            return False
+        models = [{"name": m} for m in sorted(set(discovered))]
+        missing: set[str] = set()
+    elif transport_type == "openai-compat" and requested is None:
+        # Omitted entirely. An explicit-but-empty list ([]) falls through to the
+        # resolver and is caught by the zero-models guard with a clearer message.
         with print_lock:
             stderr_fn(
                 f"  ERROR: openai-compat host '{name}' requires an explicit"
-                f" 'models:' list in fleet YAML — skipping host"
+                f" 'models:' list (or 'models: auto') in fleet YAML — skipping host"
             )
-        return
-    # openai-compat hosts have no /api/tags endpoint; only discover for ollama.
-    all_models = (
-        get_available_models(host=host_url, headers=headers)
-        if transport_type != "openai-compat"
-        else []
-    )
-    models, missing = _resolve_models(transport_type, requested, all_models)
+        return False
+    else:
+        # openai-compat hosts have no /api/tags endpoint; only discover for ollama.
+        all_models = (
+            get_available_models(host=host_url, headers=headers)
+            if transport_type != "openai-compat"
+            else []
+        )
+        models, missing = _resolve_models(transport_type, requested, all_models)
     if missing:
         with print_lock:
             stderr_fn(
                 f"  WARNING: models not found on {name}: {', '.join(sorted(missing))}"
             )
+
+    if not models:
+        with print_lock:
+            stderr_fn(f"  WARNING: no models to evaluate on '{name}' — skipping host")
+        return False
 
     if verbosity >= 0:
         with print_lock:
@@ -197,6 +248,8 @@ def _run_host_eval(
                             line += f"  [{reason}]"
                     with print_lock:
                         print_fn(line)
+
+    return True
 
 
 def _group_entries_by_host(entries: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
@@ -249,15 +302,30 @@ def run_fleet(
     groups = _group_entries_by_host(entries)
     workers = max(1, min(max_concurrency, len(groups)))
 
-    def run_group(group: list[dict[str, Any]]) -> None:
+    def run_group(group: list[dict[str, Any]]) -> tuple[int, int]:
+        # Returns (evaluated, skipped). Counts are returned (not shared mutable
+        # state) so concurrent groups stay thread-safe.
+        evaluated = 0
+        skipped = 0
         for entry in group:  # same physical host → strictly sequential
-            _run_host_eval(
+            if _run_host_eval(
                 entry, repeat, run_id, jsonl_path, csv_path,
                 print_lock, print_fn, stderr_fn, verbosity,
-            )
+            ):
+                evaluated += 1
+            else:
+                skipped += 1
+        return evaluated, skipped
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        list(pool.map(run_group, groups))
+        results = list(pool.map(run_group, groups))
+
+    total_evaluated = sum(r[0] for r in results)
+    total_skipped = sum(r[1] for r in results)
+    # Quiet mode (-1) keeps stdout to just "Saved:"; per-host skip warnings still
+    # surface on stderr, so quiet automation is not blind to skips.
+    if total_skipped > 0 and verbosity >= 0:
+        print_fn(f"Evaluated {total_evaluated} host(s), skipped {total_skipped}")
 
     print_fn(f"Saved: {jsonl_path}")
     return jsonl_path
