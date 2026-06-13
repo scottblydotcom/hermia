@@ -373,6 +373,102 @@ def test_run_fleet_no_model_filter_runs_all(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# models: auto — openai-compat model auto-discovery
+# ---------------------------------------------------------------------------
+
+
+def test_load_fleet_config_models_auto_openai_compat(tmp_path: Path) -> None:
+    """models: auto is accepted for openai-compat transport."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: kwaainet\n"
+        "    host: http://localhost:11435\n"
+        "    transport: openai-compat\n"
+        "    models: auto\n"
+    )
+    entries = load_fleet_config(cfg)
+    assert entries[0]["models"] == "auto"
+
+
+def test_load_fleet_config_models_auto_rejected_for_ollama(tmp_path: Path) -> None:
+    """models: auto on an ollama host raises (ollama auto-discovers via omission)."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: local\n"
+        "    host: http://localhost:11434\n"
+        "    models: auto\n"
+    )
+    with pytest.raises(ValueError, match="auto"):
+        load_fleet_config(cfg)
+
+
+def test_run_fleet_models_auto_discovers(tmp_path: Path) -> None:
+    """models: auto discovers ids via the transport and evaluates each."""
+    from hermia.fleet import run_fleet
+
+    _tests = [{"id": "t1", "system": "s", "prompt": "p"}]
+    _run_files = (tmp_path / "out.jsonl", tmp_path / "out.csv")
+
+    entries = [{
+        "name": "kwaainet",
+        "host": "http://localhost:11435",
+        "transport": "openai-compat",
+        "models": "auto",
+    }]
+
+    with (
+        patch("hermia.runner.load_tests_all", return_value=_tests),
+        patch(
+            "hermia.transport.openai_compat.OpenAICompatTransport.list_models",
+            return_value=["disc-a", "disc-b"],
+        ),
+        patch("hermia.runner.run_test", return_value=dict(_MINIMAL_RESULT)) as mock_run,
+        patch("hermia.results.open_run", return_value=_run_files),
+        patch("hermia.results.append_result"),
+        patch("hermia.metrics.MetricsSampler", return_value=MagicMock()),
+    ):
+        run_fleet(entries, repeat=1, results_dir=tmp_path)
+
+    called_models = {call.args[0] for call in mock_run.call_args_list}
+    assert called_models == {"disc-a", "disc-b"}
+
+
+def test_run_fleet_models_auto_discovery_failure_skips_host(tmp_path: Path) -> None:
+    """If discovery fails, the host is skipped (no eval rows) with a warning."""
+    from hermia.fleet import run_fleet
+    from hermia.transport.base import TransportError
+
+    _tests = [{"id": "t1", "system": "s", "prompt": "p"}]
+    _run_files = (tmp_path / "out.jsonl", tmp_path / "out.csv")
+    errors: list[str] = []
+
+    entries = [{
+        "name": "kwaainet",
+        "host": "http://localhost:11435",
+        "transport": "openai-compat",
+        "models": "auto",
+    }]
+
+    with (
+        patch("hermia.runner.load_tests_all", return_value=_tests),
+        patch(
+            "hermia.transport.openai_compat.OpenAICompatTransport.list_models",
+            side_effect=TransportError("boom", kind="openai-compat"),
+        ),
+        patch("hermia.runner.run_test", return_value=dict(_MINIMAL_RESULT)) as mock_run,
+        patch("hermia.results.open_run", return_value=_run_files),
+        patch("hermia.results.append_result"),
+        patch("hermia.metrics.MetricsSampler", return_value=MagicMock()),
+    ):
+        run_fleet(entries, repeat=1, results_dir=tmp_path, stderr_fn=errors.append)
+
+    assert mock_run.call_args_list == []
+    assert any("kwaainet" in line for line in errors)
+
+
+# ---------------------------------------------------------------------------
 # transport: field in load_fleet_config
 # ---------------------------------------------------------------------------
 

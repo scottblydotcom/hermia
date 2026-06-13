@@ -30,16 +30,25 @@ def load_fleet_config(path: Path) -> list[dict[str, Any]]:
             raise ValueError(f"Fleet entry [{i}] missing or invalid 'name'")
         if not isinstance(entry.get("host"), str) or not entry["host"]:
             raise ValueError(f"Fleet entry [{i}] missing or invalid 'host'")
-        models = entry.get("models")
-        if models is not None:
-            if not isinstance(models, list) or not all(isinstance(m, str) for m in models):
-                raise ValueError(f"Fleet entry [{i}] 'models' must be a list of strings")
         transport = entry.get("transport", "ollama")
         if transport not in ("ollama", "openai-compat"):
             raise ValueError(
                 f"Fleet entry '{entry.get('name', '?')}': transport must be 'ollama' or "
                 f"'openai-compat', got '{transport}'"
             )
+        models = entry.get("models")
+        if models is not None:
+            if models == "auto":
+                if transport != "openai-compat":
+                    raise ValueError(
+                        f"Fleet entry [{i}] 'models: auto' is only valid for "
+                        "openai-compat transport (ollama auto-discovers when "
+                        "'models' is omitted)"
+                    )
+            elif not isinstance(models, list) or not all(isinstance(m, str) for m in models):
+                raise ValueError(
+                    f"Fleet entry [{i}] 'models' must be a list of strings or 'auto'"
+                )
         stack = entry.get("stack")
         if stack is not None and not isinstance(stack, dict):
             raise ValueError(
@@ -129,20 +138,41 @@ def _run_host_eval(
     host_start = datetime.now(UTC).isoformat()
 
     requested = entry.get("models")
-    if transport_type == "openai-compat" and not requested:
+    if transport_type == "openai-compat" and requested == "auto":
+        # openai-compat has no /api/tags, but it does serve GET /v1/models.
+        try:
+            discovered = host_transport.list_models()  # type: ignore[union-attr]
+        except Exception as exc:
+            with print_lock:
+                stderr_fn(
+                    f"  ERROR: openai-compat host '{name}' model discovery failed"
+                    f" ({exc}) — skipping host"
+                )
+            return
+        if not discovered:
+            with print_lock:
+                stderr_fn(
+                    f"  ERROR: openai-compat host '{name}' returned no models from"
+                    f" /v1/models — skipping host"
+                )
+            return
+        models = [{"name": m} for m in sorted(set(discovered))]
+        missing: set[str] = set()
+    elif transport_type == "openai-compat" and not requested:
         with print_lock:
             stderr_fn(
                 f"  ERROR: openai-compat host '{name}' requires an explicit"
-                f" 'models:' list in fleet YAML — skipping host"
+                f" 'models:' list (or 'models: auto') in fleet YAML — skipping host"
             )
         return
-    # openai-compat hosts have no /api/tags endpoint; only discover for ollama.
-    all_models = (
-        get_available_models(host=host_url, headers=headers)
-        if transport_type != "openai-compat"
-        else []
-    )
-    models, missing = _resolve_models(transport_type, requested, all_models)
+    else:
+        # openai-compat hosts have no /api/tags endpoint; only discover for ollama.
+        all_models = (
+            get_available_models(host=host_url, headers=headers)
+            if transport_type != "openai-compat"
+            else []
+        )
+        models, missing = _resolve_models(transport_type, requested, all_models)
     if missing:
         with print_lock:
             stderr_fn(
