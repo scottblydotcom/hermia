@@ -527,6 +527,58 @@ def test_run_fleet_openai_compat_omitted_models_warns_and_skips(tmp_path: Path) 
     assert any("litellm" in line and "models" in line for line in errors)
 
 
+def test_run_fleet_prints_skipped_summary_when_host_skipped(tmp_path: Path) -> None:
+    """A skipped host produces an 'Evaluated N, skipped M' summary line."""
+    from hermia.fleet import run_fleet
+
+    entries = [{
+        "name": "kwaainet",
+        "host": "http://localhost:11435",
+        "transport": "openai-compat",
+        "models": "auto",
+    }]
+
+    _tests = [{"id": "t1", "system": "s", "prompt": "p"}]
+    _run_files = (tmp_path / "out.jsonl", tmp_path / "out.csv")
+    lines: list[str] = []
+    with (
+        patch("hermia.runner.load_tests_all", return_value=_tests),
+        patch("hermia.transport.openai_compat.OpenAICompatTransport.list_models", return_value=[]),
+        patch("hermia.runner.run_test", return_value=dict(_MINIMAL_RESULT)),
+        patch("hermia.results.open_run", return_value=_run_files),
+        patch("hermia.results.append_result"),
+        patch("hermia.metrics.MetricsSampler", return_value=MagicMock()),
+    ):
+        run_fleet(
+            entries, repeat=1, results_dir=tmp_path,
+            print_fn=lines.append, stderr_fn=lambda *_: None,
+        )
+
+    assert any("skipped 1" in line for line in lines)
+
+
+def test_run_fleet_no_summary_when_nothing_skipped(tmp_path: Path) -> None:
+    """A clean run (no skips) prints no skipped-summary line."""
+    from hermia.fleet import run_fleet
+
+    entries = [{"name": "gateway", "host": "http://host1:11434"}]
+
+    _tests = [{"id": "t1", "system": "s", "prompt": "p"}]
+    _run_files = (tmp_path / "out.jsonl", tmp_path / "out.csv")
+    lines: list[str] = []
+    with (
+        patch("hermia.runner.load_tests_all", return_value=_tests),
+        patch("hermia.runner.get_available_models", return_value=[{"name": "m1"}]),
+        patch("hermia.runner.run_test", return_value=dict(_MINIMAL_RESULT)),
+        patch("hermia.results.open_run", return_value=_run_files),
+        patch("hermia.results.append_result"),
+        patch("hermia.metrics.MetricsSampler", return_value=MagicMock()),
+    ):
+        run_fleet(entries, repeat=1, results_dir=tmp_path, print_fn=lines.append)
+
+    assert not any("skipped" in line for line in lines)
+
+
 # ---------------------------------------------------------------------------
 # transport: field in load_fleet_config
 # ---------------------------------------------------------------------------

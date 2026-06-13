@@ -236,3 +236,20 @@ def test_list_models_raises_on_error_body():
         transport = OpenAICompatTransport(base_url="http://localhost:11435")
         with pytest.raises(TransportError):
             transport.list_models()
+
+
+def test_list_models_skips_empty_and_whitespace_ids():
+    with patch("hermia.transport.openai_compat.requests.get") as mock_get:
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "data": [
+                {"id": "good"},
+                {"id": ""},
+                {"id": "   "},
+                {"id": "also-good"},
+            ]
+        }
+        mock_get.return_value = mock_response
+
+        transport = OpenAICompatTransport(base_url="http://localhost:11435")
+        assert transport.list_models() == ["good", "also-good"]

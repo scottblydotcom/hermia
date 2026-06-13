@@ -47,7 +47,9 @@ class OpenAICompatTransport:
         return [
             it["id"]
             for it in items
-            if isinstance(it, dict) and isinstance(it.get("id"), str)
+            if isinstance(it, dict)
+            and isinstance(it.get("id"), str)
+            and it["id"].strip()
         ]
 
     def generate(self, model: str, messages: list[dict[str, str]], **opts: object) -> Response:

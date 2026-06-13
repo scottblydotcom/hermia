@@ -109,8 +109,11 @@ def _run_host_eval(
     print_fn: Callable[[str], None],
     stderr_fn: Callable[[str], None],
     verbosity: int,
-) -> None:
+) -> bool:
     """Evaluate every (model, test, repeat) for one fleet host. Writes rows as it goes.
+
+    Returns True if the host was evaluated, False if it was skipped (e.g. model
+    discovery failed or no models resolved).
 
     Models run strictly sequentially within the host (VRAM-aware: one model loaded
     at a time). Safe to call concurrently for *different* hosts.
@@ -154,14 +157,14 @@ def _run_host_eval(
                     f"  ERROR: openai-compat host '{name}' model discovery failed"
                     f" ({exc}) — skipping host"
                 )
-            return
+            return False
         if not discovered:
             with print_lock:
                 stderr_fn(
                     f"  ERROR: openai-compat host '{name}' returned no models from"
                     f" /v1/models — skipping host"
                 )
-            return
+            return False
         models = [{"name": m} for m in sorted(set(discovered))]
         missing: set[str] = set()
     elif transport_type == "openai-compat" and not requested:
@@ -170,7 +173,7 @@ def _run_host_eval(
                 f"  ERROR: openai-compat host '{name}' requires an explicit"
                 f" 'models:' list (or 'models: auto') in fleet YAML — skipping host"
             )
-        return
+        return False
     else:
         # openai-compat hosts have no /api/tags endpoint; only discover for ollama.
         all_models = (
@@ -234,6 +237,8 @@ def _run_host_eval(
                     with print_lock:
                         print_fn(line)
 
+    return True
+
 
 def _group_entries_by_host(entries: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
     """Group entries by normalized host URL, preserving first-seen order.
@@ -285,15 +290,28 @@ def run_fleet(
     groups = _group_entries_by_host(entries)
     workers = max(1, min(max_concurrency, len(groups)))
 
-    def run_group(group: list[dict[str, Any]]) -> None:
+    def run_group(group: list[dict[str, Any]]) -> tuple[int, int]:
+        # Returns (evaluated, skipped). Counts are returned (not shared mutable
+        # state) so concurrent groups stay thread-safe.
+        evaluated = 0
+        skipped = 0
         for entry in group:  # same physical host → strictly sequential
-            _run_host_eval(
+            if _run_host_eval(
                 entry, repeat, run_id, jsonl_path, csv_path,
                 print_lock, print_fn, stderr_fn, verbosity,
-            )
+            ):
+                evaluated += 1
+            else:
+                skipped += 1
+        return evaluated, skipped
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        list(pool.map(run_group, groups))
+        results = list(pool.map(run_group, groups))
+
+    total_evaluated = sum(r[0] for r in results)
+    total_skipped = sum(r[1] for r in results)
+    if total_skipped > 0:
+        print_fn(f"Evaluated {total_evaluated} host(s), skipped {total_skipped}")
 
     print_fn(f"Saved: {jsonl_path}")
     return jsonl_path
