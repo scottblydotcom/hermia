@@ -167,7 +167,9 @@ def _run_host_eval(
             return False
         models = [{"name": m} for m in sorted(set(discovered))]
         missing: set[str] = set()
-    elif transport_type == "openai-compat" and not requested:
+    elif transport_type == "openai-compat" and requested is None:
+        # Omitted entirely. An explicit-but-empty list ([]) falls through to the
+        # resolver and is caught by the zero-models guard with a clearer message.
         with print_lock:
             stderr_fn(
                 f"  ERROR: openai-compat host '{name}' requires an explicit"

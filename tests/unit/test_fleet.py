@@ -527,6 +527,34 @@ def test_run_fleet_openai_compat_omitted_models_warns_and_skips(tmp_path: Path) 
     assert any("litellm" in line and "models" in line for line in errors)
 
 
+def test_run_fleet_openai_compat_empty_list_skips_with_clear_message(tmp_path: Path) -> None:
+    """models: [] on openai-compat skips with the accurate 'no models' message, not the
+    'requires an explicit list' one (the user did provide a list — it's just empty)."""
+    from hermia.fleet import run_fleet
+
+    entries = [{
+        "name": "litellm",
+        "host": "https://gateway:4000",
+        "transport": "openai-compat",
+        "models": [],
+    }]
+
+    _tests = [{"id": "t1", "system": "s", "prompt": "p"}]
+    _run_files = (tmp_path / "out.jsonl", tmp_path / "out.csv")
+    errors: list[str] = []
+    with (
+        patch("hermia.runner.load_tests_all", return_value=_tests),
+        patch("hermia.runner.run_test", return_value=dict(_MINIMAL_RESULT)) as mock_run,
+        patch("hermia.results.open_run", return_value=_run_files),
+        patch("hermia.results.append_result"),
+        patch("hermia.metrics.MetricsSampler", return_value=MagicMock()),
+    ):
+        run_fleet(entries, repeat=1, results_dir=tmp_path, stderr_fn=errors.append)
+
+    assert mock_run.call_args_list == []
+    assert any("no models to evaluate" in line for line in errors)
+
+
 def test_run_fleet_prints_skipped_summary_when_host_skipped(tmp_path: Path) -> None:
     """A skipped host produces an 'Evaluated N, skipped M' summary line."""
     from hermia.fleet import run_fleet
