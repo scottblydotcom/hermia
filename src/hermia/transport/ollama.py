@@ -6,11 +6,9 @@ import time
 
 import requests
 
-from hermia.transport.base import Response, TransportError
+from hermia.transport.base import Response, SAMPLING_SCHEMA_KEYS, TransportError
 
-_OLLAMA_SAMPLING_KEYS = (
-    "temperature", "seed", "top_p", "top_k", "repeat_penalty", "num_predict", "num_ctx"
-)
+_OLLAMA_SAMPLING_KEYS = SAMPLING_SCHEMA_KEYS
 
 
 class OllamaTransport:

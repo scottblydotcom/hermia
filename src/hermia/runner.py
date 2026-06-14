@@ -6,6 +6,7 @@ import re
 import threading
 import time
 import types
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -15,7 +16,7 @@ import requests
 from hermia import __version__
 from hermia.metrics import MetricsSampler, get_gpu_stats
 from hermia.schemas import SCHEMA_CHECKS, SIGNAL_EXTRACTORS
-from hermia.transport.base import Response, TransportError
+from hermia.transport.base import Response, SAMPLING_SCHEMA_KEYS as _SAMPLING_SCHEMA_KEYS, TransportError
 from hermia.transport.ollama import OllamaTransport
 
 PACKAGE_DIR = Path(__file__).parent
@@ -26,9 +27,6 @@ LOAD_TIMEOUT = 120   # seconds for cold model load
 EVAL_TEMPERATURE: float = 0.0
 EVAL_SEED: int = 42
 _EVAL_SAMPLING = types.MappingProxyType({"temperature": EVAL_TEMPERATURE, "seed": EVAL_SEED})
-_SAMPLING_SCHEMA_KEYS: tuple[str, ...] = (
-    "temperature", "seed", "top_p", "top_k", "repeat_penalty", "num_predict", "num_ctx"
-)
 
 
 def _strip_fences(text: str) -> str:
@@ -241,7 +239,7 @@ def _play_turns(
     system: str,
     user_turns: list[str],
     timeout: int,
-    sampling_opts: dict[str, Any] | None = None,
+    sampling_opts: Mapping[str, Any] | None = None,
 ) -> "Response | None":
     """Play an ordered list of user turns as one conversation; return a Response
     whose text is the FINAL assistant reply, with tokens/elapsed summed across
@@ -258,6 +256,7 @@ def _play_turns(
         messages.append({"role": "user", "content": turn})
         opts: dict[str, Any] = {"timeout": timeout}
         if sampling_opts:
+            assert "timeout" not in sampling_opts, "sampling_opts must not contain 'timeout'"
             opts.update(sampling_opts)
         last = transport.generate(model, list(messages), **opts)
         if last is None:
