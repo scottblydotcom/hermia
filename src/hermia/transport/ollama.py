@@ -8,6 +8,10 @@ import requests
 
 from hermia.transport.base import Response, TransportError
 
+_OLLAMA_SAMPLING_KEYS = (
+    "temperature", "seed", "top_p", "top_k", "repeat_penalty", "num_predict", "num_ctx"
+)
+
 
 class OllamaTransport:
     is_api_mode: bool = False
@@ -36,11 +40,16 @@ class OllamaTransport:
         return self._version
 
     def generate(self, model: str, messages: list[dict[str, str]], **opts: object) -> Response:
+        sampling: dict[str, object] = {
+            key: opts[key] for key in _OLLAMA_SAMPLING_KEYS if key in opts
+        }
+        if "temperature" not in sampling:
+            sampling["temperature"] = 0.1
         payload = {
             "model": model,
             "messages": messages,
             "stream": False,
-            "options": {"temperature": opts.get("temperature", 0.1)},
+            "options": sampling,
         }
         t0 = time.monotonic()
         resp = requests.post(  # nosec B113 — timeout passed via opts.get("timeout", 90)
