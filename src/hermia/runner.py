@@ -5,6 +5,7 @@ import os
 import re
 import threading
 import time
+import types
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -24,7 +25,7 @@ LOAD_TIMEOUT = 120   # seconds for cold model load
 
 EVAL_TEMPERATURE: float = 0.0
 EVAL_SEED: int = 42
-_EVAL_SAMPLING: dict[str, Any] = {"temperature": EVAL_TEMPERATURE, "seed": EVAL_SEED}
+_EVAL_SAMPLING = types.MappingProxyType({"temperature": EVAL_TEMPERATURE, "seed": EVAL_SEED})
 _SAMPLING_SCHEMA_KEYS: tuple[str, ...] = (
     "temperature", "seed", "top_p", "top_k", "repeat_penalty", "num_predict", "num_ctx"
 )
