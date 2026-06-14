@@ -1174,3 +1174,8 @@ def test_sampling_fields_all_present_in_result():
         "repeat_penalty", "num_predict", "num_ctx",
     }
     assert set(result["sampling"].keys()) == expected_keys
+    assert result["sampling"]["top_p"] is None
+    assert result["sampling"]["top_k"] is None
+    assert result["sampling"]["repeat_penalty"] is None
+    assert result["sampling"]["num_predict"] is None
+    assert result["sampling"]["num_ctx"] is None

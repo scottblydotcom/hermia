@@ -25,6 +25,9 @@ LOAD_TIMEOUT = 120   # seconds for cold model load
 EVAL_TEMPERATURE: float = 0.0
 EVAL_SEED: int = 42
 _EVAL_SAMPLING: dict[str, Any] = {"temperature": EVAL_TEMPERATURE, "seed": EVAL_SEED}
+_SAMPLING_SCHEMA_KEYS: tuple[str, ...] = (
+    "temperature", "seed", "top_p", "top_k", "repeat_penalty", "num_predict", "num_ctx"
+)
 
 
 def _strip_fences(text: str) -> str:
@@ -292,7 +295,6 @@ def run_test(
         if isinstance(raw_turns, list) and raw_turns
         else [test.get("prompt") or ""]
     )
-    is_multi = len(user_turns) > 1
 
     is_api_mode = getattr(transport, "is_api_mode", False) is True
     is_local = (not is_api_mode) and (detect_mode(_host) == "local")
@@ -408,13 +410,5 @@ def run_test(
         "turn_count": len(user_turns),
         "raw_turns": user_turns,
         "hermia_version": __version__,
-        "sampling": {
-            "temperature": _EVAL_SAMPLING.get("temperature"),
-            "seed": _EVAL_SAMPLING.get("seed"),
-            "top_p": _EVAL_SAMPLING.get("top_p"),
-            "top_k": _EVAL_SAMPLING.get("top_k"),
-            "repeat_penalty": _EVAL_SAMPLING.get("repeat_penalty"),
-            "num_predict": _EVAL_SAMPLING.get("num_predict"),
-            "num_ctx": _EVAL_SAMPLING.get("num_ctx"),
-        },
+        "sampling": {k: _EVAL_SAMPLING.get(k) for k in _SAMPLING_SCHEMA_KEYS},
     }
