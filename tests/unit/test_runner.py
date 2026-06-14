@@ -8,6 +8,8 @@ import requests
 
 import hermia.runner as _runner_mod
 from hermia.runner import (
+    EVAL_SEED,
+    EVAL_TEMPERATURE,
     _strip_fences,
     compute_execution_path,
     fetch_server_ps_data,
@@ -1104,3 +1106,71 @@ def test_ps_cache_is_thread_safe_under_concurrent_access() -> None:
     for t in threads:
         t.join()
     assert errors == [], f"concurrent cache access raised: {errors[:3]}"
+
+
+# ── determinism / sampling constants ─────────────────────────────────────────
+
+
+def _make_transport_spy(
+    content: str = '{"action": "read_file", "params": {}}',
+    tokens: int = 20,
+) -> MagicMock:
+    t = MagicMock()
+    t.is_api_mode = True  # skips /api/ps + local sampler in run_test
+    calls: list[dict] = []
+
+    def gen(model, messages, **opts):
+        calls.append(dict(opts))
+        return TransportResponse(
+            text=content,
+            tokens=tokens,
+            elapsed_sec=0.1,
+            orchestration="fake",
+            orchestration_version=None,
+            is_api_mode=True,
+        )
+
+    t.generate.side_effect = gen
+    t._calls = calls
+    return t
+
+
+def test_run_test_result_has_sampling_dict():
+    transport = _make_transport_spy()
+    result = run_test("m", _BASE_TEST, MagicMock(), transport=transport)
+    assert "sampling" in result
+    s = result["sampling"]
+    assert s["temperature"] == EVAL_TEMPERATURE
+    assert s["seed"] == EVAL_SEED
+
+
+def test_run_test_single_turn_pins_temperature_zero():
+    transport = _make_transport_spy()
+    run_test("m", _BASE_TEST, MagicMock(), transport=transport)
+    assert transport._calls, "generate() was never called"
+    assert transport._calls[0]["temperature"] == EVAL_TEMPERATURE
+
+
+def test_run_test_single_turn_sends_seed():
+    transport = _make_transport_spy()
+    run_test("m", _BASE_TEST, MagicMock(), transport=transport)
+    assert transport._calls[0]["seed"] == EVAL_SEED
+
+
+def test_run_test_multiturn_pins_temperature_zero():
+    multi_test = {**_BASE_TEST, "turns": ["first question", "second question"]}
+    transport = _make_transport_spy()
+    run_test("m", multi_test, MagicMock(), transport=transport)
+    for call_opts in transport._calls:
+        assert call_opts["temperature"] == EVAL_TEMPERATURE
+        assert call_opts["seed"] == EVAL_SEED
+
+
+def test_sampling_fields_all_present_in_result():
+    transport = _make_transport_spy()
+    result = run_test("m", _BASE_TEST, MagicMock(), transport=transport)
+    expected_keys = {
+        "temperature", "seed", "top_p", "top_k",
+        "repeat_penalty", "num_predict", "num_ctx",
+    }
+    assert set(result["sampling"].keys()) == expected_keys

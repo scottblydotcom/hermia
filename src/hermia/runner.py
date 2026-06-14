@@ -22,6 +22,10 @@ PACKAGE_DIR = Path(__file__).parent
 TEST_TIMEOUT = 90    # seconds per individual test request
 LOAD_TIMEOUT = 120   # seconds for cold model load
 
+EVAL_TEMPERATURE: float = 0.0
+EVAL_SEED: int = 42
+_EVAL_SAMPLING: dict[str, Any] = {"temperature": EVAL_TEMPERATURE, "seed": EVAL_SEED}
+
 
 def _strip_fences(text: str) -> str:
     """Extract content from markdown code fences, ignoring surrounding prose."""
@@ -233,12 +237,11 @@ def _play_turns(
     system: str,
     user_turns: list[str],
     timeout: int,
-    temperature: float | None = None,
+    sampling_opts: dict[str, Any] | None = None,
 ) -> "Response | None":
     """Play an ordered list of user turns as one conversation; return a Response
     whose text is the FINAL assistant reply, with tokens/elapsed summed across
-    turns. Single-turn (len==1) with temperature=None reproduces the prior
-    one-shot behavior exactly.
+    turns.
 
     Returns None if any transport.generate call returns None (propagated to
     run_test which already handles a None response as EMPTY_RESPONSE).
@@ -250,8 +253,8 @@ def _play_turns(
     for turn in user_turns:
         messages.append({"role": "user", "content": turn})
         opts: dict[str, Any] = {"timeout": timeout}
-        if temperature is not None:
-            opts["temperature"] = temperature
+        if sampling_opts:
+            opts.update(sampling_opts)
         last = transport.generate(model, list(messages), **opts)
         if last is None:
             return None
@@ -309,7 +312,7 @@ def run_test(
             test.get("system") or "",
             user_turns,
             TEST_TIMEOUT,
-            temperature=0.0 if is_multi else None,
+            sampling_opts=_EVAL_SAMPLING,
         )
     except requests.exceptions.Timeout:
         error_type = f"TIMEOUT: no response in {TEST_TIMEOUT}s"
@@ -405,4 +408,13 @@ def run_test(
         "turn_count": len(user_turns),
         "raw_turns": user_turns,
         "hermia_version": __version__,
+        "sampling": {
+            "temperature": _EVAL_SAMPLING.get("temperature"),
+            "seed": _EVAL_SAMPLING.get("seed"),
+            "top_p": _EVAL_SAMPLING.get("top_p"),
+            "top_k": _EVAL_SAMPLING.get("top_k"),
+            "repeat_penalty": _EVAL_SAMPLING.get("repeat_penalty"),
+            "num_predict": _EVAL_SAMPLING.get("num_predict"),
+            "num_ctx": _EVAL_SAMPLING.get("num_ctx"),
+        },
     }
