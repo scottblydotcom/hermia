@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-14
 **Status:** Draft for review
-**Target:** v0.2.0 (schema + high-value tier + topology bug-fix) → v0.2.x (richer local probes)
+**Target:** v0.2.0 (schema + high-value tier + topology bug-fix, Ollama probe) → v0.2.x (richer local probes + vLLM/llama.cpp-server/SGLang/TGI engine probes)
 **Related memory:** [[project_hermia_substrate_axes]], [[backlog_hermia_data_versioning]], [[backlog_framework_versions_typed_structure]], [[project_hermia_probe]] (hermia-agent), [[backlog_rocm_execution_path]]
 
 ## Problem
@@ -42,6 +42,22 @@ Same weights + same hardware + same sampler can still produce **different tokens
 - These are exactly the fields Ollama does **not** expose over HTTP → this elevates `hermia-agent`/log-scraping from telemetry to **necessary for divergence attribution**. Without them, a batch-occupancy difference masquerades as unexplained stack divergence.
 - Add a **`batch_invariant_kernels`** flag per backend (SGLang deterministic mode on; vanilla Ollama off) — highest-signal reproducibility predictor; directly bridges the "stack→divergence" empty quadrant.
 
+## Multi-runtime support (vLLM / llama.cpp-server / SGLang / TGI)
+
+The runtime layer is **engine-agnostic**: `runtime.engine` is an enum and fingerprinting is done by a **pluggable per-engine probe** (see Components). Transport already exists — `OpenAICompatTransport` covers the OpenAI `/v1` endpoints these engines serve; this work is purely the *fingerprint* probe layer.
+
+The payoff beyond coverage: **these engines expose over HTTP the concurrency/batch fields Ollama hides** — the exact fields the batch-invariance finding makes correctness-critical. So `num_parallel` / `inflight_at_probe` move from agent-tier to **api-tier** on these engines:
+
+| Engine | Detect via | Concurrency/batch source | Notable extra |
+|--------|-----------|--------------------------|---------------|
+| Ollama | `/api/version` | agent/log only | `/api/show` model_info |
+| vLLM | `/version` + `/metrics` | `/metrics` `num_requests_running/waiting` (API) | dtype, served model |
+| llama.cpp-server | `/props` | `/props` `total_slots`, `/slots` live (API) | build hash, `system_info` (backend+GPU), `n_ctx` |
+| SGLang | `/get_server_info` | `/get_server_info` (API) | **deterministic/batch-invariant flag** → fills `batch_invariant_kernels` |
+| TGI | `/info` | `/info` `max_concurrent_requests`, `max_batch_total_tokens` (API) | `model_dtype`, `quantize` |
+
+Enum members all ship in 0.2.0 (free); probe **implementations** land across 0.2.x. Per-engine exact field shapes get a live byte-confirm at implementation time (same discipline as the Ollama confirm).
+
 ## Schema
 
 A single nested object `stack_fingerprint` on each result row. Every leaf group carries a `_source` provenance tag: `agent | local-probe | api | declared | inferred | null`. Tier column: **0.2.0** (ship working) / **0.2.x** (additive) / **agent** (needs sidecar or logs).
@@ -60,12 +76,12 @@ stack_fingerprint:
     _source
 
   runtime:
-    engine: "ollama"                                           # 0.2.0
-    engine_version          # /api/version                     # 0.2.0
-    llamacpp_build          # server log / agent                # agent
-    num_parallel            # concurrency — CORRECTNESS         # agent (env/log only)
-    inflight_at_probe       # in-flight reqs at probe — CORRECTNESS  # agent
-    num_ctx, flash_attention, kv_cache_type                    # agent (not HTTP-readable live)
+    engine: ollama | vllm | llama.cpp-server | sglang | tgi    # 0.2.0 enum (all members); per-engine probes land across 0.2.x
+    engine_version          # ollama /api/version · vllm /version · llama.cpp /props · tgi /info   # 0.2.0
+    engine_build            # llama.cpp build hash (also the engine inside ollama); vllm git sha    # 0.2.x (HTTP on llama.cpp /props)
+    num_parallel            # concurrency — CORRECTNESS. SOURCE VARIES BY ENGINE: vLLM /metrics, llama.cpp /props total_slots, TGI /info = API; Ollama = agent
+    inflight_at_probe       # in-flight at probe — CORRECTNESS. vLLM /metrics num_requests_running, llama.cpp /slots = API; Ollama = agent
+    num_ctx, flash_attention, kv_cache_type                    # llama.cpp /props = API; Ollama = agent
     _source
 
   offload:                                                     # 0.2.0 via /api/ps proxy
@@ -78,7 +94,7 @@ stack_fingerprint:
     type: cuda | rocm | metal | vulkan | cpu                   # 0.2.0 (local-probe if local; declared if remote)
     cuda_version | rocm_version | metal_version | vulkan_version  # 0.2.x
     cudnn_version                                              # 0.2.x
-    batch_invariant_kernels: bool                              # 0.2.x (predictor field)
+    batch_invariant_kernels: bool                              # 0.2.x — SGLang deterministic mode via /get_server_info (API); others default false
     _source
 
   hardware:
@@ -157,7 +173,7 @@ One pass over today's result files once this schema's field names are locked:
 ## Components / isolation
 
 - `fingerprint/locality.py` — `is_local_ollama(host)`.
-- `fingerprint/api_probe.py` — Ollama API → model/runtime/offload fields (pure, testable against fixtures).
+- `fingerprint/probes/` — **per-engine** API probes behind one interface (`detect(host) -> bool`, `probe(host) -> dict`): `ollama.py`, `vllm.py`, `llamacpp.py`, `sglang.py`, `tgi.py`. Each maps its own endpoints to the shared `runtime`/`model`/`offload` slots; pure, testable against captured fixtures. Engine detection = probe signature (`/api/version` vs `/props` vs `/metrics` vs `/info`) with a fleet-YAML `engine:` override. v0.2.0 ships `ollama`; the other four land across 0.2.x.
 - `fingerprint/local_probe.py` — per-OS hardware/OS/virt probes, gated by locality; each probe isolated + individually testable, graceful-degrades to null.
 - `fingerprint/substrate.py` — Tailscale detection + declared-block merge.
 - `fingerprint/assemble.py` — layered priority merge + provenance tagging → `stack_fingerprint` object.
