@@ -8,7 +8,6 @@ import requests
 
 from hermia.transport.base import Response, TransportError
 
-
 _OPENAI_SAMPLING_KEYS = ("temperature", "seed", "top_p")
 
 
@@ -65,7 +64,7 @@ class OpenAICompatTransport:
                 payload[key] = opts[key]
         if "temperature" not in payload:
             payload["temperature"] = 0.1
-        if "num_predict" in opts:
+        if "num_predict" in opts and opts["num_predict"] is not None:
             payload["max_tokens"] = opts["num_predict"]
         t0 = time.monotonic()
         resp = requests.post(  # nosec B113 — timeout passed via opts.get("timeout", 90)

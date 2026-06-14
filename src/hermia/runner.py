@@ -16,7 +16,8 @@ import requests
 from hermia import __version__
 from hermia.metrics import MetricsSampler, get_gpu_stats
 from hermia.schemas import SCHEMA_CHECKS, SIGNAL_EXTRACTORS
-from hermia.transport.base import Response, SAMPLING_SCHEMA_KEYS as _SAMPLING_SCHEMA_KEYS, TransportError
+from hermia.transport.base import SAMPLING_SCHEMA_KEYS as _SAMPLING_SCHEMA_KEYS
+from hermia.transport.base import Response, TransportError
 from hermia.transport.ollama import OllamaTransport
 
 PACKAGE_DIR = Path(__file__).parent
@@ -256,7 +257,8 @@ def _play_turns(
         messages.append({"role": "user", "content": turn})
         opts: dict[str, Any] = {"timeout": timeout}
         if sampling_opts:
-            assert "timeout" not in sampling_opts, "sampling_opts must not contain 'timeout'"
+            if "timeout" in sampling_opts:
+                raise ValueError("sampling_opts must not contain 'timeout'")
             opts.update(sampling_opts)
         last = transport.generate(model, list(messages), **opts)
         if last is None:

@@ -6,7 +6,7 @@ import time
 
 import requests
 
-from hermia.transport.base import Response, SAMPLING_SCHEMA_KEYS, TransportError
+from hermia.transport.base import SAMPLING_SCHEMA_KEYS, Response, TransportError
 
 _OLLAMA_SAMPLING_KEYS = SAMPLING_SCHEMA_KEYS
 
@@ -39,7 +39,8 @@ class OllamaTransport:
 
     def generate(self, model: str, messages: list[dict[str, str]], **opts: object) -> Response:
         sampling: dict[str, object] = {
-            key: opts[key] for key in _OLLAMA_SAMPLING_KEYS if key in opts
+            key: opts[key] for key in _OLLAMA_SAMPLING_KEYS
+            if key in opts and opts[key] is not None
         }
         if "temperature" not in sampling:
             sampling["temperature"] = 0.1
