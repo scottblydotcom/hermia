@@ -237,7 +237,7 @@ def _run_host_eval(
                 result["consistency_pct"] = rob.consistency_pct
                 result["pass_count"] = rob.pass_count
                 result["robustness_n"] = rob.n
-                result["reproducibility"] = repro_dict
+                result["reproducibility"] = dict(repro_dict)
                 append_result(result, jsonl_path, csv_path)
 
                 if verbosity >= 0:
