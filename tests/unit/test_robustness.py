@@ -217,9 +217,9 @@ def test_score_rows_raw_response_field_never_consulted() -> None:
     output is not available at this abstraction layer.
     """
     rows = [
-        {"schema_compliant": True,  "failure_reason": "",            "raw_response": '{"action":"ok"}'},
-        {"schema_compliant": False, "failure_reason": "SCHEMA_FAIL", "raw_response": '{"action":"bad"}'},
-        {"schema_compliant": False, "failure_reason": "TIMEOUT: 90s","raw_response": ""},
+        {"schema_compliant": True, "failure_reason": "", "raw_response": '{"action":"ok"}'},
+        {"schema_compliant": False, "failure_reason": "SCHEMA_FAIL", "raw_response": '{"bad":1}'},
+        {"schema_compliant": False, "failure_reason": "TIMEOUT: 90s", "raw_response": ""},
     ]
     result = score_rows(rows)
     assert result.n == 3
