@@ -1048,6 +1048,50 @@ def test_run_host_eval_aggregates_are_per_cell_not_global(
         assert row["robustness_n"] == 2, "cell accumulation must reset per test, not be global"
 
 
+def test_run_host_eval_stamps_reproducibility_block(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Every row in a trial group carries an identical reproducibility block;
+    3 identical passing trials -> exact_match_rate_raw=1.0, n_valid=3, pass=1.0."""
+    import hermia.fleet as fleet
+    from hermia.results import load_jsonl, open_run
+
+    def fake_run(model, test, sampler, **kw):
+        return {
+            "model": model, "test_id": test["id"],
+            "schema_compliant": True, "failure_reason": "",
+            "raw_response": '{"action":"read"}',
+            "elapsed_sec": 0.1, "tokens_per_sec": 1.0,
+        }
+
+    monkeypatch.setattr("hermia.runner.run_test", fake_run, raising=False)
+    monkeypatch.setattr("hermia.runner.load_tests_all", lambda: [{"id": "t1"}], raising=False)
+    monkeypatch.setattr(
+        "hermia.runner.get_available_models",
+        lambda host=None, headers=None: [{"name": "m1"}],
+        raising=False,
+    )
+
+    jsonl, csv = open_run(tmp_path)
+    fleet._run_host_eval(
+        {"name": "node1", "host": "http://h1:11434"},
+        repeat=3, run_id="rid", jsonl_path=jsonl, csv_path=csv,
+        print_lock=__import__("threading").Lock(),
+        print_fn=lambda s: None, stderr_fn=lambda s: None, verbosity=-1,
+    )
+    rows = load_jsonl(jsonl)
+
+    assert len(rows) == 3
+    for row in rows:
+        repro = row["reproducibility"]
+        assert repro["n_repeats"] == 3
+        assert repro["n_valid"] == 3
+        assert repro["exact_match_rate_raw"] == 1.0
+        assert repro["exact_match_rate_canonical"] == 1.0
+        assert repro["pass_rate_mean"] == 1.0
+        assert repro["pass_rate_stddev"] == 0.0
+
+
 def test_group_entries_by_host_serializes_same_host() -> None:
     from hermia.fleet import _group_entries_by_host
     entries = [

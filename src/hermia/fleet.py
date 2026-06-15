@@ -118,12 +118,13 @@ def _run_host_eval(
     Models run strictly sequentially within the host (VRAM-aware: one model loaded
     at a time). Safe to call concurrently for *different* hosts.
     """
+    from dataclasses import asdict
     from datetime import UTC, datetime
 
     from hermia.backend import resolve_stack
     from hermia.metrics import MetricsSampler
     from hermia.results import append_result
-    from hermia.robustness import score_rows
+    from hermia.robustness import compute_reproducibility, score_rows
     from hermia.runner import _normalize_host, get_available_models, load_tests_all, run_test
     from hermia.transport.ollama import OllamaTransport
     from hermia.transport.openai_compat import OpenAICompatTransport
@@ -228,12 +229,15 @@ def _run_host_eval(
                 ))
                 run_results.append(result)
 
-            # Compute robustness aggregates across all repeat runs for this pair
+            # Compute robustness + reproducibility aggregates across all repeat
+            # runs for this (model, test) trial group, then stamp on every row.
             rob = score_rows(run_results)
+            repro_dict = asdict(compute_reproducibility(run_results))
             for result in run_results:
                 result["consistency_pct"] = rob.consistency_pct
                 result["pass_count"] = rob.pass_count
                 result["robustness_n"] = rob.n
+                result["reproducibility"] = repro_dict
                 append_result(result, jsonl_path, csv_path)
 
                 if verbosity >= 0:
