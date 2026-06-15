@@ -3,8 +3,10 @@
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
+from statistics import pstdev
 from typing import Any
 
+from hermia.normalize import strip_fences
 from hermia.schemas import _is_refusal
 
 ROBUSTNESS_THRESHOLD: float = 0.8
@@ -18,6 +20,80 @@ class RobustnessResult:
     consistency_pct: float
     is_robust: bool
     majority_outcome: str | None = None
+
+
+@dataclass(frozen=True)
+class ReproducibilityResult:
+    n_repeats: int
+    n_valid: int
+    exact_match_rate_raw: float | None
+    exact_match_rate_canonical: float | None
+    pass_rate_mean: float
+    pass_rate_stddev: float
+
+
+def _is_pass(row: dict[str, Any]) -> bool:
+    """A result row passed iff it produced schema-compliant output with no failure.
+
+    Single source of truth for the pass predicate, shared by ``score_rows`` and
+    ``compute_reproducibility`` so the invariant
+    ``pass_rate_mean == pass_count / robustness_n`` cannot silently drift when one
+    is edited without the other.
+    """
+    return row.get("schema_compliant") is True and not row.get("failure_reason")
+
+
+def _modal_match_rate(values: list[str]) -> float:
+    """Fraction of values equal to the single most common value.
+
+    `values` must be non-empty. This is the self-divergence floor: how reliably
+    the group reproduces its dominant output (O(n), vs O(n^2) all-pairs).
+    """
+    _, modal_count = Counter(values).most_common(1)[0]
+    return modal_count / len(values)
+
+
+def compute_reproducibility(run_results: list[dict[str, Any]]) -> ReproducibilityResult:
+    """Self-divergence floor over one trial group (the N repeats of a model+test).
+
+    Exact-match rates are computed over VALID trials only (those that produced
+    output, i.e. raw_response is non-empty); a group where everything errored
+    yields None, never a spurious 1.0 from empty strings matching. Pass-rate is
+    over ALL N trials, because a timeout is an end-to-end failure.
+    """
+    n_repeats = len(run_results)
+    if n_repeats == 0:
+        return ReproducibilityResult(
+            n_repeats=0, n_valid=0,
+            exact_match_rate_raw=None, exact_match_rate_canonical=None,
+            pass_rate_mean=0.0, pass_rate_stddev=0.0,
+        )
+
+    # A trial is valid for exact-match if it produced output. TIMEOUT /
+    # transport-error / EMPTY_RESPONSE rows carry raw_response="".
+    valid_raw = [str(r.get("raw_response", "")) for r in run_results if r.get("raw_response")]
+    n_valid = len(valid_raw)
+
+    if n_valid > 0:
+        exact_raw: float | None = _modal_match_rate(valid_raw)
+        exact_canonical: float | None = _modal_match_rate([strip_fences(v) for v in valid_raw])
+    else:
+        exact_raw = None
+        exact_canonical = None
+
+    # Pass = compliant output, over ALL trials (timeout counts as a failure).
+    passes = [1.0 if _is_pass(r) else 0.0 for r in run_results]
+    pass_rate_mean = sum(passes) / n_repeats
+    pass_rate_stddev = pstdev(passes)  # pstdev([x]) == 0.0; n_repeats >= 1 guaranteed here
+
+    return ReproducibilityResult(
+        n_repeats=n_repeats,
+        n_valid=n_valid,
+        exact_match_rate_raw=exact_raw,
+        exact_match_rate_canonical=exact_canonical,
+        pass_rate_mean=pass_rate_mean,
+        pass_rate_stddev=pass_rate_stddev,
+    )
 
 
 def run_n_times(
@@ -100,9 +176,7 @@ def score_rows(
     pass_count = 0
 
     for row in result_rows:
-        if row.get("failure_reason"):
-            outcomes.append("fail")
-        elif row.get("schema_compliant") is True:
+        if _is_pass(row):
             pass_count += 1
             outcomes.append("pass")
         else:

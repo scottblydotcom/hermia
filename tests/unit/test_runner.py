@@ -10,7 +10,6 @@ import hermia.runner as _runner_mod
 from hermia.runner import (
     EVAL_SEED,
     EVAL_TEMPERATURE,
-    _strip_fences,
     compute_execution_path,
     fetch_server_ps_data,
     get_available_models,
@@ -759,33 +758,8 @@ def test_run_test_response_null_coerced_to_empty_string() -> None:
     assert result["output_preview"] == "EMPTY_RESPONSE"
 
 
-# hermia-qc: _strip_fences, had_markdown_fence, failure_reason codes
+# hermia-qc: had_markdown_fence, failure_reason codes
 # ---------------------------------------------------------------------------
-
-
-def test_strip_fences_json_block() -> None:
-    assert _strip_fences('```json\n{"a": 1}\n```') == '{"a": 1}'
-
-
-def test_strip_fences_plain_block() -> None:
-    assert _strip_fences('```\n{"a": 1}\n```') == '{"a": 1}'
-
-
-def test_strip_fences_no_fences() -> None:
-    raw = '{"a": 1}'
-    assert _strip_fences(raw) == raw
-
-
-def test_strip_fences_whitespace_only() -> None:
-    assert _strip_fences("   ") == ""
-
-
-def test_strip_fences_prose_before_block() -> None:
-    assert _strip_fences('Here is the JSON:\n```json\n{"a": 1}\n```') == '{"a": 1}'
-
-
-def test_strip_fences_prose_after_block() -> None:
-    assert _strip_fences('```json\n{"a": 1}\n```\nHope that helps!') == '{"a": 1}'
 
 
 def test_had_markdown_fence_true() -> None:

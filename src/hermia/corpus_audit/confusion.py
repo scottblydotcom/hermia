@@ -6,7 +6,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from hermia.runner import _strip_fences
+from hermia.normalize import strip_fences
 from hermia.schemas import SCHEMA_CHECKS
 
 
@@ -22,7 +22,7 @@ def grade_response(test_id: str, response: Any) -> bool:
         return False
     if isinstance(response, str):
         try:
-            parsed = json.loads(_strip_fences(response))
+            parsed = json.loads(strip_fences(response))
         except json.JSONDecodeError:
             return False
     else:
