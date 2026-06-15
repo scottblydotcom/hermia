@@ -93,3 +93,68 @@ def test_base_url_trailing_slash_stripped():
         mock_post.assert_called_once()
         args, _ = mock_post.call_args
         assert args[0] == "http://localhost:11434/api/chat"
+
+
+def test_generate_forwards_seed_to_options():
+    with patch("hermia.transport.ollama.requests.post") as mock_post, \
+         patch("hermia.transport.ollama.requests.get") as mock_get:
+        mock_get.return_value.json.return_value = {"version": "0.24.0"}
+        mock_post.return_value.json.return_value = {
+            "message": {"role": "assistant", "content": "ok"},
+            "eval_count": 1,
+        }
+        transport = OllamaTransport(base_url="http://localhost:11434")
+        transport.generate("m", [{"role": "user", "content": "hi"}], seed=42)
+        options = mock_post.call_args[1]["json"]["options"]
+        assert options["seed"] == 42
+
+
+def test_generate_forwards_top_p_top_k_repeat_penalty():
+    with patch("hermia.transport.ollama.requests.post") as mock_post, \
+         patch("hermia.transport.ollama.requests.get") as mock_get:
+        mock_get.return_value.json.return_value = {"version": "0.24.0"}
+        mock_post.return_value.json.return_value = {
+            "message": {"role": "assistant", "content": "ok"},
+            "eval_count": 1,
+        }
+        transport = OllamaTransport(base_url="http://localhost:11434")
+        transport.generate(
+            "m", [{"role": "user", "content": "hi"}],
+            top_p=0.9, top_k=40, repeat_penalty=1.1,
+        )
+        options = mock_post.call_args[1]["json"]["options"]
+        assert options["top_p"] == 0.9
+        assert options["top_k"] == 40
+        assert options["repeat_penalty"] == 1.1
+
+
+def test_generate_omits_absent_sampling_keys():
+    with patch("hermia.transport.ollama.requests.post") as mock_post, \
+         patch("hermia.transport.ollama.requests.get") as mock_get:
+        mock_get.return_value.json.return_value = {"version": "0.24.0"}
+        mock_post.return_value.json.return_value = {
+            "message": {"role": "assistant", "content": "ok"},
+            "eval_count": 1,
+        }
+        transport = OllamaTransport(base_url="http://localhost:11434")
+        transport.generate("m", [{"role": "user", "content": "hi"}], temperature=0.0)
+        options = mock_post.call_args[1]["json"]["options"]
+        assert set(options.keys()) == {"temperature"}
+
+
+def test_generate_num_predict_num_ctx_forwarded():
+    with patch("hermia.transport.ollama.requests.post") as mock_post, \
+         patch("hermia.transport.ollama.requests.get") as mock_get:
+        mock_get.return_value.json.return_value = {"version": "0.24.0"}
+        mock_post.return_value.json.return_value = {
+            "message": {"role": "assistant", "content": "ok"},
+            "eval_count": 1,
+        }
+        transport = OllamaTransport(base_url="http://localhost:11434")
+        transport.generate(
+            "m", [{"role": "user", "content": "hi"}],
+            num_predict=512, num_ctx=4096,
+        )
+        options = mock_post.call_args[1]["json"]["options"]
+        assert options["num_predict"] == 512
+        assert options["num_ctx"] == 4096

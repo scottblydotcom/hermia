@@ -5,6 +5,8 @@ import os
 import re
 import threading
 import time
+import types
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -14,6 +16,7 @@ import requests
 from hermia import __version__
 from hermia.metrics import MetricsSampler, get_gpu_stats
 from hermia.schemas import SCHEMA_CHECKS, SIGNAL_EXTRACTORS
+from hermia.transport.base import SAMPLING_SCHEMA_KEYS as _SAMPLING_SCHEMA_KEYS
 from hermia.transport.base import Response, TransportError
 from hermia.transport.ollama import OllamaTransport
 
@@ -21,6 +24,10 @@ PACKAGE_DIR = Path(__file__).parent
 
 TEST_TIMEOUT = 90    # seconds per individual test request
 LOAD_TIMEOUT = 120   # seconds for cold model load
+
+EVAL_TEMPERATURE: float = 0.0
+EVAL_SEED: int = 42
+_EVAL_SAMPLING = types.MappingProxyType({"temperature": EVAL_TEMPERATURE, "seed": EVAL_SEED})
 
 
 def _strip_fences(text: str) -> str:
@@ -233,12 +240,11 @@ def _play_turns(
     system: str,
     user_turns: list[str],
     timeout: int,
-    temperature: float | None = None,
+    sampling_opts: Mapping[str, Any] | None = None,
 ) -> "Response | None":
     """Play an ordered list of user turns as one conversation; return a Response
     whose text is the FINAL assistant reply, with tokens/elapsed summed across
-    turns. Single-turn (len==1) with temperature=None reproduces the prior
-    one-shot behavior exactly.
+    turns.
 
     Returns None if any transport.generate call returns None (propagated to
     run_test which already handles a None response as EMPTY_RESPONSE).
@@ -250,8 +256,10 @@ def _play_turns(
     for turn in user_turns:
         messages.append({"role": "user", "content": turn})
         opts: dict[str, Any] = {"timeout": timeout}
-        if temperature is not None:
-            opts["temperature"] = temperature
+        if sampling_opts:
+            if "timeout" in sampling_opts:
+                raise ValueError("sampling_opts must not contain 'timeout'")
+            opts.update(sampling_opts)
         last = transport.generate(model, list(messages), **opts)
         if last is None:
             return None
@@ -289,7 +297,6 @@ def run_test(
         if isinstance(raw_turns, list) and raw_turns
         else [test.get("prompt") or ""]
     )
-    is_multi = len(user_turns) > 1
 
     is_api_mode = getattr(transport, "is_api_mode", False) is True
     is_local = (not is_api_mode) and (detect_mode(_host) == "local")
@@ -309,7 +316,7 @@ def run_test(
             test.get("system") or "",
             user_turns,
             TEST_TIMEOUT,
-            temperature=0.0 if is_multi else None,
+            sampling_opts=_EVAL_SAMPLING,
         )
     except requests.exceptions.Timeout:
         error_type = f"TIMEOUT: no response in {TEST_TIMEOUT}s"
@@ -405,4 +412,5 @@ def run_test(
         "turn_count": len(user_turns),
         "raw_turns": user_turns,
         "hermia_version": __version__,
+        "sampling": {k: _EVAL_SAMPLING.get(k) for k in _SAMPLING_SCHEMA_KEYS},
     }

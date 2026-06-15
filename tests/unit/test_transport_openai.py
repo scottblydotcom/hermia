@@ -263,3 +263,74 @@ def test_list_models_strips_surrounding_whitespace_from_ids():
 
         transport = OpenAICompatTransport(base_url="http://localhost:11435")
         assert transport.list_models() == ["padded"]
+
+
+# ---------------------------------------------------------------------------
+# generate() — determinism / sampling opts forwarding
+# ---------------------------------------------------------------------------
+
+
+def test_generate_forwards_seed_and_top_p():
+    with patch("hermia.transport.openai_compat.requests.post") as mock_post:
+        mock_post.return_value.json.return_value = {
+            "choices": [{"message": {"content": "ok"}}],
+            "usage": {"completion_tokens": 1, "total_tokens": 2},
+        }
+        transport = OpenAICompatTransport(base_url="https://api.openai.com")
+        transport.generate(
+            "gpt-4o", [{"role": "user", "content": "hi"}],
+            temperature=0.0, seed=42, top_p=1.0,
+        )
+        payload = mock_post.call_args[1]["json"]
+        assert payload["temperature"] == 0.0
+        assert payload["seed"] == 42
+        assert payload["top_p"] == 1.0
+
+
+def test_generate_does_not_forward_top_k_or_repeat_penalty():
+    with patch("hermia.transport.openai_compat.requests.post") as mock_post:
+        mock_post.return_value.json.return_value = {
+            "choices": [{"message": {"content": "ok"}}],
+            "usage": {"completion_tokens": 1, "total_tokens": 2},
+        }
+        transport = OpenAICompatTransport(base_url="https://api.openai.com")
+        transport.generate(
+            "gpt-4o", [{"role": "user", "content": "hi"}],
+            top_k=40, repeat_penalty=1.1,
+        )
+        payload = mock_post.call_args[1]["json"]
+        assert "top_k" not in payload
+        assert "repeat_penalty" not in payload
+
+
+def test_generate_maps_num_predict_to_max_tokens():
+    with patch("hermia.transport.openai_compat.requests.post") as mock_post:
+        mock_post.return_value.json.return_value = {
+            "choices": [{"message": {"content": "ok"}}],
+            "usage": {"completion_tokens": 1, "total_tokens": 2},
+        }
+        transport = OpenAICompatTransport(base_url="https://api.openai.com")
+        transport.generate(
+            "gpt-4o", [{"role": "user", "content": "hi"}],
+            num_predict=256,
+        )
+        payload = mock_post.call_args[1]["json"]
+        assert payload["max_tokens"] == 256
+        assert "num_predict" not in payload
+
+
+def test_generate_omits_absent_openai_sampling_keys():
+    with patch("hermia.transport.openai_compat.requests.post") as mock_post:
+        mock_post.return_value.json.return_value = {
+            "choices": [{"message": {"content": "ok"}}],
+            "usage": {"completion_tokens": 1, "total_tokens": 2},
+        }
+        transport = OpenAICompatTransport(base_url="https://api.openai.com")
+        transport.generate(
+            "gpt-4o", [{"role": "user", "content": "hi"}],
+            temperature=0.0,
+        )
+        payload = mock_post.call_args[1]["json"]
+        assert "seed" not in payload
+        assert "top_p" not in payload
+        assert "max_tokens" not in payload

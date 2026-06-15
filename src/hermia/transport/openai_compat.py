@@ -8,6 +8,8 @@ import requests
 
 from hermia.transport.base import Response, TransportError
 
+_OPENAI_SAMPLING_KEYS = ("temperature", "seed", "top_p")
+
 
 class OpenAICompatTransport:
     is_api_mode: bool = True
@@ -53,11 +55,17 @@ class OpenAICompatTransport:
         return ids
 
     def generate(self, model: str, messages: list[dict[str, str]], **opts: object) -> Response:
-        payload = {
+        payload: dict[str, Any] = {
             "model": model,
             "messages": messages,
-            "temperature": opts.get("temperature", 0.1),
         }
+        for key in _OPENAI_SAMPLING_KEYS:
+            if key in opts and opts[key] is not None:
+                payload[key] = opts[key]
+        if "temperature" not in payload:
+            payload["temperature"] = 0.1
+        if "num_predict" in opts and opts["num_predict"] is not None:
+            payload["max_tokens"] = opts["num_predict"]
         t0 = time.monotonic()
         resp = requests.post(  # nosec B113 — timeout passed via opts.get("timeout", 90)
             f"{self._base_url}/v1/chat/completions",

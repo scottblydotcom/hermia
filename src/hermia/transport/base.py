@@ -3,6 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
+SAMPLING_SCHEMA_KEYS: tuple[str, ...] = (
+    "temperature", "seed", "top_p", "top_k", "repeat_penalty", "num_predict", "num_ctx"
+)
+
 
 @dataclass(frozen=True)
 class Response:
