@@ -55,12 +55,12 @@ class OpenAICompatTransport:
         return ids
 
     def generate(self, model: str, messages: list[dict[str, str]], **opts: object) -> Response:
-        payload = {
+        payload: dict[str, Any] = {
             "model": model,
             "messages": messages,
         }
         for key in _OPENAI_SAMPLING_KEYS:
-            if key in opts:
+            if key in opts and opts[key] is not None:
                 payload[key] = opts[key]
         if "temperature" not in payload:
             payload["temperature"] = 0.1
