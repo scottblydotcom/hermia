@@ -189,3 +189,37 @@ def test_score_rows_custom_threshold() -> None:
     rows = [_row(True)] * 3 + [_row(False, "JSON_PARSE_ERROR")] * 2
     result = score_rows(rows, threshold=0.5)
     assert result.is_robust is True  # 0.6 >= 0.5
+
+
+def test_score_rows_error_row_with_empty_raw_response() -> None:
+    """Error rows from run_test carry failure_reason set and raw_response="".
+
+    score_rows classifies by failure_reason alone; raw_response is never
+    consulted.  An empty raw_response on an error row must count as 'fail'.
+    """
+    error_row = {
+        "schema_compliant": False,
+        "failure_reason": "TIMEOUT: no response in 90s",
+        "raw_response": "",
+    }
+    result = score_rows([error_row])
+    assert result.pass_count == 0
+    assert result.n == 1
+    assert result.majority_outcome == "fail"
+
+
+def test_score_rows_raw_response_field_never_consulted() -> None:
+    """raw_response content never affects pass/fail classification.
+
+    score_rows operates on failure_reason and schema_compliant only — raw
+    output is not available at this abstraction layer.
+    """
+    rows = [
+        {"schema_compliant": True,  "failure_reason": "",            "raw_response": '{"action":"ok"}'},
+        {"schema_compliant": False, "failure_reason": "SCHEMA_FAIL", "raw_response": '{"action":"bad"}'},
+        {"schema_compliant": False, "failure_reason": "TIMEOUT: 90s","raw_response": ""},
+    ]
+    result = score_rows(rows)
+    assert result.n == 3
+    assert result.pass_count == 1
+    assert result.majority_outcome == "fail"  # 2 fail vs 1 pass

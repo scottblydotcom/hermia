@@ -912,6 +912,142 @@ def test_load_fleet_config_stack_optional(tmp_path: Path) -> None:
     assert "stack" not in entries[0]
 
 
+# ---------------------------------------------------------------------------
+# repeat loop — run_results accumulation and score_rows stamping
+# ---------------------------------------------------------------------------
+
+
+def _minimal_pass_result(model: str, test_id: str) -> dict:
+    return {
+        "model": model, "test_id": test_id,
+        "schema_compliant": True, "failure_reason": "",
+        "elapsed_sec": 0.1, "tokens_per_sec": 1.0,
+    }
+
+
+def _minimal_fail_result(model: str, test_id: str) -> dict:
+    return {
+        "model": model, "test_id": test_id,
+        "schema_compliant": False, "failure_reason": "SCHEMA_FAIL",
+        "elapsed_sec": 0.2, "tokens_per_sec": 0.0,
+    }
+
+
+def test_run_host_eval_repeat_stamps_aggregates_on_all_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With repeat=3 all-pass, every written row carries robustness_n=3 and pass_count=3."""
+    import hermia.fleet as fleet
+    from hermia.results import load_jsonl, open_run
+
+    monkeypatch.setattr(
+        "hermia.runner.run_test",
+        lambda model, test, sampler, **kw: _minimal_pass_result(model, test["id"]),
+        raising=False,
+    )
+    monkeypatch.setattr("hermia.runner.load_tests_all", lambda: [{"id": "t1"}], raising=False)
+    monkeypatch.setattr(
+        "hermia.runner.get_available_models",
+        lambda host=None, headers=None: [{"name": "m1"}],
+        raising=False,
+    )
+
+    jsonl, csv = open_run(tmp_path)
+    fleet._run_host_eval(
+        {"name": "node1", "host": "http://h1:11434"},
+        repeat=3, run_id="rid", jsonl_path=jsonl, csv_path=csv,
+        print_lock=__import__("threading").Lock(),
+        print_fn=lambda s: None, stderr_fn=lambda s: None, verbosity=-1,
+    )
+    rows = load_jsonl(jsonl)
+
+    assert len(rows) == 3  # 1 model × 1 test × 3 repeats
+    for row in rows:
+        assert row["robustness_n"] == 3, "all 3 repeats must be scored together, not independently"
+        assert row["pass_count"] == 3
+        assert row["consistency_pct"] == pytest.approx(1.0)
+
+
+def test_run_host_eval_mixed_pass_fail_aggregates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """2 passing + 1 failing repeat: all 3 rows get the same mixed aggregate."""
+    import hermia.fleet as fleet
+    from hermia.results import load_jsonl, open_run
+
+    call_n = {"n": 0}
+
+    def fake_run(model, test, sampler, **kw):
+        call_n["n"] += 1
+        if call_n["n"] <= 2:
+            return _minimal_pass_result(model, test["id"])
+        return _minimal_fail_result(model, test["id"])
+
+    monkeypatch.setattr("hermia.runner.run_test", fake_run, raising=False)
+    monkeypatch.setattr("hermia.runner.load_tests_all", lambda: [{"id": "t1"}], raising=False)
+    monkeypatch.setattr(
+        "hermia.runner.get_available_models",
+        lambda host=None, headers=None: [{"name": "m1"}],
+        raising=False,
+    )
+
+    jsonl, csv = open_run(tmp_path)
+    fleet._run_host_eval(
+        {"name": "node1", "host": "http://h1:11434"},
+        repeat=3, run_id="rid", jsonl_path=jsonl, csv_path=csv,
+        print_lock=__import__("threading").Lock(),
+        print_fn=lambda s: None, stderr_fn=lambda s: None, verbosity=-1,
+    )
+    rows = load_jsonl(jsonl)
+
+    assert len(rows) == 3
+    for row in rows:
+        assert row["robustness_n"] == 3
+        assert row["pass_count"] == 2
+        # majority=pass (2 vs 1) → consistency = 2/3
+        assert row["consistency_pct"] == pytest.approx(2 / 3)
+
+
+def test_run_host_eval_aggregates_are_per_cell_not_global(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """robustness_n reflects the repeat count per (model, test) cell, not the total row count.
+
+    With 2 tests × repeat=2, each cell gets robustness_n=2 (not 4).
+    """
+    import hermia.fleet as fleet
+    from hermia.results import load_jsonl, open_run
+
+    monkeypatch.setattr(
+        "hermia.runner.run_test",
+        lambda model, test, sampler, **kw: _minimal_pass_result(model, test["id"]),
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "hermia.runner.load_tests_all",
+        lambda: [{"id": "t1"}, {"id": "t2"}],
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "hermia.runner.get_available_models",
+        lambda host=None, headers=None: [{"name": "m1"}],
+        raising=False,
+    )
+
+    jsonl, csv = open_run(tmp_path)
+    fleet._run_host_eval(
+        {"name": "node1", "host": "http://h1:11434"},
+        repeat=2, run_id="rid", jsonl_path=jsonl, csv_path=csv,
+        print_lock=__import__("threading").Lock(),
+        print_fn=lambda s: None, stderr_fn=lambda s: None, verbosity=-1,
+    )
+    rows = load_jsonl(jsonl)
+
+    assert len(rows) == 4  # 1 model × 2 tests × 2 repeats
+    for row in rows:
+        assert row["robustness_n"] == 2, "cell accumulation must reset per test, not be global"
+
+
 def test_group_entries_by_host_serializes_same_host() -> None:
     from hermia.fleet import _group_entries_by_host
     entries = [
