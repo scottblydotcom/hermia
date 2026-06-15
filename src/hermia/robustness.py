@@ -32,6 +32,17 @@ class ReproducibilityResult:
     pass_rate_stddev: float
 
 
+def _is_pass(row: dict[str, Any]) -> bool:
+    """A result row passed iff it produced schema-compliant output with no failure.
+
+    Single source of truth for the pass predicate, shared by ``score_rows`` and
+    ``compute_reproducibility`` so the invariant
+    ``pass_rate_mean == pass_count / robustness_n`` cannot silently drift when one
+    is edited without the other.
+    """
+    return row.get("schema_compliant") is True and not row.get("failure_reason")
+
+
 def _modal_match_rate(values: list[str]) -> float:
     """Fraction of values equal to the single most common value.
 
@@ -71,10 +82,7 @@ def compute_reproducibility(run_results: list[dict[str, Any]]) -> Reproducibilit
         exact_canonical = None
 
     # Pass = compliant output, over ALL trials (timeout counts as a failure).
-    passes = [
-        1.0 if (r.get("schema_compliant") is True and not r.get("failure_reason")) else 0.0
-        for r in run_results
-    ]
+    passes = [1.0 if _is_pass(r) else 0.0 for r in run_results]
     pass_rate_mean = sum(passes) / n_repeats
     pass_rate_stddev = pstdev(passes)  # pstdev([x]) == 0.0; n_repeats >= 1 guaranteed here
 
@@ -168,9 +176,7 @@ def score_rows(
     pass_count = 0
 
     for row in result_rows:
-        if row.get("failure_reason"):
-            outcomes.append("fail")
-        elif row.get("schema_compliant") is True:
+        if _is_pass(row):
             pass_count += 1
             outcomes.append("pass")
         else:

@@ -4,6 +4,7 @@ import pytest
 
 from hermia.robustness import (
     ReproducibilityResult,
+    _is_pass,
     compute_reproducibility,
     run_n_times,
     score_rows,
@@ -115,6 +116,32 @@ def test_run_n_times_custom_threshold() -> None:
     result = run_n_times(_checker, responses, threshold=0.5)
     assert result.consistency_pct == pytest.approx(0.6)
     assert result.is_robust is True
+
+
+# ---------------------------------------------------------------------------
+# _is_pass — shared pass predicate (score_rows + compute_reproducibility)
+# ---------------------------------------------------------------------------
+
+def test_is_pass_clean_compliant_row() -> None:
+    assert _is_pass({"schema_compliant": True, "failure_reason": ""}) is True
+
+
+def test_is_pass_failure_reason_set_is_fail() -> None:
+    # Even with schema_compliant True, a failure_reason means fail.
+    assert _is_pass({"schema_compliant": True, "failure_reason": "TIMEOUT: 90s"}) is False
+
+
+def test_is_pass_non_compliant_is_fail() -> None:
+    assert _is_pass({"schema_compliant": False, "failure_reason": ""}) is False
+
+
+def test_is_pass_missing_keys_default_to_fail() -> None:
+    assert _is_pass({}) is False
+
+
+def test_is_pass_schema_compliant_truthy_but_not_true_is_fail() -> None:
+    # Strict identity check: only the bool True passes, not truthy values.
+    assert _is_pass({"schema_compliant": 1, "failure_reason": ""}) is False
 
 
 # ---------------------------------------------------------------------------
