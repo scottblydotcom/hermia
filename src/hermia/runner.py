@@ -2,7 +2,6 @@
 
 import json
 import os
-import re
 import threading
 import time
 import types
@@ -15,6 +14,7 @@ import requests
 
 from hermia import __version__
 from hermia.metrics import MetricsSampler, get_gpu_stats
+from hermia.normalize import strip_fences
 from hermia.schemas import SCHEMA_CHECKS, SIGNAL_EXTRACTORS
 from hermia.transport.base import SAMPLING_SCHEMA_KEYS as _SAMPLING_SCHEMA_KEYS
 from hermia.transport.base import Response, TransportError
@@ -28,15 +28,6 @@ LOAD_TIMEOUT = 120   # seconds for cold model load
 EVAL_TEMPERATURE: float = 0.0
 EVAL_SEED: int = 42
 _EVAL_SAMPLING = types.MappingProxyType({"temperature": EVAL_TEMPERATURE, "seed": EVAL_SEED})
-
-
-def _strip_fences(text: str) -> str:
-    """Extract content from markdown code fences, ignoring surrounding prose."""
-    text = text.strip()
-    match = re.search(r'```(?:json)?\s*\n?(.*?)\n?\s*```', text, re.DOTALL)
-    if match:
-        return match.group(1).strip()
-    return text
 
 
 def _normalize_host(host: str) -> str:
@@ -349,7 +340,7 @@ def run_test(
 
     signals: dict[str, bool] = {}
     if output and not error_type:
-        cleaned = _strip_fences(output)
+        cleaned = strip_fences(output)
         had_markdown_fence = cleaned != output.strip()
         try:
             parsed = json.loads(cleaned)

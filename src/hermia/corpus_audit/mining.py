@@ -6,8 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from hermia.normalize import strip_fences
 from hermia.results import load_jsonl
-from hermia.runner import _strip_fences
 
 _UNPARSEABLE = "__unparseable__"
 
@@ -16,7 +16,7 @@ def _shape_key(raw: str) -> str:
     """Normalize a raw response to a shape key: parsed JSON re-serialized with
     sorted keys and compact separators. Unparseable text collapses to one bucket."""
     try:
-        parsed = json.loads(_strip_fences(raw))
+        parsed = json.loads(strip_fences(raw))
     except json.JSONDecodeError:
         return _UNPARSEABLE
     return json.dumps(parsed, sort_keys=True, separators=(",", ":"))
