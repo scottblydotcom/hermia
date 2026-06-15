@@ -3,6 +3,8 @@
 import pytest
 
 from hermia.robustness import (
+    ReproducibilityResult,
+    compute_reproducibility,
     run_n_times,
     score_rows,
 )
@@ -223,3 +225,134 @@ def test_score_rows_raw_response_field_never_consulted() -> None:
     assert result.n == 3
     assert result.pass_count == 1
     assert result.majority_outcome == "fail"  # 2 fail vs 1 pass
+
+
+# ---------------------------------------------------------------------------
+# compute_reproducibility
+# ---------------------------------------------------------------------------
+
+def _trial(
+    raw_response: str = '{"action":"read"}',
+    schema_compliant: bool = True,
+    failure_reason: str = "",
+) -> dict:
+    return {
+        "raw_response": raw_response,
+        "schema_compliant": schema_compliant,
+        "failure_reason": failure_reason,
+    }
+
+
+def test_compute_reproducibility_empty() -> None:
+    r = compute_reproducibility([])
+    assert r.n_repeats == 0
+    assert r.n_valid == 0
+    assert r.exact_match_rate_raw is None
+    assert r.exact_match_rate_canonical is None
+    assert r.pass_rate_mean == 0.0
+    assert r.pass_rate_stddev == 0.0
+
+
+def test_compute_reproducibility_all_identical_pass() -> None:
+    rows = [_trial() for _ in range(10)]
+    r = compute_reproducibility(rows)
+    assert r.n_repeats == 10
+    assert r.n_valid == 10
+    assert r.exact_match_rate_raw == pytest.approx(1.0)
+    assert r.exact_match_rate_canonical == pytest.approx(1.0)
+    assert r.pass_rate_mean == pytest.approx(1.0)
+    assert r.pass_rate_stddev == pytest.approx(0.0)
+
+
+def test_compute_reproducibility_modal_raw_rate() -> None:
+    # 7 identical, 3 different -> modal raw rate = 0.7
+    rows = [_trial('{"x":1}') for _ in range(7)] + [_trial('{"x":2}') for _ in range(3)]
+    r = compute_reproducibility(rows)
+    assert r.exact_match_rate_raw == pytest.approx(0.7)
+
+
+def test_compute_reproducibility_canonical_ignores_fences_and_whitespace() -> None:
+    # Same JSON, one fenced one bare, one with surrounding whitespace.
+    # raw differs (fences/whitespace) but canonical is identical.
+    rows = [
+        _trial('{"x":1}'),
+        _trial('```json\n{"x":1}\n```'),
+        _trial('   {"x":1}   '),
+    ]
+    r = compute_reproducibility(rows)
+    assert r.exact_match_rate_raw == pytest.approx(1 / 3)   # all three raw strings differ
+    assert r.exact_match_rate_canonical == pytest.approx(1.0)  # all canonicalize equal
+
+
+def test_compute_reproducibility_all_errored_is_null_not_one() -> None:
+    """The poison case: all trials timed out (raw_response=''). Exact-match must be
+    null (not 1.0 from empty strings matching), n_valid=0, pass_rate=0."""
+    rows = [_trial(raw_response="", schema_compliant=False, failure_reason="TIMEOUT: 90s")
+            for _ in range(5)]
+    r = compute_reproducibility(rows)
+    assert r.n_repeats == 5
+    assert r.n_valid == 0
+    assert r.exact_match_rate_raw is None
+    assert r.exact_match_rate_canonical is None
+    assert r.pass_rate_mean == pytest.approx(0.0)
+
+
+def test_compute_reproducibility_partial_error_excludes_invalid_from_exact_match() -> None:
+    """3 valid identical + 2 timeouts: exact-match over the 3 valid (=1.0); n_valid=3;
+    pass_rate over all 5 (=0.6)."""
+    rows = (
+        [_trial('{"x":1}') for _ in range(3)]
+        + [_trial(raw_response="", schema_compliant=False, failure_reason="TIMEOUT: 90s")
+           for _ in range(2)]
+    )
+    r = compute_reproducibility(rows)
+    assert r.n_repeats == 5
+    assert r.n_valid == 3
+    assert r.exact_match_rate_raw == pytest.approx(1.0)
+    assert r.pass_rate_mean == pytest.approx(0.6)
+
+
+def test_compute_reproducibility_schema_fail_row_is_valid_for_exact_match() -> None:
+    """A SCHEMA_FAIL trial produced output (bad but present) -> counts as valid for
+    exact-match, but NOT as a pass."""
+    rows = [_trial('{"wrong":1}', schema_compliant=False, failure_reason="SCHEMA_FAIL")
+            for _ in range(4)]
+    r = compute_reproducibility(rows)
+    assert r.n_valid == 4
+    assert r.exact_match_rate_raw == pytest.approx(1.0)  # all 4 bad outputs identical
+    assert r.pass_rate_mean == pytest.approx(0.0)        # none passed
+
+
+def test_compute_reproducibility_pass_stddev_matches_formula() -> None:
+    # 6 pass, 4 fail (fails still produced output) -> mean 0.6, pstdev = sqrt(.6*.4)
+    import math
+    rows = (
+        [_trial('{"x":1}') for _ in range(6)]
+        + [_trial('{"x":1}', schema_compliant=False, failure_reason="SCHEMA_FAIL")
+           for _ in range(4)]
+    )
+    r = compute_reproducibility(rows)
+    assert r.pass_rate_mean == pytest.approx(0.6)
+    assert r.pass_rate_stddev == pytest.approx(math.sqrt(0.6 * 0.4))
+
+
+def test_compute_reproducibility_single_trial() -> None:
+    r = compute_reproducibility([_trial('{"x":1}')])
+    assert r.n_repeats == 1
+    assert r.n_valid == 1
+    assert r.exact_match_rate_raw == pytest.approx(1.0)
+    assert r.pass_rate_mean == pytest.approx(1.0)
+    assert r.pass_rate_stddev == pytest.approx(0.0)
+
+
+def test_compute_reproducibility_asdict_matches_schema() -> None:
+    """asdict() of the result must equal the documented 6-field schema exactly."""
+    from dataclasses import asdict
+    r = compute_reproducibility([_trial('{"x":1}') for _ in range(3)])
+    assert isinstance(r, ReproducibilityResult)
+    d = asdict(r)
+    assert set(d.keys()) == {
+        "n_repeats", "n_valid",
+        "exact_match_rate_raw", "exact_match_rate_canonical",
+        "pass_rate_mean", "pass_rate_stddev",
+    }
