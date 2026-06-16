@@ -17,7 +17,7 @@ def _setup(monkeypatch, active: dict, max_seen: dict):
                         lambda host=None, headers=None: [{"name": "m1"}], raising=False)
     lock = threading.Lock()
 
-    def fake_run_test(model, test, sampler, host=None, headers=None, transport=None):
+    def fake_run_test(model, test, sampler, host=None, headers=None, transport=None, **kw):
         with lock:
             active["n"] += 1
             max_seen["n"] = max(max_seen["n"], active["n"])

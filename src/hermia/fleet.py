@@ -216,6 +216,7 @@ def _run_host_eval(
                 result = run_test(
                     model, test, sampler,
                     host=host_url, headers=headers, transport=host_transport,
+                    locality="remote",
                 )
                 result["run_id"] = run_id
                 result["run_timestamp"] = datetime.now(UTC).isoformat()

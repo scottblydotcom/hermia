@@ -218,7 +218,7 @@ def test_run_host_eval_writes_expected_rows(
     import hermia.fleet as fleet
     from hermia.results import load_jsonl, open_run
 
-    def fake_run_test(model, test, sampler, host=None, headers=None, transport=None):  # type: ignore[no-untyped-def]
+    def fake_run_test(model, test, sampler, host=None, headers=None, transport=None, **kw):  # type: ignore[no-untyped-def]
         return {"model": model, "test_id": test["id"], "failure_reason": "",
                 "elapsed_sec": 0.1, "tokens_per_sec": 1.0}
     monkeypatch.setattr("hermia.runner.run_test", fake_run_test, raising=False)
@@ -1104,3 +1104,44 @@ def test_group_entries_by_host_serializes_same_host() -> None:
     assert len(groups) == 2
     h1 = [g for g in groups if len(g) == 2][0]
     assert [e["name"] for e in h1] == ["a", "c"]
+
+
+def test_run_host_eval_passes_locality_remote_to_run_test(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fleet entries always declare locality='remote' — covers tunnel-port topology."""
+    import hermia.fleet as fleet
+    from hermia.results import open_run
+
+    captured_kwargs: list[dict] = []
+
+    def fake_run_test(model, test, sampler, host=None, headers=None, transport=None, **kw):  # type: ignore[no-untyped-def]
+        captured_kwargs.append(dict(kw))
+        return {
+            "model": model, "test_id": test["id"], "failure_reason": "",
+            "elapsed_sec": 0.1, "tokens_per_sec": 1.0,
+            "mode": "fleet",
+            "peak_cpu_pct": None, "peak_ram_used_gb": None,
+            "peak_gpu_pct": None, "peak_vram_used_gb": None,
+        }
+
+    monkeypatch.setattr("hermia.runner.run_test", fake_run_test, raising=False)
+    monkeypatch.setattr("hermia.runner.load_tests_all", lambda: [{"id": "t1"}], raising=False)
+    monkeypatch.setattr("hermia.runner.get_available_models",
+                        lambda host=None, headers=None: [{"name": "m1"}], raising=False)
+
+    jsonl, csv = open_run(tmp_path)
+    # Loopback-port host simulating an SSH tunnel to a remote node.
+    entry = {"name": "tunneled-node", "host": "http://localhost:11440"}
+    fleet._run_host_eval(
+        entry, repeat=1, run_id="rid", jsonl_path=jsonl, csv_path=csv,
+        print_lock=__import__("threading").Lock(),
+        print_fn=lambda s: None, stderr_fn=lambda s: None, verbosity=-1,
+    )
+
+    assert len(captured_kwargs) == 1, (
+        f"expected exactly one run_test call, got {len(captured_kwargs)}"
+    )
+    assert captured_kwargs[0].get("locality") == "remote", (
+        f"_run_host_eval must declare locality='remote'; got {captured_kwargs[0].get('locality')!r}"
+    )
