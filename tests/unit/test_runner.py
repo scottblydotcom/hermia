@@ -1153,3 +1153,134 @@ def test_sampling_fields_all_present_in_result():
     assert result["sampling"]["repeat_penalty"] is None
     assert result["sampling"]["num_predict"] is None
     assert result["sampling"]["num_ctx"] is None
+
+
+# ── run_test locality parameter ───────────────────────────────────────────────
+
+def _stub_test_dict() -> dict:
+    """Minimal valid test dict for run_test() unit tests."""
+    return {
+        "id": "locality-stub",
+        "dimension": "stub",
+        "system": "you are a stub",
+        "prompt": "stub prompt",
+        "frameworks": {},
+    }
+
+
+def _stub_transport(text: str = '{"ok": true}', tokens: int = 4, elapsed: float = 0.01):
+    """A transport double that returns a canned response without network I/O."""
+    from unittest.mock import MagicMock
+    t = MagicMock()
+    t.is_api_mode = False
+    resp = MagicMock()
+    resp.text = text
+    resp.tokens = tokens
+    resp.elapsed_sec = elapsed
+    resp.orchestration = "stub"
+    resp.orchestration_version = None
+    return t, resp
+
+
+def test_run_test_locality_invalid_value_raises() -> None:
+    from unittest.mock import MagicMock
+
+    from hermia.runner import run_test
+    sampler = MagicMock()
+    transport, _ = _stub_transport()
+    with pytest.raises(ValueError, match="locality"):
+        run_test(
+            "m1", _stub_test_dict(), sampler,
+            host="http://localhost:11434", transport=transport,
+            locality="weird",
+        )
+
+
+def test_run_test_locality_none_falls_back_to_detect_mode() -> None:
+    """locality=None + loopback host preserves today's behavior: is_local=True."""
+    from unittest.mock import MagicMock, patch
+
+    from hermia.runner import run_test
+    sampler = MagicMock()
+    sampler.peak.return_value = {
+        "cpu_pct": 12.0, "ram_used_gb": 1.0, "gpu_pct": 0, "vram_used_gb": 0,
+    }
+    transport, resp = _stub_transport()
+    with patch("hermia.runner._play_turns", return_value=resp), \
+         patch("hermia.runner.fetch_server_ps_data",
+               return_value={"vram_server_gb": None, "model_size_server_gb": None}):
+        row = run_test(
+            "m1", _stub_test_dict(), sampler,
+            host="http://localhost:11434", transport=transport,
+        )
+    assert row["mode"] == "local"
+    sampler.start.assert_called_once()
+    sampler.stop.assert_called_once()
+    assert row["peak_cpu_pct"] is not None
+
+
+def test_run_test_locality_explicit_remote_overrides_loopback_host() -> None:
+    """locality='remote' + loopback host: sampler NOT run, peak_* null, mode='fleet'."""
+    from unittest.mock import MagicMock, patch
+
+    from hermia.runner import run_test
+    sampler = MagicMock()
+    transport, resp = _stub_transport()
+    with patch("hermia.runner._play_turns", return_value=resp), \
+         patch("hermia.runner.fetch_server_ps_data",
+               return_value={"vram_server_gb": None, "model_size_server_gb": None}):
+        row = run_test(
+            "m1", _stub_test_dict(), sampler,
+            host="http://localhost:11440", transport=transport,
+            locality="remote",
+        )
+    assert row["mode"] == "fleet"
+    sampler.start.assert_not_called()
+    sampler.stop.assert_not_called()
+    assert row["peak_cpu_pct"] is None
+    assert row["peak_ram_used_gb"] is None
+    assert row["peak_gpu_pct"] is None
+    assert row["peak_vram_used_gb"] is None
+
+
+def test_run_test_locality_explicit_local_overrides_remote_host() -> None:
+    """locality='local' + remote-looking host: sampler runs, mode='local'."""
+    from unittest.mock import MagicMock, patch
+
+    from hermia.runner import run_test
+    sampler = MagicMock()
+    sampler.peak.return_value = {
+        "cpu_pct": 5.0, "ram_used_gb": 1.0, "gpu_pct": 0, "vram_used_gb": 0,
+    }
+    transport, resp = _stub_transport()
+    with patch("hermia.runner._play_turns", return_value=resp), \
+         patch("hermia.runner.fetch_server_ps_data",
+               return_value={"vram_server_gb": None, "model_size_server_gb": None}):
+        row = run_test(
+            "m1", _stub_test_dict(), sampler,
+            host="http://192.0.2.1:11434", transport=transport,
+            locality="local",
+        )
+    assert row["mode"] == "local"
+    sampler.start.assert_called_once()
+    sampler.stop.assert_called_once()
+
+
+def test_run_test_api_mode_short_circuits_locality() -> None:
+    """is_api_mode=True wins over any locality value: mode='api', sampler not run."""
+    from unittest.mock import MagicMock, patch
+
+    from hermia.runner import run_test
+    sampler = MagicMock()
+    transport, resp = _stub_transport()
+    transport.is_api_mode = True
+    with patch("hermia.runner._play_turns", return_value=resp):
+        row = run_test(
+            "m1", _stub_test_dict(), sampler,
+            host="http://localhost:11434", transport=transport,
+            locality="local",
+        )
+    assert row["mode"] == "api"
+    sampler.start.assert_not_called()
+    sampler.stop.assert_not_called()
+    assert row["peak_cpu_pct"] is None

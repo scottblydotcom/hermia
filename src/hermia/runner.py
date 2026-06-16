@@ -276,8 +276,14 @@ def run_test(
     host: str | None = None,
     headers: dict[str, str] | None = None,
     transport: Any | None = None,
+    *,
+    locality: str | None = None,
 ) -> dict[str, Any]:
     _host = _normalize_host(host) if host is not None else get_ollama_host()
+    if locality is not None and locality not in ("local", "remote"):
+        raise ValueError(
+            f"locality must be 'local', 'remote', or None; got {locality!r}"
+        )
     req_headers = headers or {}
     if transport is None:
         transport = OllamaTransport(_host, req_headers)
@@ -290,7 +296,8 @@ def run_test(
     )
 
     is_api_mode = getattr(transport, "is_api_mode", False) is True
-    is_local = (not is_api_mode) and (detect_mode(_host) == "local")
+    resolved_locality = locality if locality is not None else detect_mode(_host)
+    is_local = (not is_api_mode) and (resolved_locality == "local")
 
     error_type: str = ""
     response = None
