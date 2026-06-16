@@ -7,7 +7,7 @@ import time
 import types
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 import requests
@@ -277,7 +277,7 @@ def run_test(
     headers: dict[str, str] | None = None,
     transport: Any | None = None,
     *,
-    locality: str | None = None,
+    locality: Literal["local", "remote"] | None = None,
 ) -> dict[str, Any]:
     _host = _normalize_host(host) if host is not None else get_ollama_host()
     if locality is not None and locality not in ("local", "remote"):

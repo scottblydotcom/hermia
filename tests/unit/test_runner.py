@@ -1188,7 +1188,7 @@ def test_run_test_locality_invalid_value_raises() -> None:
     from hermia.runner import run_test
     sampler = MagicMock()
     transport, _ = _stub_transport()
-    with pytest.raises(ValueError, match="locality"):
+    with pytest.raises(ValueError, match=r"locality must be"):
         run_test(
             "m1", _stub_test_dict(), sampler,
             host="http://localhost:11434", transport=transport,
