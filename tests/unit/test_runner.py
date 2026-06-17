@@ -1284,3 +1284,69 @@ def test_run_test_api_mode_short_circuits_locality() -> None:
     sampler.start.assert_not_called()
     sampler.stop.assert_not_called()
     assert row["peak_cpu_pct"] is None
+
+
+def test_run_test_standalone_local_stamps_fingerprint() -> None:
+    """Standalone TUI (locality=local) stamps stack_fingerprint + _provenance."""
+    from unittest.mock import MagicMock, patch
+
+    from hermia.runner import run_test
+
+    sampler = MagicMock()
+    sampler.peak.return_value = {
+        "cpu_pct": 12.0, "ram_used_gb": 1.0, "gpu_pct": 0, "vram_used_gb": 0,
+    }
+    transport, resp = _stub_transport()
+
+    fake_fp = {
+        "fingerprint_schema_version": 1,
+        "model": {"digest": "sha256:standalone"},
+        "runtime": {"engine": "ollama"},
+    }
+    fake_prov = {"model.digest": "api", "runtime.engine": "api"}
+
+    with patch("hermia.runner._play_turns", return_value=resp), \
+         patch("hermia.runner.fetch_server_ps_data",
+               return_value={"vram_server_gb": None, "model_size_server_gb": None}), \
+         patch("hermia.fingerprint.cache.FingerprintCache.get_or_probe",
+               return_value=(fake_fp, fake_prov)):
+        row = run_test(
+            "m1", _stub_test_dict(), sampler,
+            host="http://localhost:11434", transport=transport,
+            locality="local",
+        )
+
+    assert "stack_fingerprint" in row
+    assert row["stack_fingerprint"]["model"]["digest"] == "sha256:standalone"
+    assert "_provenance" in row
+    assert row["_provenance"]["model.digest"] == "api"
+
+
+def test_run_test_standalone_remote_stamps_fingerprint() -> None:
+    """Remote locality in standalone: fingerprint still stamps (probe reaches remote host)."""
+    from unittest.mock import MagicMock, patch
+
+    from hermia.runner import run_test
+
+    sampler = MagicMock()
+    transport, resp = _stub_transport()
+
+    fake_fp = {
+        "fingerprint_schema_version": 1,
+        "model": {"digest": "sha256:remote"},
+    }
+    fake_prov = {"model.digest": "api"}
+
+    with patch("hermia.runner._play_turns", return_value=resp), \
+         patch("hermia.runner.fetch_server_ps_data",
+               return_value={"vram_server_gb": None, "model_size_server_gb": None}), \
+         patch("hermia.fingerprint.cache.FingerprintCache.get_or_probe",
+               return_value=(fake_fp, fake_prov)):
+        row = run_test(
+            "m1", _stub_test_dict(), sampler,
+            host="http://remote-host:11434", transport=transport,
+            locality="remote",
+        )
+
+    assert "stack_fingerprint" in row
+    assert row["stack_fingerprint"]["model"]["digest"] == "sha256:remote"

@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 import requests
 
 from hermia import __version__
+from hermia.fingerprint.cache import FingerprintCache
 from hermia.metrics import MetricsSampler, get_gpu_stats
 from hermia.normalize import strip_fences
 from hermia.schemas import SCHEMA_CHECKS, SIGNAL_EXTRACTORS
@@ -278,6 +279,7 @@ def run_test(
     transport: Any | None = None,
     *,
     locality: Literal["local", "remote"] | None = None,
+    fp_cache: FingerprintCache | None = None,
 ) -> dict[str, Any]:
     _host = _normalize_host(host) if host is not None else get_ollama_host()
     if locality is not None and locality not in ("local", "remote"):
@@ -377,6 +379,11 @@ def run_test(
         fetch_server_ps_data(_host, model, headers=req_headers or None)
         if not is_api_mode else _empty_ps
     )
+    _cache = fp_cache or FingerprintCache()
+    _fp, _prov = _cache.get_or_probe(
+        _host, model, declared=None, engine_version=orchestration_version,
+        headers=req_headers or None,
+    )
     return {
         "model": model,
         "test_id": test["id"],
@@ -411,4 +418,6 @@ def run_test(
         "raw_turns": user_turns,
         "hermia_version": __version__,
         "sampling": {k: _EVAL_SAMPLING.get(k) for k in _SAMPLING_SCHEMA_KEYS},
+        "stack_fingerprint": _fp,
+        "_provenance": _prov,
     }
