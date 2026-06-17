@@ -23,11 +23,14 @@ class FingerprintCache:
         model: str,
         declared: dict[str, Any] | None,
         engine_version: str | None = None,
+        headers: dict[str, str] | None = None,
     ) -> _FP_PAIR:
+        # Cache key is (host, model) only — auth headers are a transport detail,
+        # not part of the fingerprint identity.
         key = (host, model)
         if key in self._store:
             return self._store[key]
-        result = self._do_probe(host, model, declared, engine_version)
+        result = self._do_probe(host, model, declared, engine_version, headers)
         self._store[key] = result
         return result
 
@@ -37,8 +40,9 @@ class FingerprintCache:
         model: str,
         declared: dict[str, Any] | None,
         engine_version: str | None,
+        headers: dict[str, str] | None,
     ) -> _FP_PAIR:
         probe_result = self._probe.probe(
-            host, model, engine_version=engine_version,
+            host, model, headers=headers, engine_version=engine_version,
         )
         return assemble_fingerprint(probe_result, declared)

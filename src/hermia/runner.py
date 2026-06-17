@@ -382,6 +382,7 @@ def run_test(
     _cache = fp_cache or FingerprintCache()
     _fp, _prov = _cache.get_or_probe(
         _host, model, declared=None, engine_version=orchestration_version,
+        headers=req_headers or None,
     )
     return {
         "model": model,

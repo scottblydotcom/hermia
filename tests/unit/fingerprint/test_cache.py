@@ -1,6 +1,6 @@
 """Tests for FingerprintCache — in-memory (host, model) keyed cache."""
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from hermia.fingerprint.cache import FingerprintCache
 
@@ -18,8 +18,37 @@ def test_cache_miss_calls_probe() -> None:
     with patch.object(cache, "_do_probe", return_value=(_dummy_fp(), _dummy_prov())) as mock_probe:
         fp, prov = cache.get_or_probe("http://host:11434", "m1", declared=None,
                                        engine_version="0.6.2")
-    mock_probe.assert_called_once_with("http://host:11434", "m1", None, "0.6.2")
+    mock_probe.assert_called_once_with("http://host:11434", "m1", None, "0.6.2", None)
     assert fp["model"]["digest"] == "sha256:abc"
+
+
+def test_get_or_probe_forwards_auth_headers_to_http_calls() -> None:
+    """Auth headers must reach the underlying /api/show + /api/ps requests.
+
+    Regression guard: authenticated fleet hosts (bearer-token gateway) would
+    otherwise 401 and the fingerprint would silently null out.
+    """
+    cache = FingerprintCache()
+    auth = {"Authorization": "Bearer sentinel-value"}
+
+    def _ok_get(url, **kwargs):
+        resp = MagicMock()
+        resp.ok = True
+        resp.json.return_value = (
+            {"version": "0.6.2"} if "/api/version" in url else {"models": []}
+        )
+        return resp
+
+    with patch("hermia.fingerprint.probes.ollama.requests.post") as mock_post, \
+         patch("hermia.fingerprint.probes.ollama.requests.get",
+               side_effect=_ok_get) as mock_get:
+        mock_post.return_value = MagicMock(ok=True, **{"json.return_value": {}})
+        cache.get_or_probe("http://host:11434", "m1", declared=None,
+                           engine_version="0.6.2", headers=auth)
+
+    assert mock_post.call_args.kwargs["headers"] == auth
+    for call_obj in mock_get.call_args_list:
+        assert call_obj.kwargs["headers"] == auth
 
 
 def test_cache_hit_skips_probe() -> None:

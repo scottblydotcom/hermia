@@ -1182,12 +1182,17 @@ def test_run_host_eval_stamps_fingerprint_and_provenance(
                         lambda host=None, headers=None: [{"name": "m1"}], raising=False)
     monkeypatch.setattr("hermia.results.append_result", fake_append, raising=False)
 
-    # Patch FingerprintCache to return our fake data without HTTP calls
+    # Patch FingerprintCache to return our fake data without HTTP calls, and
+    # capture the auth headers so we can assert they're forwarded to the probe.
     from hermia.fingerprint.cache import FingerprintCache
-    monkeypatch.setattr(
-        FingerprintCache, "get_or_probe",
-        lambda self, host, model, declared, engine_version=None: (fake_fp, fake_prov),
-    )
+    seen_headers: list[dict | None] = []
+
+    def fake_get_or_probe(self, host, model, declared,
+                          engine_version=None, headers=None):
+        seen_headers.append(headers)
+        return (fake_fp, fake_prov)
+
+    monkeypatch.setattr(FingerprintCache, "get_or_probe", fake_get_or_probe)
 
     jsonl, csv = open_run(tmp_path)
     entry = {"name": "fp-test", "host": "http://localhost:11440"}
@@ -1204,3 +1209,5 @@ def test_run_host_eval_stamps_fingerprint_and_provenance(
     assert row["stack_fingerprint"]["model"]["digest"] == "sha256:test123"
     assert "_provenance" in row, "row must contain _provenance"
     assert row["_provenance"]["model.digest"] == "api"
+    # Auth headers built by the fleet must be forwarded to the probe.
+    assert seen_headers and seen_headers[0] is not None
