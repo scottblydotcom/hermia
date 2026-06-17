@@ -19,6 +19,8 @@ from hermia.schemas import SCHEMA_CHECKS, SIGNAL_EXTRACTORS
 from hermia.transport.base import SAMPLING_SCHEMA_KEYS as _SAMPLING_SCHEMA_KEYS
 from hermia.transport.base import Response, TransportError
 from hermia.transport.ollama import OllamaTransport
+from hermia.fingerprint.assemble import assemble_fingerprint
+from hermia.fingerprint.probes.ollama import OllamaProbe
 
 PACKAGE_DIR = Path(__file__).parent
 
@@ -377,6 +379,9 @@ def run_test(
         fetch_server_ps_data(_host, model, headers=req_headers or None)
         if not is_api_mode else _empty_ps
     )
+    _ollama_probe = OllamaProbe()
+    _probe_result = _ollama_probe.probe(_host, model, engine_version=orchestration_version)
+    _fp, _prov = assemble_fingerprint(_probe_result, declared=None)
     return {
         "model": model,
         "test_id": test["id"],
@@ -411,4 +416,6 @@ def run_test(
         "raw_turns": user_turns,
         "hermia_version": __version__,
         "sampling": {k: _EVAL_SAMPLING.get(k) for k in _SAMPLING_SCHEMA_KEYS},
+        "stack_fingerprint": _fp,
+        "_provenance": _prov,
     }
