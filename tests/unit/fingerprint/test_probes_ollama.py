@@ -59,6 +59,16 @@ PS_RESPONSE_CPU_OMITTED = {
     ]
 }
 
+PS_RESPONSE_NULL_SIZES = {
+    "models": [
+        {
+            "name": "qwen2.5:7b",
+            "size": 5_000_000_000,
+            "size_vram": None,  # explicit JSON null (not omitted) — must not crash
+        }
+    ]
+}
+
 PS_RESPONSE_EMPTY = {"models": []}
 
 
@@ -132,6 +142,20 @@ def test_probe_cpu_only_size_vram_omitted() -> None:
                return_value=_mock_requests_post(SHOW_RESPONSE_FULL)), \
          patch("hermia.fingerprint.probes.ollama.requests.get",
                side_effect=_mock_requests_get(PS_RESPONSE_CPU_OMITTED)):
+        result = probe.probe("http://localhost:11434", "qwen2.5:7b",
+                             engine_version="0.6.2")
+
+    assert result.residency_ratio == 0.0
+    assert result.execution_path == "cpu"
+
+
+def test_probe_size_vram_explicit_null_does_not_crash() -> None:
+    """Ollama may send `size_vram: null` (not omitted); must coerce to 0, not raise."""
+    probe = OllamaProbe()
+    with patch("hermia.fingerprint.probes.ollama.requests.post",
+               return_value=_mock_requests_post(SHOW_RESPONSE_FULL)), \
+         patch("hermia.fingerprint.probes.ollama.requests.get",
+               side_effect=_mock_requests_get(PS_RESPONSE_NULL_SIZES)):
         result = probe.probe("http://localhost:11434", "qwen2.5:7b",
                              engine_version="0.6.2")
 

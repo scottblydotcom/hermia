@@ -19,9 +19,14 @@ def assemble_fingerprint(
 
     Returns (fingerprint, provenance).
     """
-    decl = declared or {}
-    decl_backend = decl.get("compute_backend") or {}
-    decl_substrate = decl.get("substrate") or {}
+    # Defensive against malformed fleet YAML: a user can write `stack: foo` or
+    # `compute_backend: foo` (a string, not a mapping). Treat any non-dict as
+    # absent rather than letting `.get()` raise AttributeError mid-run.
+    decl = declared if isinstance(declared, dict) else {}
+    decl_backend = decl.get("compute_backend")
+    decl_backend = decl_backend if isinstance(decl_backend, dict) else {}
+    decl_substrate = decl.get("substrate")
+    decl_substrate = decl_substrate if isinstance(decl_substrate, dict) else {}
 
     fingerprint: dict[str, Any] = {
         "fingerprint_schema_version": FINGERPRINT_SCHEMA_VERSION,
@@ -59,8 +64,8 @@ def assemble_fingerprint(
     _set_provenance_group(provenance, "model", fingerprint["model"], "api")
     _set_provenance_group(provenance, "runtime", fingerprint["runtime"], "api")
     _set_provenance_group(provenance, "offload", fingerprint["offload"], "api")
-    _set_provenance_declared(provenance, "compute_backend", fingerprint["compute_backend"])
-    _set_provenance_declared(provenance, "substrate", fingerprint["substrate"])
+    _set_provenance_group(provenance, "compute_backend", fingerprint["compute_backend"], "declared")
+    _set_provenance_group(provenance, "substrate", fingerprint["substrate"], "declared")
 
     for path in _COMPUTED_FIELDS:
         if provenance.get(path) is not None:
@@ -79,18 +84,5 @@ def _set_provenance_group(
         path = f"{prefix}.{key}"
         if value is not None:
             provenance[path] = source
-        else:
-            provenance[path] = None
-
-
-def _set_provenance_declared(
-    provenance: dict[str, str | None],
-    prefix: str,
-    group: dict[str, Any],
-) -> None:
-    for key, value in group.items():
-        path = f"{prefix}.{key}"
-        if value is not None:
-            provenance[path] = "declared"
         else:
             provenance[path] = None

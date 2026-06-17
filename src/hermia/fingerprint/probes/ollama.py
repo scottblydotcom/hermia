@@ -39,12 +39,18 @@ class OllamaProbe:
         headers: dict[str, str] | None = None,
         engine_version: str | None = None,
     ) -> ProbeResult:
-        hdrs = headers or {}
-        if engine_version is None:
-            engine_version = self._fetch_version(host, hdrs)
-        show = self._fetch_show(host, model, hdrs)
-        ps = self._fetch_ps(host, model, hdrs)
-        return self._build_result(show, ps, engine_version)
+        # Belt-and-suspenders: the individual _fetch_* calls already swallow
+        # network errors, but a malformed JSON shape could still raise inside
+        # _build_result. The probe must never block an eval run.
+        try:
+            hdrs = headers or {}
+            if engine_version is None:
+                engine_version = self._fetch_version(host, hdrs)
+            show = self._fetch_show(host, model, hdrs)
+            ps = self._fetch_ps(host, model, hdrs)
+            return self._build_result(show, ps, engine_version)
+        except Exception:  # noqa: BLE001
+            return ProbeResult(engine="ollama", engine_version=engine_version)
 
     def _fetch_version(self, host: str, headers: dict[str, str]) -> str | None:
         try:
@@ -121,9 +127,11 @@ class OllamaProbe:
         residency_ratio: float | None = None
         execution_path: str | None = None
         if ps_entry is not None:
-            size = ps_entry.get("size", 0)
-            size_vram = ps_entry.get("size_vram", 0)  # missing = 0 (Ollama #4840)
-            if size and size > 0:
+            # `or 0` coerces both missing keys AND explicit JSON null to 0.
+            # Ollama #4840 omits size_vram on pure-CPU; some versions send null.
+            size = ps_entry.get("size") or 0
+            size_vram = ps_entry.get("size_vram") or 0
+            if size > 0:
                 residency_ratio = round(size_vram / size, 4)
                 if residency_ratio >= 0.95:
                     execution_path = "gpu"

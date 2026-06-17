@@ -60,6 +60,22 @@ def test_assemble_declared_only_probe_empty() -> None:
     assert prov["substrate.delivery"] == "declared"
 
 
+def test_assemble_malformed_declared_does_not_crash() -> None:
+    """Malformed fleet YAML (non-dict stack / nested fields) must degrade to null,
+    not raise AttributeError mid-run."""
+    # stack itself is a string
+    fp, prov = assemble_fingerprint(ProbeResult(), declared="not-a-dict")  # type: ignore[arg-type]
+    assert fp["compute_backend"]["type"] is None
+    assert prov["compute_backend.type"] is None
+
+    # nested fields are strings
+    declared = {"compute_backend": "cuda", "substrate": "tailscale"}
+    fp, prov = assemble_fingerprint(ProbeResult(), declared=declared)
+    assert fp["compute_backend"]["type"] is None
+    assert fp["substrate"]["delivery"] is None
+    assert prov["substrate.delivery"] is None
+
+
 # ── Probe + declared ────────────────────────────────────────────────────────
 
 def test_assemble_probe_plus_declared() -> None:
