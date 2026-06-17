@@ -62,8 +62,10 @@ class FingerprintCache:
         # auditing _provenance don't see 'api' for a value that was declared.
         probe_result = ProbeResult(engine=engine, engine_version=engine_version)
         fingerprint, provenance = assemble_fingerprint(probe_result, declared)
-        if provenance.get("runtime.engine") is not None:
-            provenance["runtime.engine"] = "declared"
-        if provenance.get("runtime.engine_version") is not None:
+        # engine is guaranteed non-None in this branch; engine_version is the
+        # caller-supplied input, so check it directly instead of re-querying
+        # the provenance dict.
+        provenance["runtime.engine"] = "declared"
+        if engine_version is not None:
             provenance["runtime.engine_version"] = "declared"
         return fingerprint, provenance
