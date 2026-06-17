@@ -1187,9 +1187,12 @@ def test_run_host_eval_stamps_fingerprint_and_provenance(
     from hermia.fingerprint.cache import FingerprintCache
     seen_headers: list[dict | None] = []
 
+    seen_engines: list[str | None] = []
+
     def fake_get_or_probe(self, host, model, declared,
-                          engine_version=None, headers=None):
+                          engine_version=None, headers=None, engine=None):
         seen_headers.append(headers)
+        seen_engines.append(engine)
         return (fake_fp, fake_prov)
 
     monkeypatch.setattr(FingerprintCache, "get_or_probe", fake_get_or_probe)
@@ -1211,6 +1214,8 @@ def test_run_host_eval_stamps_fingerprint_and_provenance(
     assert row["_provenance"]["model.digest"] == "api"
     # Auth headers built by the fleet must be forwarded to the probe.
     assert seen_headers and seen_headers[0] is not None
+    # Default fleet entry (no transport key) → engine dispatched as "ollama".
+    assert seen_engines == ["ollama"]
 
 
 def test_run_host_eval_shares_one_cache_across_run_test_calls(
@@ -1243,7 +1248,8 @@ def test_run_host_eval_shares_one_cache_across_run_test_calls(
                         lambda *a, **k: None, raising=False)
     monkeypatch.setattr(
         FingerprintCache, "get_or_probe",
-        lambda self, host, model, declared, engine_version=None, headers=None: ({}, {}),
+        lambda self, host, model, declared, engine_version=None, headers=None,
+        engine=None: ({}, {}),
     )
 
     jsonl, csv = open_run(tmp_path)
@@ -1259,3 +1265,59 @@ def test_run_host_eval_shares_one_cache_across_run_test_calls(
     assert all(isinstance(c, FingerprintCache) for c in seen_caches)
     # ...and it's the SAME instance every time (not a fresh per-call probe).
     assert len({id(c) for c in seen_caches}) == 1
+
+
+def test_run_host_eval_dispatches_openai_compat_engine(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """openai-compat fleet entries must dispatch engine='openai-compat' to the
+    fingerprint cache so the Ollama probe is skipped.
+
+    Regression guard: pre-dispatch, openai-compat hosts (vLLM, SGLang,
+    LiteLLM, etc.) received 3 doomed /api/show + /api/ps + /api/version
+    round-trips per model that 404'd and silently nulled out the fingerprint.
+    """
+    import hermia.fleet as fleet
+    from hermia.fingerprint.cache import FingerprintCache
+    from hermia.results import open_run
+    from hermia.transport.openai_compat import OpenAICompatTransport
+
+    seen_engines: list[str | None] = []
+
+    def fake_get_or_probe(self, host, model, declared,
+                          engine_version=None, headers=None, engine=None):
+        seen_engines.append(engine)
+        return ({}, {})
+
+    monkeypatch.setattr(FingerprintCache, "get_or_probe", fake_get_or_probe)
+    monkeypatch.setattr("hermia.runner.run_test",
+                        lambda *a, **kw: {
+                            "model": "m1", "test_id": "t1", "failure_reason": "",
+                            "elapsed_sec": 0.1, "tokens_per_sec": 1.0, "mode": "fleet",
+                            "peak_cpu_pct": None, "peak_ram_used_gb": None,
+                            "peak_gpu_pct": None, "peak_vram_used_gb": None,
+                        }, raising=False)
+    monkeypatch.setattr("hermia.runner.load_tests_all",
+                        lambda: [{"id": "t1"}], raising=False)
+    monkeypatch.setattr("hermia.results.append_result",
+                        lambda *a, **k: None, raising=False)
+    # openai-compat hosts call list_models() instead of /api/tags.
+    monkeypatch.setattr(OpenAICompatTransport, "list_models",
+                        lambda self: ["m1"], raising=False)
+
+    jsonl, csv = open_run(tmp_path)
+    entry = {
+        "name": "vllm-gateway",
+        "host": "http://gateway:4000",
+        "transport": "openai-compat",
+        "models": "auto",
+    }
+    fleet._run_host_eval(
+        entry, repeat=1, run_id="rid", jsonl_path=jsonl, csv_path=csv,
+        print_lock=__import__("threading").Lock(),
+        print_fn=lambda s: None, stderr_fn=lambda s: None, verbosity=-1,
+    )
+
+    assert seen_engines == ["openai-compat"], (
+        f"openai-compat entry must dispatch engine='openai-compat'; got {seen_engines}"
+    )
