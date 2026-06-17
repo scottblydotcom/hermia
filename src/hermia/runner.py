@@ -13,14 +13,13 @@ from urllib.parse import urlparse
 import requests
 
 from hermia import __version__
+from hermia.fingerprint.cache import FingerprintCache
 from hermia.metrics import MetricsSampler, get_gpu_stats
 from hermia.normalize import strip_fences
 from hermia.schemas import SCHEMA_CHECKS, SIGNAL_EXTRACTORS
 from hermia.transport.base import SAMPLING_SCHEMA_KEYS as _SAMPLING_SCHEMA_KEYS
 from hermia.transport.base import Response, TransportError
 from hermia.transport.ollama import OllamaTransport
-from hermia.fingerprint.assemble import assemble_fingerprint
-from hermia.fingerprint.probes.ollama import OllamaProbe
 
 PACKAGE_DIR = Path(__file__).parent
 
@@ -280,6 +279,7 @@ def run_test(
     transport: Any | None = None,
     *,
     locality: Literal["local", "remote"] | None = None,
+    fp_cache: FingerprintCache | None = None,
 ) -> dict[str, Any]:
     _host = _normalize_host(host) if host is not None else get_ollama_host()
     if locality is not None and locality not in ("local", "remote"):
@@ -379,9 +379,10 @@ def run_test(
         fetch_server_ps_data(_host, model, headers=req_headers or None)
         if not is_api_mode else _empty_ps
     )
-    _ollama_probe = OllamaProbe()
-    _probe_result = _ollama_probe.probe(_host, model, engine_version=orchestration_version)
-    _fp, _prov = assemble_fingerprint(_probe_result, declared=None)
+    _cache = fp_cache or FingerprintCache()
+    _fp, _prov = _cache.get_or_probe(
+        _host, model, declared=None, engine_version=orchestration_version,
+    )
     return {
         "model": model,
         "test_id": test["id"],

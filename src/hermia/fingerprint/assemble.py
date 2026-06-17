@@ -56,9 +56,9 @@ def assemble_fingerprint(
     }
 
     provenance: dict[str, str | None] = {}
-    _set_provenance_group(provenance, "model", fingerprint["model"], probe, "api")
-    _set_provenance_group(provenance, "runtime", fingerprint["runtime"], probe, "api")
-    _set_provenance_group(provenance, "offload", fingerprint["offload"], probe, "api")
+    _set_provenance_group(provenance, "model", fingerprint["model"], "api")
+    _set_provenance_group(provenance, "runtime", fingerprint["runtime"], "api")
+    _set_provenance_group(provenance, "offload", fingerprint["offload"], "api")
     _set_provenance_declared(provenance, "compute_backend", fingerprint["compute_backend"])
     _set_provenance_declared(provenance, "substrate", fingerprint["substrate"])
 
@@ -73,7 +73,6 @@ def _set_provenance_group(
     provenance: dict[str, str | None],
     prefix: str,
     group: dict[str, Any],
-    probe: ProbeResult,
     source: str,
 ) -> None:
     for key, value in group.items():

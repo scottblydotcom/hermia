@@ -18,6 +18,7 @@ from textual.screen import Screen
 from textual.widgets import Button, Checkbox, Footer, Header, Label, ProgressBar, Static
 
 from hermia import robustness
+from hermia.fingerprint.cache import FingerprintCache
 from hermia.metrics import NVIDIA_MIN_SUPPORTED_COMPUTE, MetricsSampler
 from hermia.preflight import DEFAULT_OLLAMA_HOST, run_preflight
 from hermia.results import append_result, open_run, patch_results
@@ -326,6 +327,7 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
         append_log("", "")
 
         load_stats: dict[str, dict[str, float]] = {}
+        fp_cache = FingerprintCache()
 
         for model in runnable:
             model_size_gb = get_model_size_gb(model, self.app.model_list)  # type: ignore[attr-defined]
@@ -361,7 +363,7 @@ class RunnerScreen(Screen):  # type: ignore[type-arg]
             for test in tests:
                 run_results_for_test: list[dict[str, Any]] = []
                 for run_index in range(1, self.repeat + 1):
-                    result = run_test(model, test, sampler)
+                    result = run_test(model, test, sampler, fp_cache=fp_cache)
                     result["run_id"] = run_id
                     result["run_timestamp"] = datetime.now(UTC).isoformat()
                     result["host"] = run_host

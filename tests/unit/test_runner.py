@@ -1290,7 +1290,6 @@ def test_run_test_standalone_local_stamps_fingerprint() -> None:
     """Standalone TUI (locality=local) stamps stack_fingerprint + _provenance."""
     from unittest.mock import MagicMock, patch
 
-    from hermia.fingerprint.types import ProbeResult
     from hermia.runner import run_test
 
     sampler = MagicMock()
@@ -1299,11 +1298,6 @@ def test_run_test_standalone_local_stamps_fingerprint() -> None:
     }
     transport, resp = _stub_transport()
 
-    fake_probe_result = ProbeResult(
-        digest="sha256:standalone",
-        engine="ollama",
-        engine_version="0.6.2",
-    )
     fake_fp = {
         "fingerprint_schema_version": 1,
         "model": {"digest": "sha256:standalone"},
@@ -1314,9 +1308,7 @@ def test_run_test_standalone_local_stamps_fingerprint() -> None:
     with patch("hermia.runner._play_turns", return_value=resp), \
          patch("hermia.runner.fetch_server_ps_data",
                return_value={"vram_server_gb": None, "model_size_server_gb": None}), \
-         patch("hermia.fingerprint.probes.ollama.OllamaProbe.probe",
-               return_value=fake_probe_result), \
-         patch("hermia.fingerprint.assemble.assemble_fingerprint",
+         patch("hermia.fingerprint.cache.FingerprintCache.get_or_probe",
                return_value=(fake_fp, fake_prov)):
         row = run_test(
             "m1", _stub_test_dict(), sampler,
@@ -1334,16 +1326,11 @@ def test_run_test_standalone_remote_stamps_fingerprint() -> None:
     """Remote locality in standalone: fingerprint still stamps (probe reaches remote host)."""
     from unittest.mock import MagicMock, patch
 
-    from hermia.fingerprint.types import ProbeResult
     from hermia.runner import run_test
 
     sampler = MagicMock()
     transport, resp = _stub_transport()
 
-    fake_probe_result = ProbeResult(
-        digest="sha256:remote",
-        engine="ollama",
-    )
     fake_fp = {
         "fingerprint_schema_version": 1,
         "model": {"digest": "sha256:remote"},
@@ -1353,9 +1340,7 @@ def test_run_test_standalone_remote_stamps_fingerprint() -> None:
     with patch("hermia.runner._play_turns", return_value=resp), \
          patch("hermia.runner.fetch_server_ps_data",
                return_value={"vram_server_gb": None, "model_size_server_gb": None}), \
-         patch("hermia.fingerprint.probes.ollama.OllamaProbe.probe",
-               return_value=fake_probe_result), \
-         patch("hermia.fingerprint.assemble.assemble_fingerprint",
+         patch("hermia.fingerprint.cache.FingerprintCache.get_or_probe",
                return_value=(fake_fp, fake_prov)):
         row = run_test(
             "m1", _stub_test_dict(), sampler,
