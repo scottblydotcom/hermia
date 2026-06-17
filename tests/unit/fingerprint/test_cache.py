@@ -1,9 +1,8 @@
 """Tests for FingerprintCache — in-memory (host, model) keyed cache."""
 
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import patch
 
 from hermia.fingerprint.cache import FingerprintCache
-from hermia.fingerprint.types import ProbeResult
 
 
 def _dummy_fp() -> dict:

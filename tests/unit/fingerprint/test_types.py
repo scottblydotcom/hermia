@@ -48,6 +48,6 @@ def test_probe_result_is_frozen() -> None:
     result = ProbeResult()
     try:
         result.digest = "changed"  # type: ignore[misc]
-        assert False, "ProbeResult should be frozen"
+        raise AssertionError("ProbeResult should be frozen")
     except AttributeError:
         pass

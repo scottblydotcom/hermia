@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from typing import Any
 
 import requests
 
@@ -51,14 +52,15 @@ class OllamaProbe:
                 f"{host}/api/version", timeout=3, headers=headers,
             )
             if resp.ok:
-                return resp.json().get("version")
+                version: str | None = resp.json().get("version")
+                return version
         except Exception:  # noqa: BLE001
             pass
         return None
 
     def _fetch_show(
         self, host: str, model: str, headers: dict[str, str],
-    ) -> dict | None:
+    ) -> dict[str, Any] | None:
         try:
             resp = requests.post(
                 f"{host}/api/show",
@@ -67,14 +69,15 @@ class OllamaProbe:
                 headers=headers,
             )
             if resp.ok:
-                return resp.json()
+                result: dict[str, Any] = resp.json()
+                return result
         except Exception:  # noqa: BLE001
             pass
         return None
 
     def _fetch_ps(
         self, host: str, model: str, headers: dict[str, str],
-    ) -> dict | None:
+    ) -> dict[str, Any] | None:
         try:
             resp = requests.get(
                 f"{host}/api/ps", timeout=3, headers=headers,
@@ -91,8 +94,8 @@ class OllamaProbe:
 
     def _build_result(
         self,
-        show: dict | None,
-        ps_entry: dict | None,
+        show: dict[str, Any] | None,
+        ps_entry: dict[str, Any] | None,
         engine_version: str | None,
     ) -> ProbeResult:
         if show is None:
@@ -102,7 +105,11 @@ class OllamaProbe:
         details = show.get("details") or {}
 
         file_type_int = info.get("general.file_type")
-        quant_method = _QUANT_FILE_TYPE_MAP.get(file_type_int) if isinstance(file_type_int, int) else None
+        quant_method = (
+            _QUANT_FILE_TYPE_MAP.get(file_type_int)
+            if isinstance(file_type_int, int)
+            else None
+        )
         quant_level = details.get("quantization_level")
 
         template = show.get("template")

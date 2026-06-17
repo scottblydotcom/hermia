@@ -7,7 +7,6 @@ import pytest
 
 from hermia.fingerprint.probes.ollama import OllamaProbe
 
-
 # ── Fixtures ─────────────────────────────────────────────────────────────────
 
 SHOW_RESPONSE_FULL = {
@@ -23,7 +22,11 @@ SHOW_RESPONSE_FULL = {
         "parameter_size": "7.6B",
         "quantization_level": "Q4_K_M",
     },
-    "template": '{{ if .System }}<|im_start|>system\n{{ .System }}<|im_end|>\n{{ end }}<|im_start|>user\n{{ .Prompt }}<|im_end|>\n<|im_start|>assistant\n',
+    "template": (
+        "{{ if .System }}<|im_start|>system\n{{ .System }}<|im_end|>\n"
+        "{{ end }}<|im_start|>user\n{{ .Prompt }}<|im_end|>\n"
+        "<|im_start|>assistant\n"
+    ),
 }
 
 PS_RESPONSE_GPU = {

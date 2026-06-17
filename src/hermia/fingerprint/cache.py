@@ -6,7 +6,6 @@ from typing import Any
 
 from hermia.fingerprint.assemble import assemble_fingerprint
 from hermia.fingerprint.probes.ollama import OllamaProbe
-from hermia.fingerprint.types import ProbeResult
 
 _FP_PAIR = tuple[dict[str, Any], dict[str, str | None]]
 
