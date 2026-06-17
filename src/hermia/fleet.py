@@ -122,6 +122,7 @@ def _run_host_eval(
     from datetime import UTC, datetime
 
     from hermia.backend import resolve_stack
+    from hermia.fingerprint import FingerprintCache
     from hermia.metrics import MetricsSampler
     from hermia.results import append_result
     from hermia.robustness import compute_reproducibility, score_rows
@@ -208,8 +209,13 @@ def _run_host_eval(
             )
 
     sampler = MetricsSampler()
+    fp_cache = FingerprintCache()
     for model_entry in models:
         model = model_entry["name"]
+        declared = entry.get("stack")
+        fingerprint, provenance = fp_cache.get_or_probe(
+            host_url, model, declared,
+        )
         for test in tests:
             run_results: list[dict[str, Any]] = []
             for run_index in range(1, repeat + 1):
@@ -228,6 +234,8 @@ def _run_host_eval(
                 result.update(resolve_stack(
                     entry, result.get("orchestration_version"),
                 ))
+                result["stack_fingerprint"] = fingerprint
+                result["_provenance"] = provenance
                 run_results.append(result)
 
             # Compute robustness + reproducibility aggregates across all repeat

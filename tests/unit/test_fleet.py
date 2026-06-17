@@ -1145,3 +1145,62 @@ def test_run_host_eval_passes_locality_remote_to_run_test(
     assert captured_kwargs[0].get("locality") == "remote", (
         f"_run_host_eval must declare locality='remote'; got {captured_kwargs[0].get('locality')!r}"
     )
+
+
+def test_run_host_eval_stamps_fingerprint_and_provenance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """stack_fingerprint and _provenance appear on every result row."""
+    import hermia.fleet as fleet
+    from hermia.results import open_run
+
+    fake_fp = {
+        "fingerprint_schema_version": 1,
+        "model": {"digest": "sha256:test123"},
+        "runtime": {"engine": "ollama"},
+        "offload": {"residency_ratio": 1.0},
+    }
+    fake_prov = {"model.digest": "api", "runtime.engine": "api"}
+
+    captured_rows: list[dict] = []
+
+    def fake_run_test(model, test, sampler, host=None, headers=None, transport=None, **kw):
+        return {
+            "model": model, "test_id": test["id"], "failure_reason": "",
+            "elapsed_sec": 0.1, "tokens_per_sec": 1.0,
+            "mode": "fleet",
+            "peak_cpu_pct": None, "peak_ram_used_gb": None,
+            "peak_gpu_pct": None, "peak_vram_used_gb": None,
+        }
+
+    def fake_append(result, jsonl_path, csv_path):
+        captured_rows.append(dict(result))
+
+    monkeypatch.setattr("hermia.runner.run_test", fake_run_test, raising=False)
+    monkeypatch.setattr("hermia.runner.load_tests_all", lambda: [{"id": "t1"}], raising=False)
+    monkeypatch.setattr("hermia.runner.get_available_models",
+                        lambda host=None, headers=None: [{"name": "m1"}], raising=False)
+    monkeypatch.setattr("hermia.results.append_result", fake_append, raising=False)
+
+    # Patch FingerprintCache to return our fake data without HTTP calls
+    from hermia.fingerprint.cache import FingerprintCache
+    monkeypatch.setattr(
+        FingerprintCache, "get_or_probe",
+        lambda self, host, model, declared, engine_version=None: (fake_fp, fake_prov),
+    )
+
+    jsonl, csv = open_run(tmp_path)
+    entry = {"name": "fp-test", "host": "http://localhost:11440"}
+    fleet._run_host_eval(
+        entry, repeat=1, run_id="rid", jsonl_path=jsonl, csv_path=csv,
+        print_lock=__import__("threading").Lock(),
+        print_fn=lambda s: None, stderr_fn=lambda s: None, verbosity=-1,
+    )
+
+    assert len(captured_rows) == 1
+    row = captured_rows[0]
+    assert "stack_fingerprint" in row, "row must contain stack_fingerprint"
+    assert row["stack_fingerprint"]["fingerprint_schema_version"] == 1
+    assert row["stack_fingerprint"]["model"]["digest"] == "sha256:test123"
+    assert "_provenance" in row, "row must contain _provenance"
+    assert row["_provenance"]["model.digest"] == "api"
