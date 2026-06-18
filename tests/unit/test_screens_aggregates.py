@@ -2,11 +2,7 @@
 
 import pytest
 
-try:
-    from hermia.screens import _backfill_aggregates  # speculative — red until implemented
-except ImportError:
-    def _backfill_aggregates(*_a, **_kw):  # type: ignore[misc]
-        raise NotImplementedError("_backfill_aggregates not yet implemented")
+from hermia.scoring import backfill_aggregates as _backfill_aggregates
 
 
 def _run_row(

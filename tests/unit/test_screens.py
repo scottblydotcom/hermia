@@ -2,10 +2,10 @@
 
 import socket
 
+from hermia.scoring import backfill_aggregates as _backfill_aggregates
+from hermia.scoring import compute_scores as _compute_scores
 from hermia.screens import (
     RunnerScreen,
-    _backfill_aggregates,
-    _compute_scores,
     _resolve_fleet_host,
     _sanitize_model_id,
 )
