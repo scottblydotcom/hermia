@@ -214,7 +214,7 @@ def _run_host_eval(
         model = model_entry["name"]
         declared = entry.get("stack")
         fingerprint, provenance = fp_cache.get_or_probe(
-            host_url, model, declared, headers=headers,
+            host_url, model, declared, headers=headers, engine=transport_type,
         )
         for test in tests:
             run_results: list[dict[str, Any]] = []
