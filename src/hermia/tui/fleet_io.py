@@ -120,7 +120,11 @@ def load_hosts_seed(*, path: Path = DEFAULT_HOSTS_SEED_PATH) -> list[Host]:
     """Load the user's seed host list. Returns [] if the file does not exist."""
     if not path.exists():
         return []
-    raw = yaml.safe_load(path.read_text()) or {}
+    raw = yaml.safe_load(path.read_text())
+    # A malformed seed file (scalar, list, None) returns [] instead of crashing
+    # later when .get() is called on a non-dict.
+    if not isinstance(raw, dict):
+        return []
     return [_deserialize_seed_host(h) for h in raw.get("hosts", [])]
 
 

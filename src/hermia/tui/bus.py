@@ -28,10 +28,14 @@ class SessionBus:
         maxsize=0 (default) is an unbounded queue — appropriate for sparse
         trial topics. Pass maxsize > 0 for high-throughput streams (e.g.
         run.trial_chunk) that should drop-oldest on overflow.
+
+        The returned generator self-cleans on close/cancel: when the subscriber
+        screen pops or the generator is garbage-collected, the queue is removed
+        from `self._subscribers` automatically. No manual unsubscribe needed.
         """
         q: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=maxsize)
         self._subscribers[topic].append(q)
-        return self._consume(q)
+        return self._consume(topic, q)
 
     async def publish(self, topic: str, event: dict[str, Any]) -> None:
         """Publish an event to all subscribers of the given topic.
@@ -39,7 +43,10 @@ class SessionBus:
         Bounded subscribers drop their oldest queued event on overflow rather
         than block the publisher. Sparse (unbounded) subscribers never overflow.
         """
-        for q in self._subscribers.get(topic, []):
+        # Iterate over a snapshot — _consume's finally clause mutates the list
+        # when a subscriber's generator closes mid-publish (would otherwise
+        # raise RuntimeError: list changed size during iteration).
+        for q in list(self._subscribers.get(topic, [])):
             if q.maxsize and q.full():
                 try:
                     q.get_nowait()
@@ -47,8 +54,23 @@ class SessionBus:
                     pass
             await q.put(event)
 
-    @staticmethod
-    async def _consume(q: asyncio.Queue[dict[str, Any]]) -> AsyncIterator[dict[str, Any]]:
-        while True:
-            ev = await q.get()
-            yield ev
+    async def _consume(
+        self,
+        topic: str,
+        q: asyncio.Queue[dict[str, Any]],
+    ) -> AsyncIterator[dict[str, Any]]:
+        try:
+            while True:
+                ev = await q.get()
+                yield ev
+        finally:
+            # Remove this queue from the topic's subscriber list when the
+            # generator closes (screen pop, cancel, gc). Idempotent — if the
+            # queue is somehow already absent, ValueError is swallowed.
+            if topic in self._subscribers:
+                try:
+                    self._subscribers[topic].remove(q)
+                except ValueError:
+                    pass
+                if not self._subscribers[topic]:
+                    del self._subscribers[topic]

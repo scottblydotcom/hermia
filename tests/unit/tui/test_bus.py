@@ -100,6 +100,35 @@ class TestBoundedQueue:
 
         asyncio.run(_run())
 
+    def test_subscriber_self_cleans_on_reader_task_cancel(self) -> None:
+        """Cancelling the reader task fires the generator's finally clause,
+        which removes its queue from `_subscribers` — screens that pop don't
+        leak queues for their lifetime.
+        """
+        async def _run() -> None:
+            bus = SessionBus()
+            events: list[dict] = []
+
+            async def reader() -> None:
+                async for ev in bus.subscribe("probe.started"):
+                    events.append(ev)
+
+            task = asyncio.create_task(reader())
+            await asyncio.sleep(0)
+            assert len(bus._subscribers["probe.started"]) == 1
+
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            # Give the generator a chance to run its finally clause.
+            await asyncio.sleep(0)
+
+            assert "probe.started" not in bus._subscribers
+
+        asyncio.run(_run())
+
     def test_bounded_queue_drops_oldest_when_full(self) -> None:
         async def _run() -> None:
             bus = SessionBus()

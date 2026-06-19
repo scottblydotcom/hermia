@@ -62,9 +62,15 @@ class SearchBar(Container):
     def close(self) -> None:
         """Clear the query and hide the bar."""
         inp = self.query_one(Input)
-        inp.value = ""
+        # Setting Input.value when it differs already fires Input.Changed
+        # → on_input_changed → posts QueryChanged(""). Only post explicitly
+        # when the value was already empty (so the subscriber still sees a
+        # clear notification) to avoid sending the message twice.
+        if inp.value == "":
+            self.post_message(self.QueryChanged(""))
+        else:
+            inp.value = ""
         self.display = False
-        self.post_message(self.QueryChanged(""))
 
     def on_input_changed(self, event: Input.Changed) -> None:
         self.post_message(self.QueryChanged(event.value))
