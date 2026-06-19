@@ -147,6 +147,31 @@ class TestLoadFleet:
         with pytest.raises(KeyError):
             load_fleet(bad)
 
+    def test_load_handles_explicit_null_collections(self, tmp_path: Path) -> None:
+        # PyYAML parses `tests:` (with no value) as None, not []. Without the
+        # `or []` guard, list(None) and iteration would TypeError.
+        path = tmp_path / "nulls.yaml"
+        path.write_text("name: nulls\ntests:\nhosts:\nrepeat: 1\n")
+        loaded = load_fleet(path)
+        assert loaded.name == "nulls"
+        assert loaded.tests == []
+        assert loaded.hosts == []
+
+    def test_load_handles_host_with_null_models_key(self, tmp_path: Path) -> None:
+        # Same edge case at the host level — `models:` with no children.
+        path = tmp_path / "nullmodels.yaml"
+        path.write_text(
+            "name: nm\n"
+            "tests: []\n"
+            "hosts:\n"
+            "  - name: h1\n"
+            "    url: http://h1\n"
+            "    engine: ollama\n"
+            "    models:\n"
+        )
+        loaded = load_fleet(path)
+        assert loaded.hosts[0].models == []
+
 
 class TestHostsSeed:
     def test_save_and_load_round_trip(self, tmp_path: Path) -> None:
@@ -195,3 +220,9 @@ class TestHostsSeed:
         text = seed_path.read_text()
         assert "qwen3:32b" not in text
         assert "models" not in text
+
+    def test_load_seed_handles_explicit_null_hosts(self, tmp_path: Path) -> None:
+        # `hosts:` with no children parses as None.
+        seed_path = tmp_path / "nullhosts.yaml"
+        seed_path.write_text("hosts:\n")
+        assert load_hosts_seed(path=seed_path) == []

@@ -75,11 +75,14 @@ def load_fleet(path: Path) -> FleetConfig:
         # then raw["name"] would TypeError instead of giving the documented
         # KeyError. The isinstance check forces the right error class.
         raise KeyError("name")
+    # `raw.get("key", [])` would return None if the YAML has an empty key
+    # (e.g. `tests:` with no children), causing list(None) / iteration to
+    # TypeError. `... or []` short-circuits both missing and explicit-null.
     return FleetConfig(
         name=raw["name"],
-        tests=list(raw.get("tests", [])),
+        tests=list(raw.get("tests") or []),
         repeat=int(raw.get("repeat", 1)),
-        hosts=[_deserialize_host(h) for h in raw.get("hosts", [])],
+        hosts=[_deserialize_host(h) for h in (raw.get("hosts") or [])],
     )
 
 
@@ -100,7 +103,8 @@ def _deserialize_host(d: dict[str, Any]) -> Host:
         engine=d["engine"],
         auth_header_env=d.get("auth_header_env"),
         hardware=d.get("hardware"),
-        models=[ModelChoice(name=n, selected=True) for n in d.get("models", [])],
+        # `models:` with no children parses as None; `or []` guards iteration.
+        models=[ModelChoice(name=n, selected=True) for n in (d.get("models") or [])],
     )
 
 
@@ -125,7 +129,8 @@ def load_hosts_seed(*, path: Path = DEFAULT_HOSTS_SEED_PATH) -> list[Host]:
     # later when .get() is called on a non-dict.
     if not isinstance(raw, dict):
         return []
-    return [_deserialize_seed_host(h) for h in raw.get("hosts", [])]
+    # `hosts:` with no children parses as None; `or []` guards iteration.
+    return [_deserialize_seed_host(h) for h in (raw.get("hosts") or [])]
 
 
 def _serialize_seed_host(h: Host) -> dict[str, Any]:

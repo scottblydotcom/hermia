@@ -5,9 +5,25 @@ probe_host():
     - calls transport.list_models()
     - on success: populates host.models (unselected by default),
       publishes probe.completed (with warning='no_models' when empty)
-    - on timeout (8s default): publishes probe.failed with reason='timeout'
+    - on timeout: publishes probe.failed with reason='timeout'
     - on auth error (PermissionError): publishes probe.failed with reason='auth'
-    - on transport error (any other Exception): publishes probe.failed with reason='offline'
+    - on network error ((OSError, ConnectionError)): publishes probe.failed
+      with reason='offline'
+    - on unexpected error: publishes probe.failed with reason='unexpected',
+      retryable=False
+
+**Transport exception contract** — probe.py is transport-library-agnostic by
+design. Transports (Plan 2's `transport_adapter.py` and any future probe
+sources) MUST normalize their library-specific exceptions to the stdlib
+classes probe.py catches:
+
+    - timeout              → TimeoutError  (already provided by asyncio.wait_for)
+    - HTTP 401/403         → PermissionError
+    - connection refused / DNS / network unreachable → OSError or ConnectionError
+
+Anything else falls through to the generic Exception handler and surfaces as
+`unexpected` to the operator. This keeps probe.py decoupled from httpx /
+requests / aiohttp choice in the transport layer.
 
 The Hosts drill screen subscribes to all three topics and updates row badges.
 """
