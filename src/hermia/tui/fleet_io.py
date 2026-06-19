@@ -20,7 +20,7 @@ from the environment.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -49,7 +49,7 @@ def save_fleet(config: FleetConfig, *, root: Path = Path(".")) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     data: dict[str, Any] = {
         "name": config.name,
-        "created": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "created": datetime.now(UTC).isoformat(timespec="seconds"),
         "hermia_version": __version__,
         "tests": list(config.tests),
         "repeat": config.repeat,

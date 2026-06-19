@@ -4,7 +4,7 @@ Tests for the hermia.tui.state module.
 
 from __future__ import annotations
 
-from hermia.tui.state import ModelChoice, Host, FleetConfig, HostSource, ModelSource
+from hermia.tui.state import FleetConfig, Host, HostSource, ModelChoice, ModelSource
 
 
 def test_model_choice_defaults():

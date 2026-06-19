@@ -47,7 +47,7 @@ class DrillableList(VerticalScroll):
         Binding("up", "cursor_prev", "Up", show=False),
         Binding("down", "cursor_next", "Down", show=False),
         Binding("enter", "drill", "Drill in", show=True),
-        Binding("space", "toggle", "Toggle", show=True),
+        Binding("space", "toggle_row", "Toggle", show=True),
         Binding("a", "select_all", "All", show=True),
         Binding("n", "select_none", "None", show=True),
     ]
@@ -162,7 +162,7 @@ class DrillableList(VerticalScroll):
     def action_drill(self) -> None:
         self.drill()
 
-    def action_toggle(self) -> None:
+    def action_toggle_row(self) -> None:
         self.toggle()
 
     def action_select_all(self) -> None:

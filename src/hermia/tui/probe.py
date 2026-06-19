@@ -37,7 +37,7 @@ async def probe_host(
     await bus.publish("probe.started", {"host_name": host.name, "url": host.url})
     try:
         model_names = await asyncio.wait_for(transport.list_models(), timeout=timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         await bus.publish(
             "probe.failed",
             {"host_name": host.name, "reason": "timeout", "retryable": True},

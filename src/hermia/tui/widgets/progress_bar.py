@@ -25,26 +25,26 @@ class MiniProgressBar(Static):
         self.total = total
         self.completed = 0
         self.width = width
-        self._text = self._render()
+        self._text = self._build_text()
         super().__init__(self._text)
 
     def advance(self, n: int = 1) -> None:
         self.completed = min(self.completed + n, self.total)
-        self._text = self._render()
+        self._text = self._build_text()
         self.update(self._text)
 
     def set_total(self, total: int) -> None:
         self.total = total
         if self.completed > total:
             self.completed = total
-        self._text = self._render()
+        self._text = self._build_text()
         self.update(self._text)
 
     @property
     def text(self) -> str:
         return self._text
 
-    def _render(self) -> str:
+    def _build_text(self) -> str:
         if self.total == 0:
             return EMPTY * self.width
         filled_chars = int(self.width * self.completed / self.total)
@@ -58,19 +58,19 @@ class AggregateProgressBar(Static):
         self.total = total
         self.completed = 0
         self.width = width
-        self._text = self._render()
+        self._text = self._build_text()
         super().__init__(self._text)
 
     def advance(self, n: int = 1) -> None:
         self.completed = min(self.completed + n, self.total)
-        self._text = self._render()
+        self._text = self._build_text()
         self.update(self._text)
 
     @property
     def text(self) -> str:
         return self._text
 
-    def _render(self) -> str:
+    def _build_text(self) -> str:
         if self.total == 0:
             return f"{EMPTY * self.width}   0 / 0  (0%)"
         filled_chars = int(self.width * self.completed / self.total)

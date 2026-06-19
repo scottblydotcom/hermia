@@ -7,7 +7,9 @@ import yaml
 from hermia.tui.fleet_io import (
     fleet_path,
     load_fleet,
+    load_hosts_seed,
     save_fleet,
+    save_hosts_seed,
 )
 from hermia.tui.state import FleetConfig, Host, ModelChoice
 
@@ -144,9 +146,6 @@ class TestLoadFleet:
         bad.write_text("tests: []\nhosts: []\n")
         with pytest.raises(KeyError):
             load_fleet(bad)
-
-
-from hermia.tui.fleet_io import load_hosts_seed, save_hosts_seed
 
 
 class TestHostsSeed:
