@@ -111,6 +111,25 @@ class DrillableList(VerticalScroll):
         return Static(f"{cursor}{check}{row.label}", classes=cls)
 
     def _refresh(self) -> None:
+        # Stable-row optimization: when the number of visible rows hasn't
+        # changed (cursor move, toggle, select-all/none), update existing
+        # Static widgets in place. Only structural changes (apply_query) need
+        # the full teardown + remount. Saves O(N) DOM churn per keystroke.
+        if len(self.children) == len(self.visible_rows):
+            for i, child in enumerate(self.children):
+                if not isinstance(child, Static):
+                    continue
+                row = self.visible_rows[i]
+                cursor = " > " if i == self._cursor_idx else "   "
+                check = "[✓] " if row.id_ in self._selected else "[ ] "
+                cls = "row"
+                if i == self._cursor_idx:
+                    cls += " cursor"
+                if row.id_ in self._selected:
+                    cls += " selected"
+                child.update(f"{cursor}{check}{row.label}")
+                child.set_classes(cls)
+            return
         for child in list(self.children):
             child.remove()
         for i, row in enumerate(self.visible_rows):

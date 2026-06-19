@@ -78,10 +78,13 @@ def load_fleet(path: Path) -> FleetConfig:
     # `raw.get("key", [])` would return None if the YAML has an empty key
     # (e.g. `tests:` with no children), causing list(None) / iteration to
     # TypeError. `... or []` short-circuits both missing and explicit-null.
+    # `repeat: null` (explicit-null) returns None from .get("repeat", 1),
+    # bypassing the default. int(None) raises TypeError; guard explicitly.
+    repeat_raw = raw.get("repeat")
     return FleetConfig(
         name=raw["name"],
         tests=list(raw.get("tests") or []),
-        repeat=int(raw.get("repeat", 1)),
+        repeat=int(repeat_raw) if repeat_raw is not None else 1,
         hosts=[_deserialize_host(h) for h in (raw.get("hosts") or [])],
     )
 

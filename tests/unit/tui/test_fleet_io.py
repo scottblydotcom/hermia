@@ -157,6 +157,13 @@ class TestLoadFleet:
         assert loaded.tests == []
         assert loaded.hosts == []
 
+    def test_load_handles_explicit_null_repeat(self, tmp_path: Path) -> None:
+        # `repeat:` (empty key) parses as None — int(None) would TypeError.
+        path = tmp_path / "nullrepeat.yaml"
+        path.write_text("name: nr\ntests: []\nhosts: []\nrepeat:\n")
+        loaded = load_fleet(path)
+        assert loaded.repeat == 1
+
     def test_load_handles_host_with_null_models_key(self, tmp_path: Path) -> None:
         # Same edge case at the host level — `models:` with no children.
         path = tmp_path / "nullmodels.yaml"

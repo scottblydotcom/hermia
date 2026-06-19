@@ -52,7 +52,11 @@ class SessionBus:
                     q.get_nowait()
                 except asyncio.QueueEmpty:
                     pass
-            await q.put(event)
+            # put_nowait keeps the get_nowait + put pair atomic in
+            # single-threaded asyncio — `await q.put` would yield between the
+            # two ops, letting another coroutine fill the slot we just freed
+            # and re-blocking the publisher on a full bounded queue.
+            q.put_nowait(event)
 
     async def _consume(
         self,

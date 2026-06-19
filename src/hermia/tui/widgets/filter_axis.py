@@ -101,9 +101,23 @@ class FilterAxis(Horizontal):
         self.post_message(self.Changed(axis, self.current_value))
 
     def _refresh(self) -> None:
+        # Stable-children optimization: value cycling (←/→) keeps the count
+        # the same; only axis change (tab) can resize. When count matches,
+        # update Statics in place to avoid mount/unmount churn per keypress.
+        if self.current_axis is None:
+            for child in list(self.children):
+                child.remove()
+            return
+        values = self._all_values_for(self.current_axis)
+        if len(self.children) == len(values):
+            for i, child in enumerate(self.children):
+                if not isinstance(child, Static):
+                    continue
+                value = values[i]
+                child.update(value)
+                child.set_classes("active" if value == self.current_value else "")
+            return
         for child in list(self.children):
             child.remove()
-        if self.current_axis is None:
-            return
-        for value in self._all_values_for(self.current_axis):
+        for value in values:
             self.mount(Static(value, classes="active" if value == self.current_value else ""))
