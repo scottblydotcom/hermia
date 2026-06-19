@@ -144,3 +144,55 @@ class TestLoadFleet:
         bad.write_text("tests: []\nhosts: []\n")
         with pytest.raises(KeyError):
             load_fleet(bad)
+
+
+from hermia.tui.fleet_io import load_hosts_seed, save_hosts_seed
+
+
+class TestHostsSeed:
+    def test_save_and_load_round_trip(self, tmp_path: Path) -> None:
+        seed_path = tmp_path / "hosts.yaml"
+        hosts = [
+            Host(
+                name="eric-5090",
+                url="https://eric:11434",
+                engine="ollama",
+                hardware="RTX 5090",
+                auth_header_env="LITELLM_KEY",
+            ),
+            Host(name="m3-pro", url="https://m3:4000", engine="openai-compat"),
+        ]
+        save_hosts_seed(hosts, path=seed_path)
+        assert seed_path.exists()
+
+        loaded = load_hosts_seed(path=seed_path)
+        assert len(loaded) == 2
+        assert loaded[0].name == "eric-5090"
+        assert loaded[0].hardware == "RTX 5090"
+        assert loaded[0].auth_header_env == "LITELLM_KEY"
+        assert loaded[1].name == "m3-pro"
+        assert loaded[1].hardware is None
+
+    def test_load_missing_seed_returns_empty_list(self, tmp_path: Path) -> None:
+        loaded = load_hosts_seed(path=tmp_path / "nope.yaml")
+        assert loaded == []
+
+    def test_save_creates_parent_dir(self, tmp_path: Path) -> None:
+        seed_path = tmp_path / ".config" / "hermia" / "hosts.yaml"
+        save_hosts_seed([], path=seed_path)
+        assert seed_path.exists()
+
+    def test_seed_does_not_include_models(self, tmp_path: Path) -> None:
+        seed_path = tmp_path / "hosts.yaml"
+        hosts = [
+            Host(
+                name="h1",
+                url="http://h1",
+                engine="ollama",
+                models=[ModelChoice(name="qwen3:32b", selected=True)],
+            )
+        ]
+        save_hosts_seed(hosts, path=seed_path)
+        text = seed_path.read_text()
+        assert "qwen3:32b" not in text
+        assert "models" not in text

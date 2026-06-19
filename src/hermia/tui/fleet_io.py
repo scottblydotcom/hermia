@@ -30,6 +30,7 @@ from hermia import __version__
 from hermia.tui.state import FleetConfig, Host, ModelChoice
 
 FLEETS_SUBDIR = "fleets"
+DEFAULT_HOSTS_SEED_PATH = Path.home() / ".config" / "hermia" / "hosts.yaml"
 
 
 def fleet_path(name: str, *, root: Path = Path(".")) -> Path:
@@ -97,4 +98,43 @@ def _deserialize_host(d: dict[str, Any]) -> Host:
         auth_header_env=d.get("auth_header_env"),
         hardware=d.get("hardware"),
         models=[ModelChoice(name=n, selected=True) for n in d.get("models", [])],
+    )
+
+
+def save_hosts_seed(hosts: list[Host], *, path: Path = DEFAULT_HOSTS_SEED_PATH) -> Path:
+    """Persist the user's seed host list (host identity only — no models).
+
+    Models are not stored because they re-probe each session. Per AGENTS.md
+    rule 11, only auth_header_env (env var NAME) is stored.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data: dict[str, Any] = {"hosts": [_serialize_seed_host(h) for h in hosts]}
+    path.write_text(yaml.safe_dump(data, sort_keys=False))
+    return path
+
+
+def load_hosts_seed(*, path: Path = DEFAULT_HOSTS_SEED_PATH) -> list[Host]:
+    """Load the user's seed host list. Returns [] if the file does not exist."""
+    if not path.exists():
+        return []
+    raw = yaml.safe_load(path.read_text()) or {}
+    return [_deserialize_seed_host(h) for h in raw.get("hosts", [])]
+
+
+def _serialize_seed_host(h: Host) -> dict[str, Any]:
+    d: dict[str, Any] = {"name": h.name, "url": h.url, "engine": h.engine}
+    if h.auth_header_env:
+        d["auth_header_env"] = h.auth_header_env
+    if h.hardware:
+        d["hardware"] = h.hardware
+    return d
+
+
+def _deserialize_seed_host(d: dict[str, Any]) -> Host:
+    return Host(
+        name=d["name"],
+        url=d["url"],
+        engine=d["engine"],
+        auth_header_env=d.get("auth_header_env"),
+        hardware=d.get("hardware"),
     )
