@@ -49,10 +49,26 @@ async def probe_host(
             {"host_name": host.name, "reason": "auth", "error": str(exc), "retryable": True},
         )
         return
-    except Exception as exc:
+    except (OSError, ConnectionError) as exc:
+        # Expected network failures: refused, DNS, network unreachable, etc.
+        # Plan 2's transport_adapter translates HTTP 401/403 → PermissionError
+        # before the exception reaches here so the auth path above fires.
         await bus.publish(
             "probe.failed",
             {"host_name": host.name, "reason": "offline", "error": str(exc), "retryable": True},
+        )
+        return
+    except Exception as exc:
+        # Unexpected error (programmer bug, missing field, etc). Surface as a
+        # distinct category so operators don't chase a "host offline" red herring.
+        await bus.publish(
+            "probe.failed",
+            {
+                "host_name": host.name,
+                "reason": "unexpected",
+                "error": f"{type(exc).__name__}: {exc}",
+                "retryable": False,
+            },
         )
         return
 

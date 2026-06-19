@@ -106,6 +106,26 @@ class TestProbeFailures:
 
         asyncio.run(_run())
 
+    def test_programmer_error_publishes_failed_with_reason_unexpected(self) -> None:
+        async def _run() -> None:
+            bus = SessionBus()
+            events = await _start_readers(bus)
+            host = Host(name="buggy", url="http://buggy", engine="ollama")
+            # Simulate a programmer error: AttributeError from a future transport
+            # bug should not be reported as "host offline".
+            transport = FakeTransport(models=[], fail_with=AttributeError("missing field"))
+
+            await probe_host(host, transport=transport, bus=bus)
+            await asyncio.sleep(0.05)
+
+            failed = [ev for t, ev in events if t == "probe.failed"]
+            assert len(failed) == 1
+            assert failed[0]["reason"] == "unexpected"
+            assert failed[0]["retryable"] is False
+            assert "AttributeError" in failed[0]["error"]
+
+        asyncio.run(_run())
+
     def test_empty_model_list_publishes_completed_with_warning(self) -> None:
         async def _run() -> None:
             bus = SessionBus()

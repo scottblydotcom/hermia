@@ -70,7 +70,10 @@ def load_fleet(path: Path) -> FleetConfig:
     if not path.exists():
         raise FileNotFoundError(f"No fleet found at {path}")
     raw = yaml.safe_load(path.read_text())
-    if raw is None or "name" not in raw:
+    if not isinstance(raw, dict) or "name" not in raw:
+        # `"name" not in raw` would substring-match if raw were a scalar string,
+        # then raw["name"] would TypeError instead of giving the documented
+        # KeyError. The isinstance check forces the right error class.
         raise KeyError("name")
     return FleetConfig(
         name=raw["name"],
