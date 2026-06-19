@@ -1,0 +1,146 @@
+"""Tests for hermia.tui.fleet_io — YAML load/save for fleets and hosts.yaml."""
+from pathlib import Path
+
+import pytest
+import yaml
+
+from hermia.tui.fleet_io import (
+    fleet_path,
+    load_fleet,
+    save_fleet,
+)
+from hermia.tui.state import FleetConfig, Host, ModelChoice
+
+
+class TestFleetPath:
+    def test_returns_fleets_subdir(self, tmp_path: Path) -> None:
+        p = fleet_path("kwaainet-baseline", root=tmp_path)
+        assert p == tmp_path / "fleets" / "kwaainet-baseline.yaml"
+
+
+class TestSaveFleet:
+    def test_creates_fleets_dir_if_missing(self, tmp_path: Path) -> None:
+        config = FleetConfig(name="smoke")
+        path = save_fleet(config, root=tmp_path)
+        assert path.exists()
+        assert path.parent.name == "fleets"
+
+    def test_writes_minimal_yaml(self, tmp_path: Path) -> None:
+        config = FleetConfig(name="smoke")
+        path = save_fleet(config, root=tmp_path)
+        data = yaml.safe_load(path.read_text())
+        assert data["name"] == "smoke"
+        assert data["tests"] == []
+        assert data["hosts"] == []
+        assert data["repeat"] == 1
+        assert "created" in data
+        assert "hermia_version" in data
+
+    def test_writes_full_fleet(self, tmp_path: Path) -> None:
+        config = FleetConfig(
+            name="kwaainet-baseline",
+            hosts=[
+                Host(
+                    name="eric-5090",
+                    url="https://eric:11434",
+                    engine="ollama",
+                    hardware="RTX 5090",
+                    auth_header_env="LITELLM_KEY",
+                    models=[
+                        ModelChoice(name="qwen3:32b", selected=True),
+                        ModelChoice(name="qwen3-coder:30b", selected=True),
+                        ModelChoice(name="llama3:70b", selected=False),
+                    ],
+                )
+            ],
+            tests=["prompt-injection-1", "jailbreak-1"],
+            repeat=3,
+        )
+        path = save_fleet(config, root=tmp_path)
+        data = yaml.safe_load(path.read_text())
+        assert data["repeat"] == 3
+        assert data["tests"] == ["prompt-injection-1", "jailbreak-1"]
+        assert len(data["hosts"]) == 1
+        h = data["hosts"][0]
+        assert h["name"] == "eric-5090"
+        assert h["url"] == "https://eric:11434"
+        assert h["engine"] == "ollama"
+        assert h["hardware"] == "RTX 5090"
+        assert h["auth_header_env"] == "LITELLM_KEY"
+        assert h["models"] == ["qwen3:32b", "qwen3-coder:30b"]
+
+    def test_omits_optional_fields_when_none(self, tmp_path: Path) -> None:
+        config = FleetConfig(
+            name="minimal",
+            hosts=[Host(name="h1", url="http://h1:11434", engine="ollama")],
+        )
+        path = save_fleet(config, root=tmp_path)
+        data = yaml.safe_load(path.read_text())
+        h = data["hosts"][0]
+        assert "auth_header_env" not in h
+        assert "hardware" not in h
+
+    def test_never_writes_secret_value(self, tmp_path: Path) -> None:
+        config = FleetConfig(
+            name="secrets-test",
+            hosts=[
+                Host(
+                    name="h1",
+                    url="http://h1:11434",
+                    engine="openai-compat",
+                    auth_header_env="LITELLM_KEY",
+                )
+            ],
+        )
+        path = save_fleet(config, root=tmp_path)
+        text = path.read_text()
+        assert "LITELLM_KEY" in text
+        assert "sk-" not in text
+        assert "Bearer " not in text
+
+
+class TestLoadFleet:
+    def test_round_trip(self, tmp_path: Path) -> None:
+        original = FleetConfig(
+            name="rt",
+            hosts=[
+                Host(
+                    name="h1",
+                    url="http://h1:11434",
+                    engine="ollama",
+                    hardware="RTX 5090",
+                    models=[ModelChoice(name="qwen3:32b", selected=True)],
+                )
+            ],
+            tests=["prompt-injection-1"],
+            repeat=2,
+        )
+        path = save_fleet(original, root=tmp_path)
+        loaded = load_fleet(path)
+        assert loaded.name == "rt"
+        assert loaded.repeat == 2
+        assert loaded.tests == ["prompt-injection-1"]
+        assert len(loaded.hosts) == 1
+        h = loaded.hosts[0]
+        assert h.name == "h1"
+        assert h.engine == "ollama"
+        assert h.hardware == "RTX 5090"
+        assert len(h.models) == 1
+        assert h.models[0].name == "qwen3:32b"
+        assert h.models[0].selected is True
+
+    def test_load_missing_file_raises_file_not_found(self, tmp_path: Path) -> None:
+        with pytest.raises(FileNotFoundError):
+            load_fleet(tmp_path / "fleets" / "nope.yaml")
+
+    def test_load_malformed_yaml_raises_yaml_error(self, tmp_path: Path) -> None:
+        bad = tmp_path / "bad.yaml"
+        bad.write_text("name: smoke\n  this is: not valid yaml\n: : :")
+        with pytest.raises(yaml.YAMLError):
+            load_fleet(bad)
+
+    def test_load_missing_required_name_raises_key_error(self, tmp_path: Path) -> None:
+        bad = tmp_path / "noname.yaml"
+        bad.write_text("tests: []\nhosts: []\n")
+        with pytest.raises(KeyError):
+            load_fleet(bad)
