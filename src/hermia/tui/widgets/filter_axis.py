@@ -76,7 +76,11 @@ class FilterAxis(Horizontal):
         if not self._axis_names:
             return
         self._axis_index = (self._axis_index + 1) % len(self._axis_names)
-        self._value_indexes[self.current_axis] = 0  # type: ignore[index]
+        # Bind locally so the type checker sees the str-not-None narrowing
+        # (avoids the # type: ignore[index] on the dict lookup).
+        axis = self.current_axis
+        if axis is not None:
+            self._value_indexes[axis] = 0
         self._refresh()
         self.post_message(self.Changed(self.current_axis, self.current_value))
 

@@ -81,9 +81,14 @@ def load_fleet(path: Path) -> FleetConfig:
     # `repeat: null` (explicit-null) returns None from .get("repeat", 1),
     # bypassing the default. int(None) raises TypeError; guard explicitly.
     repeat_raw = raw.get("repeat")
+    # `tests: <single-string>` would silently `list("foo") == ['f','o','o']`
+    # — fail loud instead of producing nonsense test IDs.
+    tests_raw = raw.get("tests") or []
+    if isinstance(tests_raw, str):
+        raise TypeError("tests must be a list of strings, not a single string")
     return FleetConfig(
         name=raw["name"],
-        tests=list(raw.get("tests") or []),
+        tests=list(tests_raw),
         repeat=int(repeat_raw) if repeat_raw is not None else 1,
         hosts=[_deserialize_host(h) for h in (raw.get("hosts") or [])],
     )
@@ -132,8 +137,12 @@ def load_hosts_seed(*, path: Path = DEFAULT_HOSTS_SEED_PATH) -> list[Host]:
     # later when .get() is called on a non-dict.
     if not isinstance(raw, dict):
         return []
-    # `hosts:` with no children parses as None; `or []` guards iteration.
-    return [_deserialize_seed_host(h) for h in (raw.get("hosts") or [])]
+    # Defensive: a malformed seed where `hosts:` is a string or dict (not a
+    # list) would iterate wrong — short-circuit to empty rather than crash.
+    hosts_raw = raw.get("hosts")
+    if not isinstance(hosts_raw, list):
+        return []
+    return [_deserialize_seed_host(h) for h in hosts_raw]
 
 
 def _serialize_seed_host(h: Host) -> dict[str, Any]:

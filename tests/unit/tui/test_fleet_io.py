@@ -157,6 +157,14 @@ class TestLoadFleet:
         assert loaded.tests == []
         assert loaded.hosts == []
 
+    def test_load_rejects_tests_as_single_string(self, tmp_path: Path) -> None:
+        # `tests: prompt-injection-1` (no list dashes) would silently split
+        # into ['p','r','o',...]; raise loudly instead.
+        path = tmp_path / "strtests.yaml"
+        path.write_text("name: s\ntests: prompt-injection-1\nhosts: []\nrepeat: 1\n")
+        with pytest.raises(TypeError, match="tests must be a list"):
+            load_fleet(path)
+
     def test_load_handles_explicit_null_repeat(self, tmp_path: Path) -> None:
         # `repeat:` (empty key) parses as None — int(None) would TypeError.
         path = tmp_path / "nullrepeat.yaml"
@@ -232,4 +240,11 @@ class TestHostsSeed:
         # `hosts:` with no children parses as None.
         seed_path = tmp_path / "nullhosts.yaml"
         seed_path.write_text("hosts:\n")
+        assert load_hosts_seed(path=seed_path) == []
+
+    def test_load_seed_handles_non_list_hosts(self, tmp_path: Path) -> None:
+        # Malformed seed where `hosts:` is a string — return [] instead of
+        # iterating the string and producing nonsense Host records.
+        seed_path = tmp_path / "badhosts.yaml"
+        seed_path.write_text("hosts: not-a-list\n")
         assert load_hosts_seed(path=seed_path) == []

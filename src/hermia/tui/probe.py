@@ -53,18 +53,28 @@ async def probe_host(
     await bus.publish("probe.started", {"host_name": host.name, "url": host.url})
     try:
         model_names = await asyncio.wait_for(transport.list_models(), timeout=timeout)
+        # Happy-path inside the try block so a transport returning None or a
+        # non-iterable surfaces as `unexpected` (catches our own bugs) rather
+        # than crashing the coroutine outside the handler.
+        host.models = [ModelChoice(name=n, selected=False) for n in model_names]
+        await bus.publish(
+            "probe.completed",
+            {
+                "host_name": host.name,
+                "models": list(model_names),
+                "warning": "no_models" if not model_names else None,
+            },
+        )
     except TimeoutError:
         await bus.publish(
             "probe.failed",
             {"host_name": host.name, "reason": "timeout", "retryable": True},
         )
-        return
     except PermissionError as exc:
         await bus.publish(
             "probe.failed",
             {"host_name": host.name, "reason": "auth", "error": str(exc), "retryable": True},
         )
-        return
     except (OSError, ConnectionError) as exc:
         # Expected network failures: refused, DNS, network unreachable, etc.
         # Plan 2's transport_adapter translates HTTP 401/403 → PermissionError
@@ -73,10 +83,10 @@ async def probe_host(
             "probe.failed",
             {"host_name": host.name, "reason": "offline", "error": str(exc), "retryable": True},
         )
-        return
     except Exception as exc:
-        # Unexpected error (programmer bug, missing field, etc). Surface as a
-        # distinct category so operators don't chase a "host offline" red herring.
+        # Unexpected error (programmer bug, missing field, transport returning
+        # None instead of a list, etc). Surface as a distinct category so
+        # operators don't chase a "host offline" red herring.
         await bus.publish(
             "probe.failed",
             {
@@ -86,14 +96,3 @@ async def probe_host(
                 "retryable": False,
             },
         )
-        return
-
-    host.models = [ModelChoice(name=n, selected=False) for n in model_names]
-    await bus.publish(
-        "probe.completed",
-        {
-            "host_name": host.name,
-            "models": list(model_names),
-            "warning": "no_models" if not model_names else None,
-        },
-    )
