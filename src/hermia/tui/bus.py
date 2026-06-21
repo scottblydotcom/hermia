@@ -78,3 +78,12 @@ class SessionBus:
                     pass
                 if not self._subscribers[topic]:
                     del self._subscribers[topic]
+
+    def close(self) -> None:
+        """Clear all subscriber registrations (called on app exit).
+
+        Does not unblock coroutines waiting in await q.get() — Textual's
+        task cancellation handles that via the try/finally in _consume.
+        After close(), publish() calls are no-ops (no subscribers remain).
+        """
+        self._subscribers.clear()
