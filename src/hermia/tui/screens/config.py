@@ -105,8 +105,10 @@ class FleetConfigScreen(Screen[None]):
             self._refresh()
 
     def action_drill(self) -> None:
-        # Hosts and Tests screens land in Tasks 10 and 13.
-        pass
+        if self.cursor_row == 0:
+            from hermia.tui.screens.hosts import HostsScreen
+            self.app.push_screen(HostsScreen())
+        # Tests drill lands in Task 13.
 
     def action_back(self) -> None:
         self.app.pop_screen()
