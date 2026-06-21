@@ -52,10 +52,16 @@ class _BaseProbeTransport:
     auth_header: str | None = None
 
     def _fetch_sync(self, path: str) -> dict[str, Any]:
+        # User-friendly normalization: a bare `localhost:11434` (no scheme)
+        # is treated as http://. Detect via `://` presence — urlparse on a
+        # bare `host:port` mis-interprets `host` as the scheme.
+        raw_url = self.url
+        if "://" not in raw_url:
+            raw_url = f"http://{raw_url}"
         # SSRF guard: urlopen supports `file://`, `ftp://`, etc. If a user
         # accidentally (or maliciously) sets host.url to file:///etc/passwd
         # we'd happily read it. Force http(s) only.
-        parsed = urllib.parse.urlparse(self.url)
+        parsed = urllib.parse.urlparse(raw_url)
         if parsed.scheme not in ("http", "https"):
             raise urllib.error.URLError(
                 f"Unsupported protocol scheme: {parsed.scheme!r} (only http/https allowed)"
@@ -63,7 +69,7 @@ class _BaseProbeTransport:
         # The S310/B310 suppressions below are justified: the URL scheme has
         # been validated above as http(s); we are not opening arbitrary
         # schemes like file://.
-        url = f"{self.url.rstrip('/')}{path}"
+        url = f"{raw_url.rstrip('/')}{path}"
         req = urllib.request.Request(url)  # noqa: S310
         if self.auth_header:
             req.add_header("Authorization", self.auth_header)

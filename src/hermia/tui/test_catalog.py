@@ -60,7 +60,13 @@ def load_test_catalog() -> list[TestRecord]:
     by_id: dict[str, dict[str, bool]] = {
         tid: {f: False for f in FRAMEWORKS} for tid in TEST_IDS
     }
-    raw = json.loads(_TASKS_JSON.read_text())
+    # If the dataset file is missing (packaging glitch) or unreadable, fall
+    # back to all-False framework memberships — the TUI stays functional;
+    # tests just appear without framework tags.
+    try:
+        raw = json.loads(_TASKS_JSON.read_text())
+    except (OSError, json.JSONDecodeError):
+        raw = {}
     for case in raw.get("agentic_test_cases", []):
         cid = case.get("id")
         if cid not in by_id:

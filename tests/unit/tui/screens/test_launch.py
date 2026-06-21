@@ -116,7 +116,9 @@ class TestLoadExisting:
         # A YAML file with the right name but malformed contents should
         # surface as a notify(), not crash the TUI.
         (tmp_path / "fleets").mkdir()
-        (tmp_path / "fleets" / "broken.yaml").write_text("name: broken\nhosts: not-a-list-of-dicts\n  - this is bad yaml")
+        (tmp_path / "fleets" / "broken.yaml").write_text(
+            "name: broken\nhosts: not-a-list-of-dicts\n  - this is bad yaml"
+        )
         monkeypatch.chdir(tmp_path)
 
         async def _run() -> None:

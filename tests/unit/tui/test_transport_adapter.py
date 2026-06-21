@@ -78,3 +78,16 @@ class TestSSRFGuard:
         tr = transport_for(host)
         with pytest.raises(urllib.error.URLError, match="Unsupported protocol scheme"):
             tr._fetch_sync("/api/tags")
+
+    def test_bare_host_gets_http_prefix(self) -> None:
+        # Schemeless URL (e.g. "localhost:1") gets normalized to http://
+        # so the SSRF guard doesn't reject the common typo. Port 1 is the
+        # tcpmux service port — reliably unused on any sane dev machine,
+        # so urlopen reliably fails with a connection error rather than
+        # potentially reaching a live Ollama on 11434.
+        host = Host(name="bare", url="127.0.0.1:1", engine="ollama")
+        tr = transport_for(host)
+        with pytest.raises(urllib.error.URLError) as exc_info:
+            tr._fetch_sync("/api/tags")
+        # Should fail with a connection error, NOT the scheme rejection.
+        assert "Unsupported protocol scheme" not in str(exc_info.value)
