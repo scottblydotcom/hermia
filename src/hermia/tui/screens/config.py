@@ -65,6 +65,12 @@ class FleetConfigScreen(Screen[None]):
     def on_mount(self) -> None:
         self._refresh()
 
+    def on_screen_resume(self) -> None:
+        # Pop-back from a child drill (Hosts / Tests) may have toggled
+        # selections; mark_dirty() propagation handles inline updates, but
+        # this is the belt-and-braces refresh per spec §5 lifecycle.
+        self._refresh()
+
     def _breadcrumb_segments(self) -> list[str]:
         name = self.app_config.name or "(unnamed)"
         suffix = " [unsaved changes]" if self.dirty else ""

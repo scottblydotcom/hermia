@@ -204,6 +204,11 @@ class HostsScreen(Screen[None]):
         # Cancel listener tasks so they don't outlive the screen.
         for t in self._listener_tasks:
             t.cancel()
+        # Also cancel any @work probe workers still in flight — Textual's
+        # default cleanup is not guaranteed to drop them synchronously, and
+        # an orphan probe writing to host.models after the screen tears down
+        # would race the next mount. workers.cancel_all() is sync + safe.
+        self.workers.cancel_all()
 
     async def _listen(self, topic: str, final_state: str) -> None:
         async for ev in self._bus.subscribe(topic):

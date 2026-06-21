@@ -71,8 +71,8 @@ class TestsScreen(Screen[None]):
         self._reapply()
 
     def _reapply(self) -> None:
-        dl = self.query_one(DrillableList)
-        # Combine substring + framework membership.
+        # Combine substring + framework membership; DrillableList's own
+        # apply_query only handles substring, so we own the combined filter.
         rows: list[ListRow] = []
         for rec in self._catalog:
             if self._query and self._query not in rec.id.lower():
@@ -80,10 +80,9 @@ class TestsScreen(Screen[None]):
             if self._framework_filter != "All" and not rec.is_in_framework(self._framework_filter):
                 continue
             rows.append(ListRow(id_=rec.id, label=rec.id))
-        dl._all_rows = rows
-        dl.visible_rows = rows
-        dl._cursor_idx = 0 if rows else -1
-        dl._refresh()
+        # set_rows is the public API for this — replaces the older private
+        # `_all_rows = ...; visible_rows = ...; _refresh()` poke.
+        self.query_one(DrillableList).set_rows(rows)
 
     # ── Event handlers ────────────────────────────────────────────────────
 

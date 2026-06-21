@@ -104,6 +104,22 @@ class DrillableList(VerticalScroll):
         self._selected = set(row_ids)
         self._refresh()
 
+    def set_rows(self, rows: list[ListRow]) -> None:
+        """Replace the underlying row list (used by screens that own a
+        combined filter — e.g. TestsScreen merges substring + framework).
+
+        Clips the cursor to the new row count; does NOT emit any message.
+        Selection set is preserved as-is — caller decides whether to also
+        call set_selected_ids().
+        """
+        self._all_rows = list(rows)
+        self.visible_rows = list(rows)
+        if not self.visible_rows:
+            self._cursor_idx = -1
+        else:
+            self._cursor_idx = min(max(self._cursor_idx, 0), len(self.visible_rows) - 1)
+        self._refresh()
+
     def apply_query(self, query: str) -> None:
         self._query = query.strip().lower()
         if not self._query:
