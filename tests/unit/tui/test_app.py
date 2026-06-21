@@ -29,3 +29,32 @@ class TestHermiaApp:
                 assert app.config.name == "smoke"
 
         asyncio.run(_run())
+
+
+class TestHermiaAppBus:
+    def test_app_has_bus_attribute(self) -> None:
+        from hermia.tui.bus import SessionBus
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                assert isinstance(pilot.app.bus, SessionBus)
+
+        asyncio.run(_run())
+
+    def test_bus_can_publish_and_receive(self) -> None:
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                events: list[dict] = []
+
+                async def reader() -> None:
+                    async for ev in pilot.app.bus.subscribe("run.started"):
+                        events.append(ev)
+                        return
+
+                task = asyncio.create_task(reader())
+                await asyncio.sleep(0)
+                await pilot.app.bus.publish("run.started", {"run_id": "r1"})
+                await asyncio.wait_for(task, timeout=1.0)
+                assert events == [{"run_id": "r1"}]
+
+        asyncio.run(_run())
