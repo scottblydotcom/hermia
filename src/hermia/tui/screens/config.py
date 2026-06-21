@@ -108,7 +108,9 @@ class FleetConfigScreen(Screen[None]):
         if self.cursor_row == 0:
             from hermia.tui.screens.hosts import HostsScreen
             self.app.push_screen(HostsScreen())
-        # Tests drill lands in Task 13.
+        elif self.cursor_row == 1:
+            from hermia.tui.screens.tests import TestsScreen
+            self.app.push_screen(TestsScreen())
 
     def action_back(self) -> None:
         self.app.pop_screen()
