@@ -38,3 +38,4 @@ hermia-fleet-spill.yaml
 # Secret scanning
 # .secrets.baseline is intentionally tracked (audited false-positive list)
 # .gitleaks.toml is intentionally tracked (custom rules)
+.superpowers/
