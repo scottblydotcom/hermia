@@ -317,16 +317,29 @@ For v0.2 we ship two probe shapes:
 vLLM / SGLang / LiteLLM all speak the OpenAI shape, so any non-"ollama"
 engine falls back to the openai-compat path.
 
+Implementation note: uses stdlib `urllib.request` wrapped in
+`asyncio.to_thread` rather than `httpx`. `httpx` is NOT in pyproject.toml
+and AGENTS.md rule 3 blocks adding deps without approval. urllib is
+stdlib; the thread offload keeps probe_host's async contract.
+
+Per spec §6 / probe.py docstring, this adapter MUST normalize transport
+exceptions to the stdlib classes probe.py catches:
+    - timeout              → TimeoutError  (handled at probe.py's wait_for)
+    - HTTP 401/403         → PermissionError
+    - URLError / OSError   → propagates as OSError/ConnectionError
+
 Auth header is resolved from the environment variable named by
 host.auth_header_env. Per AGENTS.md rule 11, the secret value never appears
 in any saved config — only the env var name does.
 """
 from __future__ import annotations
 
+import asyncio
+import json
 import os
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
-
-import httpx
 
 from hermia.tui.state import Host
 
@@ -336,31 +349,29 @@ class _BaseProbeTransport:
     url: str
     auth_header: str | None = None
 
-    def _client(self) -> httpx.AsyncClient:
-        headers = {"Authorization": self.auth_header} if self.auth_header else {}
-        return httpx.AsyncClient(headers=headers, timeout=10.0)
+    def _fetch_sync(self, path: str) -> dict:
+        req = urllib.request.Request(f"{self.url.rstrip('/')}{path}")
+        if self.auth_header:
+            req.add_header("Authorization", self.auth_header)
+        try:
+            with urllib.request.urlopen(req, timeout=10.0) as resp:
+                return json.loads(resp.read())
+        except urllib.error.HTTPError as exc:
+            if exc.code in (401, 403):
+                raise PermissionError(f"{exc.code} from {self.url}") from exc
+            raise
 
 
 class OllamaProbeTransport(_BaseProbeTransport):
     async def list_models(self) -> list[str]:
-        async with self._client() as client:
-            resp = await client.get(f"{self.url.rstrip('/')}/api/tags")
-            if resp.status_code in (401, 403):
-                raise PermissionError(f"{resp.status_code} from {self.url}")
-            resp.raise_for_status()
-            data = resp.json()
-            return [m["name"] for m in data.get("models", [])]
+        data = await asyncio.to_thread(self._fetch_sync, "/api/tags")
+        return [m["name"] for m in data.get("models", [])]
 
 
 class OpenAICompatProbeTransport(_BaseProbeTransport):
     async def list_models(self) -> list[str]:
-        async with self._client() as client:
-            resp = await client.get(f"{self.url.rstrip('/')}/v1/models")
-            if resp.status_code in (401, 403):
-                raise PermissionError(f"{resp.status_code} from {self.url}")
-            resp.raise_for_status()
-            data = resp.json()
-            return [m["id"] for m in data.get("data", [])]
+        data = await asyncio.to_thread(self._fetch_sync, "/v1/models")
+        return [m["id"] for m in data.get("data", [])]
 
 
 def transport_for(host: Host) -> _BaseProbeTransport:
@@ -374,7 +385,7 @@ def transport_for(host: Host) -> _BaseProbeTransport:
     return cls(url=host.url, auth_header=auth_header)
 ```
 
-**Dependency check:** `httpx` is already in `pyproject.toml` (used by existing `transport/`). Confirm with `grep httpx pyproject.toml` before implementing. If missing, **stop and ask the user** — adding a dep needs explicit approval per AGENTS.md rule 3.
+**Dependency check:** stdlib-only — `urllib.request`, `urllib.error`, `json`, `asyncio`. **No `httpx` or `requests` needed.** Confirms compliance with AGENTS.md rule 3. (Note: the existing `src/hermia/transport/` uses `requests`; this is a deliberately separate codepath because the runner is sync-oriented and the TUI probe needs `async`. If a future Plan 3+ wants to share with the runner, an `asyncio.to_thread` wrap around the existing `requests`-based transports also works.)
 
 - [ ] **Step 4: Verify GREEN**
 

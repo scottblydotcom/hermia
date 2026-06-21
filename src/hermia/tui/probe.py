@@ -52,7 +52,10 @@ async def probe_host(
     """Probe a host's available models. Updates host.models and publishes events."""
     await bus.publish("probe.started", {"host_name": host.name, "url": host.url})
     try:
-        model_names = await asyncio.wait_for(transport.list_models(), timeout=timeout)
+        # Materialize via list() once: a transport returning a single-use
+        # iterator (generator) would otherwise be consumed by the first
+        # comprehension and yield empty for the bus event payload.
+        model_names = list(await asyncio.wait_for(transport.list_models(), timeout=timeout))
         # Happy-path inside the try block so a transport returning None or a
         # non-iterable surfaces as `unexpected` (catches our own bugs) rather
         # than crashing the coroutine outside the handler.
@@ -61,7 +64,7 @@ async def probe_host(
             "probe.completed",
             {
                 "host_name": host.name,
-                "models": list(model_names),
+                "models": model_names,
                 "warning": "no_models" if not model_names else None,
             },
         )

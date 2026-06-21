@@ -147,6 +147,57 @@ class TestLoadFleet:
         with pytest.raises(KeyError):
             load_fleet(bad)
 
+    def test_load_explicit_null_name_raises_key_error(self, tmp_path: Path) -> None:
+        # `name: ~` (or `name:`) parses as None — must not silently produce
+        # FleetConfig(name=None) and downstream fleets/None.yaml.
+        bad = tmp_path / "nullname.yaml"
+        bad.write_text("name:\ntests: []\nhosts: []\n")
+        with pytest.raises(KeyError):
+            load_fleet(bad)
+
+    def test_load_empty_string_name_raises_key_error(self, tmp_path: Path) -> None:
+        bad = tmp_path / "emptyname.yaml"
+        bad.write_text('name: ""\ntests: []\nhosts: []\n')
+        with pytest.raises(KeyError):
+            load_fleet(bad)
+
+    def test_load_host_entry_must_be_a_dict(self, tmp_path: Path) -> None:
+        # A host entry parsed as a string instead of a dict — fail loud.
+        bad = tmp_path / "stringhost.yaml"
+        bad.write_text("name: bad\ntests: []\nhosts:\n  - not-a-dict\n")
+        with pytest.raises(TypeError, match="Host entry must be a dictionary"):
+            load_fleet(bad)
+
+    def test_load_host_missing_required_field_raises_actionable_key_error(
+        self, tmp_path: Path
+    ) -> None:
+        bad = tmp_path / "missingfield.yaml"
+        bad.write_text(
+            "name: bad\n"
+            "tests: []\n"
+            "hosts:\n"
+            "  - url: http://h1\n"
+            "    engine: ollama\n"
+        )
+        with pytest.raises(KeyError, match="'name'"):
+            load_fleet(bad)
+
+    def test_load_host_explicit_null_required_field_raises_key_error(
+        self, tmp_path: Path
+    ) -> None:
+        # `engine: ~` should be loud, not produce Host(engine=None).
+        bad = tmp_path / "nullengine.yaml"
+        bad.write_text(
+            "name: bad\n"
+            "tests: []\n"
+            "hosts:\n"
+            "  - name: h1\n"
+            "    url: http://h1\n"
+            "    engine:\n"
+        )
+        with pytest.raises(KeyError, match="'engine'"):
+            load_fleet(bad)
+
     def test_load_handles_explicit_null_collections(self, tmp_path: Path) -> None:
         # PyYAML parses `tests:` (with no value) as None, not []. Without the
         # `or []` guard, list(None) and iteration would TypeError.
@@ -248,3 +299,19 @@ class TestHostsSeed:
         seed_path = tmp_path / "badhosts.yaml"
         seed_path.write_text("hosts: not-a-list\n")
         assert load_hosts_seed(path=seed_path) == []
+
+    def test_load_seed_host_entry_must_be_a_dict(self, tmp_path: Path) -> None:
+        seed_path = tmp_path / "stringentry.yaml"
+        seed_path.write_text("hosts:\n  - not-a-dict\n")
+        with pytest.raises(TypeError, match="Seed host entry must be a dictionary"):
+            load_hosts_seed(path=seed_path)
+
+    def test_load_seed_host_missing_required_field(self, tmp_path: Path) -> None:
+        seed_path = tmp_path / "missingurl.yaml"
+        seed_path.write_text(
+            "hosts:\n"
+            "  - name: h1\n"
+            "    engine: ollama\n"
+        )
+        with pytest.raises(KeyError, match="'url'"):
+            load_hosts_seed(path=seed_path)

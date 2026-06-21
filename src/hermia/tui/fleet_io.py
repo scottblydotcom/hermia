@@ -70,10 +70,12 @@ def load_fleet(path: Path) -> FleetConfig:
     if not path.exists():
         raise FileNotFoundError(f"No fleet found at {path}")
     raw = yaml.safe_load(path.read_text())
-    if not isinstance(raw, dict) or "name" not in raw:
-        # `"name" not in raw` would substring-match if raw were a scalar string,
-        # then raw["name"] would TypeError instead of giving the documented
-        # KeyError. The isinstance check forces the right error class.
+    # The isinstance check forces the right error class — `"name" not in raw`
+    # would substring-match if raw were a scalar string. `not raw.get("name")`
+    # also catches `name:` (explicit-null) and `name: ""` (empty string), which
+    # would otherwise construct FleetConfig(name=None) and write
+    # `fleets/None.yaml` downstream.
+    if not isinstance(raw, dict) or not raw.get("name"):
         raise KeyError("name")
     # `raw.get("key", [])` would return None if the YAML has an empty key
     # (e.g. `tests:` with no children), causing list(None) / iteration to
@@ -107,18 +109,21 @@ def _serialize_host(h: Host) -> dict[str, Any]:
 def _deserialize_host(d: Any) -> Host:
     if not isinstance(d, dict):
         raise TypeError("Host entry must be a dictionary")
-    try:
-        return Host(
-            name=d["name"],
-            url=d["url"],
-            engine=d["engine"],
-            auth_header_env=d.get("auth_header_env"),
-            hardware=d.get("hardware"),
-            # `models:` with no children parses as None; `or []` guards iteration.
-            models=[ModelChoice(name=n, selected=True) for n in (d.get("models") or [])],
-        )
-    except KeyError as exc:
-        raise KeyError(f"Host entry missing required field: {exc}") from exc
+    # Loud on null/empty required fields rather than silently constructing
+    # Host(name=None, url=None, engine=None) — same stance as load_fleet's
+    # name guard.
+    for field in ("name", "url", "engine"):
+        if not d.get(field):
+            raise KeyError(f"Host entry missing required field: '{field}'")
+    return Host(
+        name=d["name"],
+        url=d["url"],
+        engine=d["engine"],
+        auth_header_env=d.get("auth_header_env"),
+        hardware=d.get("hardware"),
+        # `models:` with no children parses as None; `or []` guards iteration.
+        models=[ModelChoice(name=n, selected=True) for n in (d.get("models") or [])],
+    )
 
 
 def save_hosts_seed(hosts: list[Host], *, path: Path = DEFAULT_HOSTS_SEED_PATH) -> Path:
@@ -162,13 +167,13 @@ def _serialize_seed_host(h: Host) -> dict[str, Any]:
 def _deserialize_seed_host(d: Any) -> Host:
     if not isinstance(d, dict):
         raise TypeError("Seed host entry must be a dictionary")
-    try:
-        return Host(
-            name=d["name"],
-            url=d["url"],
-            engine=d["engine"],
-            auth_header_env=d.get("auth_header_env"),
-            hardware=d.get("hardware"),
-        )
-    except KeyError as exc:
-        raise KeyError(f"Seed host entry missing required field: {exc}") from exc
+    for field in ("name", "url", "engine"):
+        if not d.get(field):
+            raise KeyError(f"Seed host entry missing required field: '{field}'")
+    return Host(
+        name=d["name"],
+        url=d["url"],
+        engine=d["engine"],
+        auth_header_env=d.get("auth_header_env"),
+        hardware=d.get("hardware"),
+    )
