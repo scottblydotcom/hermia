@@ -73,3 +73,70 @@ class TestHostsScreen:
                 assert isinstance(pilot.app.screen, HostsScreen)
 
         asyncio.run(_run())
+
+
+class TestHostsProbe:
+    def test_probe_populates_models_and_flips_to_ok(self) -> None:
+        from tests.fixtures.fake_transport import FakeTransport
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                pilot.app.config.hosts = [
+                    Host(name="h1", url="http://h1", engine="ollama"),
+                ]
+                screen = HostsScreen(
+                    transport_factory=lambda h: FakeTransport(models=["a", "b"]),
+                )
+                pilot.app.push_screen(screen)
+                # Give the worker a beat to finish.
+                for _ in range(30):
+                    if screen.probe_state.get("h1") == "ok":
+                        break
+                    await pilot.pause()
+                assert screen.probe_state["h1"] == "ok"
+                assert [m.name for m in pilot.app.config.hosts[0].models] == ["a", "b"]
+
+        asyncio.run(_run())
+
+    def test_probe_timeout_flips_to_failed(self) -> None:
+        from tests.fixtures.fake_transport import FakeTransport
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                pilot.app.config.hosts = [
+                    Host(name="slow", url="http://slow", engine="ollama"),
+                ]
+                screen = HostsScreen(
+                    transport_factory=lambda h: FakeTransport(models=["x"], delay_seconds=2.0),
+                    probe_timeout=0.05,
+                )
+                pilot.app.push_screen(screen)
+                for _ in range(30):
+                    if screen.probe_state.get("slow") in ("ok", "failed"):
+                        break
+                    await pilot.pause()
+                assert screen.probe_state["slow"] == "failed"
+
+        asyncio.run(_run())
+
+    def test_probe_auth_error_flips_to_failed(self) -> None:
+        from tests.fixtures.fake_transport import FakeTransport
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                pilot.app.config.hosts = [
+                    Host(name="locked", url="http://locked", engine="openai-compat"),
+                ]
+                screen = HostsScreen(
+                    transport_factory=lambda h: FakeTransport(
+                        models=[], fail_with=PermissionError("401 unauthorized")
+                    ),
+                )
+                pilot.app.push_screen(screen)
+                for _ in range(30):
+                    if screen.probe_state.get("locked") in ("ok", "failed"):
+                        break
+                    await pilot.pause()
+                assert screen.probe_state["locked"] == "failed"
+
+        asyncio.run(_run())

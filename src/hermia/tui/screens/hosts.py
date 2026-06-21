@@ -1,20 +1,25 @@
 """Hosts drill — list, add, remove, probe state.
 
 Lists existing hosts in app.config. `+` opens AddHostModal; enter drills
-into the host's models (Task 12); escape pops back. Background probes for
-each host's models land in Task 11 and update probe_state per host.
+into the host's models (Task 12); escape pops back. Background probes via
+SessionBus update probe_state per host (`probing` / `ok` / `failed`) which
+renders as inline `[state]` tags on each row.
 """
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from typing import Any
 
+from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Static
 
+from hermia.tui.bus import SessionBus
+from hermia.tui.probe import DEFAULT_PROBE_TIMEOUT_SECONDS, probe_host
 from hermia.tui.state import Host
 from hermia.tui.widgets.breadcrumb import Breadcrumb
 
@@ -32,14 +37,20 @@ class HostsScreen(Screen[None]):
         self,
         *,
         transport_factory: Callable[[Host], Any] | None = None,
+        probe_timeout: float = DEFAULT_PROBE_TIMEOUT_SECONDS,
     ) -> None:
         super().__init__()
         self.cursor_idx: int = 0
-        # probe_state[host.name] = "probing" | "ok" | "failed". Task 11 fills.
+        # probe_state[host.name] = "probing" | "ok" | "failed".
         self.probe_state: dict[str, str] = {}
-        # Injected for tests; production uses transport_adapter.transport_for.
+        # Injected for tests; production uses transport_adapter.transport_for
+        # (resolved at probe time so the import stays lazy).
         self._make_transport = transport_factory
+        self._probe_timeout = probe_timeout
         self._render_seq: int = 0
+        # Per-screen bus so probe events don't bleed into Plan 3's app.bus
+        # when the runner lands.
+        self._bus: SessionBus = SessionBus()
 
     @property
     def app_config(self):
@@ -56,6 +67,7 @@ class HostsScreen(Screen[None]):
 
     def on_mount(self) -> None:
         self._rerender()
+        self._start_probes()
 
     def _row_text(self, host: Host, idx: int) -> str:
         cursor = "▸" if idx == self.cursor_idx else " "
@@ -105,3 +117,48 @@ class HostsScreen(Screen[None]):
             return
         self.app_config.hosts.append(host)
         self._rerender()
+        # Kick a probe for the new host.
+        self._start_probes()
+
+    # ── Probe wiring ──────────────────────────────────────────────────────
+
+    @work
+    async def _start_probes(self) -> None:
+        """Background worker: subscribe to probe events, then fire probes.
+
+        Started in on_mount and after any host is added. Idempotent — probes
+        are skipped for hosts that already have a recorded probe_state.
+        """
+        # Subscribe first so events fired during probe_host land in our queues.
+        asyncio.create_task(self._listen("probe.started", "probing"))
+        asyncio.create_task(self._listen("probe.completed", "ok"))
+        asyncio.create_task(self._listen("probe.failed", "failed"))
+        await asyncio.sleep(0)
+
+        # Resolve transport factory lazily so unit tests don't import urllib
+        # paths unless a real probe runs.
+        factory = self._make_transport
+        if factory is None:
+            from hermia.tui.transport_adapter import transport_for
+            factory = transport_for
+
+        for host in list(self.app_config.hosts):
+            if host.name in self.probe_state:
+                continue
+            transport = factory(host)
+            await probe_host(
+                host,
+                transport=transport,
+                bus=self._bus,
+                timeout=self._probe_timeout,
+            )
+
+    async def _listen(self, topic: str, final_state: str) -> None:
+        async for ev in self._bus.subscribe(topic):
+            self.probe_state[ev["host_name"]] = final_state
+            # Re-render so the row's [state] tag updates.
+            try:
+                self._rerender()
+            except Exception:
+                # Screen may be unmounting — swallow late events.
+                return
