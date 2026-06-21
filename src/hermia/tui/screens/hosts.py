@@ -109,8 +109,10 @@ class HostsScreen(Screen[None]):
         self.app.push_screen(AddHostModal(), self._on_host_added)
 
     def action_drill(self) -> None:
-        # Task 12 wires the host-models screen push.
-        pass
+        from hermia.tui.screens.host_models import HostModelsScreen
+        hosts = self.app_config.hosts
+        if 0 <= self.cursor_idx < len(hosts):
+            self.app.push_screen(HostModelsScreen(host=hosts[self.cursor_idx]))
 
     def _on_host_added(self, host: Host | None) -> None:
         if host is None:

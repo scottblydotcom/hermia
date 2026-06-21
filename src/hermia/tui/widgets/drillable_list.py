@@ -63,6 +63,16 @@ class DrillableList(VerticalScroll):
             self.row_id = row_id
             super().__init__()
 
+    class SelectionChanged(Message):
+        """Emitted after bulk selection ops (select_all / select_none) so the
+        host screen can sync the new selection set to its domain model.
+        Single-row toggles emit Toggled (above) instead — finer-grained.
+        """
+
+        def __init__(self, selected_ids: list[str]) -> None:
+            self.selected_ids = selected_ids
+            super().__init__()
+
     def __init__(self, rows: list[ListRow]) -> None:
         super().__init__()
         self._all_rows: list[ListRow] = list(rows)
@@ -176,11 +186,13 @@ class DrillableList(VerticalScroll):
         for row in self.visible_rows:
             self._selected.add(row.id_)
         self._refresh()
+        self.post_message(self.SelectionChanged(self.selected_ids()))
 
     def select_none(self) -> None:
         for row in self.visible_rows:
             self._selected.discard(row.id_)
         self._refresh()
+        self.post_message(self.SelectionChanged(self.selected_ids()))
 
     # Textual action_* wrappers route bindings to the public API.
     def action_cursor_prev(self) -> None:
