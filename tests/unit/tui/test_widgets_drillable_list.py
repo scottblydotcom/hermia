@@ -114,6 +114,18 @@ class TestDrillableList:
 
         asyncio.run(_run())
 
+    def test_click_on_row_drills(self) -> None:
+        """Mouse parity per spec §5 — clicking a row moves cursor and drills."""
+        async def _run() -> None:
+            async with _Host().run_test() as pilot:
+                dl = pilot.app.query_one(DrillableList)
+                # Click the second visible row (id_="b").
+                await pilot.click(dl.children[1])
+                await pilot.pause()
+                assert pilot.app.drilled_into == "b"
+
+        asyncio.run(_run())
+
     def test_select_all_respects_filter(self) -> None:
         async def _run() -> None:
             async with _Host().run_test() as pilot:

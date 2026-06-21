@@ -104,16 +104,21 @@ def _serialize_host(h: Host) -> dict[str, Any]:
     return d
 
 
-def _deserialize_host(d: dict[str, Any]) -> Host:
-    return Host(
-        name=d["name"],
-        url=d["url"],
-        engine=d["engine"],
-        auth_header_env=d.get("auth_header_env"),
-        hardware=d.get("hardware"),
-        # `models:` with no children parses as None; `or []` guards iteration.
-        models=[ModelChoice(name=n, selected=True) for n in (d.get("models") or [])],
-    )
+def _deserialize_host(d: Any) -> Host:
+    if not isinstance(d, dict):
+        raise TypeError("Host entry must be a dictionary")
+    try:
+        return Host(
+            name=d["name"],
+            url=d["url"],
+            engine=d["engine"],
+            auth_header_env=d.get("auth_header_env"),
+            hardware=d.get("hardware"),
+            # `models:` with no children parses as None; `or []` guards iteration.
+            models=[ModelChoice(name=n, selected=True) for n in (d.get("models") or [])],
+        )
+    except KeyError as exc:
+        raise KeyError(f"Host entry missing required field: {exc}") from exc
 
 
 def save_hosts_seed(hosts: list[Host], *, path: Path = DEFAULT_HOSTS_SEED_PATH) -> Path:
@@ -154,11 +159,16 @@ def _serialize_seed_host(h: Host) -> dict[str, Any]:
     return d
 
 
-def _deserialize_seed_host(d: dict[str, Any]) -> Host:
-    return Host(
-        name=d["name"],
-        url=d["url"],
-        engine=d["engine"],
-        auth_header_env=d.get("auth_header_env"),
-        hardware=d.get("hardware"),
-    )
+def _deserialize_seed_host(d: Any) -> Host:
+    if not isinstance(d, dict):
+        raise TypeError("Seed host entry must be a dictionary")
+    try:
+        return Host(
+            name=d["name"],
+            url=d["url"],
+            engine=d["engine"],
+            auth_header_env=d.get("auth_header_env"),
+            hardware=d.get("hardware"),
+        )
+    except KeyError as exc:
+        raise KeyError(f"Seed host entry missing required field: {exc}") from exc

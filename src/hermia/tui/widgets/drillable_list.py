@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll
+from textual.events import Click
 from textual.message import Message
 from textual.widgets import Static
 
@@ -149,6 +150,16 @@ class DrillableList(VerticalScroll):
         rid = self.cursor_row_id
         if rid is not None:
             self.post_message(self.Drill(rid))
+
+    def on_click(self, event: Click) -> None:
+        """Mouse-parity per spec §5: row-click === enter."""
+        for i, child in enumerate(self.children):
+            if child is event.widget:
+                self._cursor_idx = i
+                self._refresh()
+                self.drill()
+                event.stop()
+                return
 
     def toggle(self) -> None:
         rid = self.cursor_row_id
