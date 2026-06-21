@@ -1,0 +1,60 @@
+"""Tests for hermia.tui.transport_adapter — engine → transport factory."""
+from hermia.tui.state import Host
+from hermia.tui.transport_adapter import (
+    OllamaProbeTransport,
+    OpenAICompatProbeTransport,
+    transport_for,
+)
+
+
+class TestTransportFor:
+    def test_returns_object_with_list_models(self) -> None:
+        host = Host(name="h", url="http://h:11434", engine="ollama")
+        tr = transport_for(host)
+        assert hasattr(tr, "list_models")
+
+    def test_ollama_engine_returns_ollama_transport(self) -> None:
+        host = Host(name="h", url="http://h:11434", engine="ollama")
+        tr = transport_for(host)
+        assert isinstance(tr, OllamaProbeTransport)
+
+    def test_openai_compat_engine_returns_openai_transport(self) -> None:
+        host = Host(name="h", url="http://h:4000", engine="openai-compat")
+        tr = transport_for(host)
+        assert isinstance(tr, OpenAICompatProbeTransport)
+
+    def test_unknown_engine_falls_back_to_openai_compat(self) -> None:
+        # vLLM / SGLang / LiteLLM all speak the OpenAI shape — non-"ollama"
+        # falls through to the openai-compat path.
+        host = Host(name="h", url="http://h", engine="vllm")
+        tr = transport_for(host)
+        assert isinstance(tr, OpenAICompatProbeTransport)
+
+    def test_resolves_auth_from_env(self, monkeypatch) -> None:
+        monkeypatch.setenv("MY_KEY", "secret-value")
+        host = Host(
+            name="h",
+            url="http://h:4000",
+            engine="openai-compat",
+            auth_header_env="MY_KEY",
+        )
+        tr = transport_for(host)
+        # The adapter stores the resolved bearer header on the transport
+        # instance for the probe to use when calling /v1/models.
+        assert tr.auth_header == "Bearer secret-value"
+
+    def test_missing_env_var_leaves_auth_none(self, monkeypatch) -> None:
+        monkeypatch.delenv("NOT_SET_ANYWHERE", raising=False)
+        host = Host(
+            name="h",
+            url="http://h:4000",
+            engine="openai-compat",
+            auth_header_env="NOT_SET_ANYWHERE",
+        )
+        tr = transport_for(host)
+        assert tr.auth_header is None
+
+    def test_no_auth_header_env_leaves_auth_none(self) -> None:
+        host = Host(name="h", url="http://h:11434", engine="ollama")
+        tr = transport_for(host)
+        assert tr.auth_header is None
