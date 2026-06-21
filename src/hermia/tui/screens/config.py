@@ -12,6 +12,7 @@ from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Static
 
+from hermia.tui.state import FleetConfig
 from hermia.tui.widgets.breadcrumb import Breadcrumb
 
 
@@ -39,8 +40,8 @@ class FleetConfigScreen(Screen[None]):
         self._run_plan_str: str = ""
 
     @property
-    def app_config(self):
-        return self.app.config  # type: ignore[attr-defined]
+    def app_config(self) -> FleetConfig:
+        return self.app.config  # type: ignore[attr-defined,no-any-return]
 
     @property
     def breadcrumb_text(self) -> str:

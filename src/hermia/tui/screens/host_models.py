@@ -22,7 +22,7 @@ class HostModelsScreen(Screen[None]):
         Binding("escape", "back", "Back", show=True),
         Binding("up", "cursor_prev", "Up", show=False),
         Binding("down", "cursor_next", "Down", show=False),
-        Binding("space", "toggle", "Toggle", show=True),
+        Binding("space", "toggle_model", "Toggle", show=True),
         Binding("a", "select_all", "All", show=True),
         Binding("n", "select_none", "None", show=True),
         Binding("slash", "search_open", "Search", show=False),
@@ -83,7 +83,7 @@ class HostModelsScreen(Screen[None]):
     def action_cursor_next(self) -> None:
         self.query_one(DrillableList).cursor_next()
 
-    def action_toggle(self) -> None:
+    def action_toggle_model(self) -> None:
         self.query_one(DrillableList).toggle()
 
     def action_select_all(self) -> None:

@@ -20,7 +20,7 @@ from textual.widgets import Static
 
 from hermia.tui.bus import SessionBus
 from hermia.tui.probe import DEFAULT_PROBE_TIMEOUT_SECONDS, probe_host
-from hermia.tui.state import Host
+from hermia.tui.state import FleetConfig, Host
 from hermia.tui.widgets.breadcrumb import Breadcrumb
 
 
@@ -53,8 +53,8 @@ class HostsScreen(Screen[None]):
         self._bus: SessionBus = SessionBus()
 
     @property
-    def app_config(self):
-        return self.app.config  # type: ignore[attr-defined]
+    def app_config(self) -> FleetConfig:
+        return self.app.config  # type: ignore[attr-defined,no-any-return]
 
     @property
     def host_names(self) -> list[str]:
@@ -148,9 +148,11 @@ class HostsScreen(Screen[None]):
             if host.name in self.probe_state:
                 continue
             transport = factory(host)
+            # The transport satisfies probe._ListModelsTransport structurally
+            # (Protocol checks); mypy can't always see through Callable wrap.
             await probe_host(
                 host,
-                transport=transport,
+                transport=transport,  # type: ignore[arg-type]
                 bus=self._bus,
                 timeout=self._probe_timeout,
             )

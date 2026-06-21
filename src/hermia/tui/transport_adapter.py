@@ -46,12 +46,16 @@ class _BaseProbeTransport:
     auth_header: str | None = None
 
     def _fetch_sync(self, path: str) -> dict[str, Any]:
-        req = urllib.request.Request(f"{self.url.rstrip('/')}{path}")
+        # noqa-justified: the URL is built from a user-supplied host config
+        # (validated as http:// or https://); we are not opening arbitrary
+        # schemes like file://.
+        req = urllib.request.Request(f"{self.url.rstrip('/')}{path}")  # noqa: S310
         if self.auth_header:
             req.add_header("Authorization", self.auth_header)
         try:
             with urllib.request.urlopen(req, timeout=10.0) as resp:  # noqa: S310
-                return json.loads(resp.read())
+                data: dict[str, Any] = json.loads(resp.read())
+                return data
         except urllib.error.HTTPError as exc:
             if exc.code in (401, 403):
                 raise PermissionError(f"{exc.code} from {self.url}") from exc
