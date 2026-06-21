@@ -63,6 +63,16 @@ class DrillableList(VerticalScroll):
             self.row_id = row_id
             super().__init__()
 
+    class SelectionChanged(Message):
+        """Emitted after bulk selection ops (select_all / select_none) so the
+        host screen can sync the new selection set to its domain model.
+        Single-row toggles emit Toggled (above) instead — finer-grained.
+        """
+
+        def __init__(self, selected_ids: list[str]) -> None:
+            self.selected_ids = selected_ids
+            super().__init__()
+
     def __init__(self, rows: list[ListRow]) -> None:
         super().__init__()
         self._all_rows: list[ListRow] = list(rows)
@@ -82,6 +92,33 @@ class DrillableList(VerticalScroll):
 
     def selected_ids(self) -> list[str]:
         return sorted(self._selected)
+
+    def set_selected_ids(self, row_ids: list[str]) -> None:
+        """Replace the selection set. Use to mirror the host screen's domain
+        model into the widget (e.g., re-opening a screen with pre-selected
+        models / tests).
+
+        Does NOT emit SelectionChanged — the screen is the source of truth
+        for the new state; re-emitting would loop on the screen's handler.
+        """
+        self._selected = set(row_ids)
+        self._refresh()
+
+    def set_rows(self, rows: list[ListRow]) -> None:
+        """Replace the underlying row list (used by screens that own a
+        combined filter — e.g. TestsScreen merges substring + framework).
+
+        Clips the cursor to the new row count; does NOT emit any message.
+        Selection set is preserved as-is — caller decides whether to also
+        call set_selected_ids().
+        """
+        self._all_rows = list(rows)
+        self.visible_rows = list(rows)
+        if not self.visible_rows:
+            self._cursor_idx = -1
+        else:
+            self._cursor_idx = min(max(self._cursor_idx, 0), len(self.visible_rows) - 1)
+        self._refresh()
 
     def apply_query(self, query: str) -> None:
         self._query = query.strip().lower()
@@ -176,11 +213,13 @@ class DrillableList(VerticalScroll):
         for row in self.visible_rows:
             self._selected.add(row.id_)
         self._refresh()
+        self.post_message(self.SelectionChanged(self.selected_ids()))
 
     def select_none(self) -> None:
         for row in self.visible_rows:
             self._selected.discard(row.id_)
         self._refresh()
+        self.post_message(self.SelectionChanged(self.selected_ids()))
 
     # Textual action_* wrappers route bindings to the public API.
     def action_cursor_prev(self) -> None:

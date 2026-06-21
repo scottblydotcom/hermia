@@ -114,6 +114,24 @@ class TestDrillableList:
 
         asyncio.run(_run())
 
+    def test_set_selected_ids_replaces_selection(self) -> None:
+        """set_selected_ids replaces the selection set without emitting
+        SelectionChanged (caller is the source of truth).
+        """
+        async def _run() -> None:
+            async with _Host().run_test() as pilot:
+                dl = pilot.app.query_one(DrillableList)
+                dl.set_selected_ids(["a", "c"])
+                await pilot.pause()
+                assert dl.is_selected("a")
+                assert dl.is_selected("c")
+                assert not dl.is_selected("b")
+                # No SelectionChanged emitted — host.toggled stays empty
+                # (it only fills from Toggled events, which we did not fire).
+                assert pilot.app.toggled == []
+
+        asyncio.run(_run())
+
     def test_click_on_row_drills(self) -> None:
         """Mouse parity per spec §5 — clicking a row moves cursor and drills."""
         async def _run() -> None:
