@@ -16,7 +16,10 @@ def _mark_dirty_in_stack(app: Any) -> None:
     Typically only FleetConfigScreen does; future screens with their own
     unsaved-state indicators get the same propagation for free.
     """
-    for screen in app.screen_stack:
+    # Snapshot the stack — a screen's mark_dirty might trigger a push/pop
+    # (or a future runner event might mutate the stack mid-walk), and
+    # iterating live would raise RuntimeError: list changed size.
+    for screen in list(app.screen_stack):
         marker = getattr(screen, "mark_dirty", None)
         if callable(marker):
             marker()

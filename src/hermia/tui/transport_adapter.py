@@ -32,6 +32,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -45,6 +46,12 @@ from hermia.tui.state import Host
 # /api/tags (typical responses are <10 KiB).
 _MAX_RESPONSE_BYTES = 10 * 1024 * 1024
 
+# Anchored scheme match — only treats `^scheme://` as a real scheme.
+# A URL like `localhost:11434/proxy?upstream=http://other` has `://` in
+# the path but no leading scheme; this regex correctly says "no scheme",
+# so http:// gets prepended.
+_SCHEME_RE = re.compile(r"^[a-z][a-z0-9+.\-]*://", re.IGNORECASE)
+
 
 @dataclass
 class _BaseProbeTransport:
@@ -53,10 +60,12 @@ class _BaseProbeTransport:
 
     def _fetch_sync(self, path: str) -> dict[str, Any]:
         # User-friendly normalization: a bare `localhost:11434` (no scheme)
-        # is treated as http://. Detect via `://` presence — urlparse on a
-        # bare `host:port` mis-interprets `host` as the scheme.
+        # is treated as http://. The anchored regex correctly handles edge
+        # cases (e.g., `localhost:11434/proxy?upstream=http://other` has
+        # `://` in the path but no leading scheme — regex says "no scheme",
+        # so http:// gets prepended).
         raw_url = self.url
-        if "://" not in raw_url:
+        if not _SCHEME_RE.match(raw_url):
             raw_url = f"http://{raw_url}"
         # SSRF guard: urlopen supports `file://`, `ftp://`, etc. If a user
         # accidentally (or maliciously) sets host.url to file:///etc/passwd
