@@ -74,3 +74,54 @@ class TestFleetConfigSummary:
                 assert isinstance(pilot.app.screen, LaunchScreen)
 
         asyncio.run(_run())
+
+
+class TestSave:
+    def test_save_writes_fleet_file_when_name_set(self, tmp_path, monkeypatch) -> None:
+        from hermia.tui.fleet_io import fleet_path
+        monkeypatch.chdir(tmp_path)
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                pilot.app.config.name = "smoke"
+                pilot.app.push_screen(FleetConfigScreen())
+                await pilot.pause()
+                await pilot.press("s")
+                await pilot.pause()
+                assert fleet_path("smoke").exists()
+
+        asyncio.run(_run())
+
+    def test_save_clears_dirty_flag(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.chdir(tmp_path)
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                pilot.app.config.name = "smoke"
+                pilot.app.push_screen(FleetConfigScreen())
+                await pilot.pause()
+                screen: FleetConfigScreen = pilot.app.screen  # type: ignore[assignment]
+                screen.mark_dirty()
+                await pilot.pause()
+                assert screen.dirty is True
+                await pilot.press("s")
+                await pilot.pause()
+                assert screen.dirty is False
+
+        asyncio.run(_run())
+
+    def test_save_with_no_name_opens_modal(self, tmp_path, monkeypatch) -> None:
+        from hermia.tui.screens.modals import FleetNameModal
+        monkeypatch.chdir(tmp_path)
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                # No name set → save should push the FleetNameModal.
+                pilot.app.config.name = ""
+                pilot.app.push_screen(FleetConfigScreen())
+                await pilot.pause()
+                await pilot.press("s")
+                await pilot.pause()
+                assert isinstance(pilot.app.screen, FleetNameModal)
+
+        asyncio.run(_run())

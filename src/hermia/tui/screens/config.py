@@ -112,8 +112,21 @@ class FleetConfigScreen(Screen[None]):
         self.app.pop_screen()
 
     def action_save(self) -> None:
-        # Wired in Task 9.
-        pass
+        from hermia.tui.fleet_io import save_fleet
+        from hermia.tui.screens.modals import FleetNameModal
+        if not self.app_config.name:
+            self.app.push_screen(FleetNameModal(), self._on_name_chosen)
+            return
+        save_fleet(self.app_config)
+        self.dirty = False
+        self._refresh()
+
+    def _on_name_chosen(self, name: str | None) -> None:
+        if not name:
+            return
+        self.app_config.name = name
+        # Recurse — name is now set so the save branch runs.
+        self.action_save()
 
     def action_load(self) -> None:
         # Pop back to Launch and re-enter Load mode (Task 9-ish behavior).
