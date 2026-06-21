@@ -160,3 +160,39 @@ class TestHostsProbe:
                 assert screen.probe_state["locked"] == "failed"
 
         asyncio.run(_run())
+
+
+class TestHostsScreenBusMigration:
+    def test_probe_events_flow_through_app_bus(self) -> None:
+        """After migration, probe.completed events appear on app.bus, not a private bus."""
+        import asyncio
+
+        from tests.fixtures.fake_transport import FakeTransport
+        from hermia.tui.app import HermiaApp
+        from hermia.tui.screens.hosts import HostsScreen
+        from hermia.tui.state import Host
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                pilot.app.config.hosts = [
+                    Host(name="eric-5090", url="http://e:11434", engine="ollama")
+                ]
+                received: list[dict] = []
+
+                async def listen() -> None:
+                    async for ev in pilot.app.bus.subscribe("probe.completed"):
+                        received.append(ev)
+                        return
+
+                task = asyncio.create_task(listen())
+                await asyncio.sleep(0)
+
+                fake = FakeTransport(models=["qwen3:32b"])
+                pilot.app.push_screen(
+                    HostsScreen(transport_factory=lambda _host: fake, probe_timeout=2.0)
+                )
+                await pilot.pause()
+                await asyncio.wait_for(task, timeout=3.0)
+                assert received[0]["host_name"] == "eric-5090"
+
+        asyncio.run(_run())
