@@ -119,6 +119,26 @@ class TestHostsProbe:
 
         asyncio.run(_run())
 
+    def test_probe_unexpected_error_marks_host_failed(self) -> None:
+        # If a transport_factory itself raises (not the probe), gather catches
+        # via return_exceptions=True; the screen must mark the host failed so
+        # it doesn't stay stuck in "probing" forever.
+        def boom(host: Host) -> object:
+            raise RuntimeError("factory blew up")
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                pilot.app.config.hosts = [Host(name="x", url="http://x", engine="ollama")]
+                screen = HostsScreen(transport_factory=boom)
+                pilot.app.push_screen(screen)
+                for _ in range(30):
+                    if screen.probe_state.get("x") in ("ok", "failed"):
+                        break
+                    await pilot.pause()
+                assert screen.probe_state["x"] == "failed"
+
+        asyncio.run(_run())
+
     def test_probe_auth_error_flips_to_failed(self) -> None:
         from tests.fixtures.fake_transport import FakeTransport
 

@@ -84,7 +84,9 @@ class LaunchScreen(Screen[None]):
 
     def _scan_fleets(self) -> list[LaunchEntry]:
         fleets_dir = Path("fleets")
-        if not fleets_dir.exists():
+        # `is_dir()` over `exists()` — defensive against a regular file named
+        # `fleets` shadowing the expected directory.
+        if not fleets_dir.is_dir():
             return []
         return [LaunchEntry(id=f.stem, label=f.stem) for f in sorted(fleets_dir.glob("*.yaml"))]
 
@@ -137,7 +139,14 @@ class LaunchScreen(Screen[None]):
         from hermia.tui.screens.config import FleetConfigScreen
         entry = self.entries[self.cursor_index]
         path = fleet_path(entry.id)
-        self.app.config = load_fleet(path)  # type: ignore[attr-defined]
+        # load_fleet can raise FileNotFoundError, yaml.YAMLError, KeyError,
+        # TypeError on malformed YAML or missing fields. Notify rather than
+        # crash the TUI — user stays on the Launch screen and can pick again.
+        try:
+            self.app.config = load_fleet(path)  # type: ignore[attr-defined]
+        except Exception as exc:
+            self.app.notify(f"Failed to load fleet '{entry.id}': {exc}", severity="error")
+            return
         self.app.push_screen(FleetConfigScreen())
 
     def _enter_new_fleet(self) -> None:

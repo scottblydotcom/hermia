@@ -122,9 +122,16 @@ class FleetConfigScreen(Screen[None]):
         if not self.app_config.name:
             self.app.push_screen(FleetNameModal(), self._on_name_chosen)
             return
-        save_fleet(self.app_config)
+        # save_fleet can raise on permission denied, disk full, etc. Notify
+        # rather than crash the TUI — dirty stays set so the user can retry.
+        try:
+            save_fleet(self.app_config)
+        except Exception as exc:
+            self.app.notify(f"Failed to save fleet: {exc}", severity="error")
+            return
         self.dirty = False
         self._refresh()
+        self.app.notify(f"Fleet '{self.app_config.name}' saved.")
 
     def _on_name_chosen(self, name: str | None) -> None:
         if not name:

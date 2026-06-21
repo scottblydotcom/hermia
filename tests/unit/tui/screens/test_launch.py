@@ -110,6 +110,26 @@ class TestLoadExisting:
 
         asyncio.run(_run())
 
+    def test_load_corrupt_fleet_notifies_and_stays_on_launch(
+        self, tmp_path, monkeypatch
+    ) -> None:
+        # A YAML file with the right name but malformed contents should
+        # surface as a notify(), not crash the TUI.
+        (tmp_path / "fleets").mkdir()
+        (tmp_path / "fleets" / "broken.yaml").write_text("name: broken\nhosts: not-a-list-of-dicts\n  - this is bad yaml")
+        monkeypatch.chdir(tmp_path)
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                await pilot.press("enter")  # Load
+                await pilot.pause()
+                await pilot.press("enter")  # try to load 'broken'
+                await pilot.pause()
+                # Still on LaunchScreen (didn't push FleetConfigScreen).
+                assert isinstance(pilot.app.screen, LaunchScreen)
+
+        asyncio.run(_run())
+
     def test_load_with_no_fleets_shows_empty_notice(self, tmp_path, monkeypatch) -> None:
         from textual.widgets import Static
         monkeypatch.chdir(tmp_path)

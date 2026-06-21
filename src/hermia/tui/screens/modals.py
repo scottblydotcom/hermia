@@ -93,8 +93,14 @@ class AddHostModal(ModalScreen[Host | None]):
         name = self.query_one("#addhost-name", Input).value.strip()
         url = self.query_one("#addhost-url", Input).value.strip()
         engine = self.query_one("#addhost-engine", Input).value.strip() or "ollama"
-        if not name or not url:
-            return  # silently no-op; user can fix and resubmit
+        # If a required field is empty, refocus it instead of silently
+        # ignoring submission (user otherwise wonders why nothing happened).
+        if not name:
+            self.query_one("#addhost-name", Input).focus()
+            return
+        if not url:
+            self.query_one("#addhost-url", Input).focus()
+            return
         self.dismiss(Host(name=name, url=url, engine=engine))
 
     def action_cancel(self) -> None:

@@ -185,10 +185,20 @@ class HostsScreen(Screen[None]):
         # probe_host doesn't catch) doesn't abort the other in-flight probes.
         to_probe = [h for h in list(self.app_config.hosts) if h.name not in self.probe_state]
         if to_probe:
-            await asyncio.gather(
+            results = await asyncio.gather(
                 *[_probe(h) for h in to_probe],
                 return_exceptions=True,
             )
+            # Any host whose probe raised an unexpected exception (one that
+            # probe_host didn't catch and translate into a bus event) would
+            # otherwise stay stuck in "probing" forever. Mark them failed.
+            any_failed = False
+            for host, result in zip(to_probe, results, strict=True):
+                if isinstance(result, BaseException):
+                    self.probe_state[host.name] = "failed"
+                    any_failed = True
+            if any_failed and self.is_mounted:
+                self._rerender()
 
     def on_unmount(self) -> None:
         # Cancel listener tasks so they don't outlive the screen.
