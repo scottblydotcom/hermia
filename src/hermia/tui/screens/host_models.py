@@ -47,12 +47,9 @@ class HostModelsScreen(Screen[None]):
             yield SearchBar()
 
     def on_mount(self) -> None:
-        dl = self.query_one(DrillableList)
-        # Pre-mark currently-selected models in the widget's selection set.
-        for m in self._host.models:
-            if m.selected:
-                dl._selected.add(m.name)
-        dl._refresh()
+        # Mirror host.models[].selected into the widget via its public API.
+        selected = [m.name for m in self._host.models if m.selected]
+        self.query_one(DrillableList).set_selected_ids(selected)
 
     # ── Event handlers ────────────────────────────────────────────────────
 

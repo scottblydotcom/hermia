@@ -1,4 +1,8 @@
 """Tests for hermia.tui.transport_adapter — engine → transport factory."""
+import urllib.error
+
+import pytest
+
 from hermia.tui.state import Host
 from hermia.tui.transport_adapter import (
     OllamaProbeTransport,
@@ -58,3 +62,19 @@ class TestTransportFor:
         host = Host(name="h", url="http://h:11434", engine="ollama")
         tr = transport_for(host)
         assert tr.auth_header is None
+
+
+class TestSSRFGuard:
+    """SSRF guard — only http(s) schemes are allowed for probe URLs."""
+
+    def test_file_scheme_raises_url_error(self) -> None:
+        host = Host(name="bad", url="file:///etc/passwd", engine="ollama")
+        tr = transport_for(host)
+        with pytest.raises(urllib.error.URLError, match="Unsupported protocol scheme"):
+            tr._fetch_sync("/api/tags")
+
+    def test_ftp_scheme_raises_url_error(self) -> None:
+        host = Host(name="bad", url="ftp://example.com", engine="ollama")
+        tr = transport_for(host)
+        with pytest.raises(urllib.error.URLError, match="Unsupported protocol scheme"):
+            tr._fetch_sync("/api/tags")

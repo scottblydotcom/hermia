@@ -181,9 +181,14 @@ class HostsScreen(Screen[None]):
 
         # Probe all unprobed hosts concurrently — sequential gather would
         # serialize a slow host's timeout across the entire fleet.
+        # return_exceptions=True ensures one host blowing up (with a class
+        # probe_host doesn't catch) doesn't abort the other in-flight probes.
         to_probe = [h for h in list(self.app_config.hosts) if h.name not in self.probe_state]
         if to_probe:
-            await asyncio.gather(*[_probe(h) for h in to_probe])
+            await asyncio.gather(
+                *[_probe(h) for h in to_probe],
+                return_exceptions=True,
+            )
 
     def on_unmount(self) -> None:
         # Cancel listener tasks so they don't outlive the screen.
@@ -193,9 +198,9 @@ class HostsScreen(Screen[None]):
     async def _listen(self, topic: str, final_state: str) -> None:
         async for ev in self._bus.subscribe(topic):
             self.probe_state[ev["host_name"]] = final_state
-            # Re-render so the row's [state] tag updates.
-            try:
+            # Re-render so the row's [state] tag updates. Skip if unmounting
+            # — on_unmount cancels these tasks but a late event may sneak in.
+            # Avoid a bare `except Exception` which would silently mask real
+            # bugs in _rerender / _row_text.
+            if self.is_mounted:
                 self._rerender()
-            except Exception:
-                # Screen may be unmounting — swallow late events.
-                return

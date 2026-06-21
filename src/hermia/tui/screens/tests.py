@@ -58,11 +58,10 @@ class TestsScreen(Screen[None]):
             yield SearchBar()
 
     def on_mount(self) -> None:
-        dl = self.query_one(DrillableList)
-        # Mirror app.config.tests as the initial selection.
-        for tid in self.app.config.tests:  # type: ignore[attr-defined]
-            dl._selected.add(tid)
-        dl._refresh()
+        # Mirror app.config.tests into the widget via its public API.
+        self.query_one(DrillableList).set_selected_ids(
+            list(self.app.config.tests),  # type: ignore[attr-defined]
+        )
 
     # ── Filter combiner ────────────────────────────────────────────────────
 

@@ -33,11 +33,17 @@ import asyncio
 import json
 import os
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
 from hermia.tui.state import Host
+
+# Cap urlopen.read() so a misbehaving (or malicious) host cannot stream an
+# unbounded body and OOM the TUI. 10 MiB is generous for /v1/models or
+# /api/tags (typical responses are <10 KiB).
+_MAX_RESPONSE_BYTES = 10 * 1024 * 1024
 
 
 @dataclass
@@ -46,9 +52,17 @@ class _BaseProbeTransport:
     auth_header: str | None = None
 
     def _fetch_sync(self, path: str) -> dict[str, Any]:
-        # The S310/B310 suppressions below are justified: the URL is built
-        # from a user-supplied host config (http:// or https://); we are not
-        # opening arbitrary schemes like file://.
+        # SSRF guard: urlopen supports `file://`, `ftp://`, etc. If a user
+        # accidentally (or maliciously) sets host.url to file:///etc/passwd
+        # we'd happily read it. Force http(s) only.
+        parsed = urllib.parse.urlparse(self.url)
+        if parsed.scheme not in ("http", "https"):
+            raise urllib.error.URLError(
+                f"Unsupported protocol scheme: {parsed.scheme!r} (only http/https allowed)"
+            )
+        # The S310/B310 suppressions below are justified: the URL scheme has
+        # been validated above as http(s); we are not opening arbitrary
+        # schemes like file://.
         url = f"{self.url.rstrip('/')}{path}"
         req = urllib.request.Request(url)  # noqa: S310
         if self.auth_header:
@@ -56,7 +70,10 @@ class _BaseProbeTransport:
         try:
             with urllib.request.urlopen(req, timeout=10.0) as resp:  # noqa: S310  # nosec B310
                 try:
-                    data: dict[str, Any] = json.loads(resp.read())
+                    # Cap the read to _MAX_RESPONSE_BYTES — a malicious or
+                    # misbehaving host cannot OOM the TUI by streaming an
+                    # unbounded body.
+                    data: dict[str, Any] = json.loads(resp.read(_MAX_RESPONSE_BYTES))
                 except json.JSONDecodeError as exc:
                     # Non-JSON body (HTML error page from a misbehaving proxy,
                     # truncated response, etc). Convert to URLError so probe.py's

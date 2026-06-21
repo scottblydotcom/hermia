@@ -93,6 +93,17 @@ class DrillableList(VerticalScroll):
     def selected_ids(self) -> list[str]:
         return sorted(self._selected)
 
+    def set_selected_ids(self, row_ids: list[str]) -> None:
+        """Replace the selection set. Use to mirror the host screen's domain
+        model into the widget (e.g., re-opening a screen with pre-selected
+        models / tests).
+
+        Does NOT emit SelectionChanged — the screen is the source of truth
+        for the new state; re-emitting would loop on the screen's handler.
+        """
+        self._selected = set(row_ids)
+        self._refresh()
+
     def apply_query(self, query: str) -> None:
         self._query = query.strip().lower()
         if not self._query:
