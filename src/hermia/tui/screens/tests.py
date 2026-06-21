@@ -11,6 +11,7 @@ from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import Screen
 
+from hermia.tui.screens._dirty import _mark_dirty_in_stack
 from hermia.tui.test_catalog import FRAMEWORKS, load_test_catalog
 from hermia.tui.widgets.breadcrumb import Breadcrumb
 from hermia.tui.widgets.drillable_list import DrillableList, ListRow
@@ -101,6 +102,7 @@ class TestsScreen(Screen[None]):
         else:
             cfg_tests.append(event.row_id)
         self.app.config.tests = cfg_tests  # type: ignore[attr-defined]
+        _mark_dirty_in_stack(self.app)
 
     def on_drillable_list_selection_changed(
         self, event: DrillableList.SelectionChanged
@@ -113,6 +115,7 @@ class TestsScreen(Screen[None]):
                      if t not in visible_ids]
         cfg_tests.extend(event.selected_ids)
         self.app.config.tests = sorted(set(cfg_tests))  # type: ignore[attr-defined]
+        _mark_dirty_in_stack(self.app)
 
     # ── Action wrappers ───────────────────────────────────────────────────
 

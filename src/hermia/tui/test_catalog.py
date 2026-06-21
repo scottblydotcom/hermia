@@ -41,13 +41,22 @@ class TestRecord:
         return self.frameworks.get(framework, False)
 
 
+_cached_catalog: list[TestRecord] | None = None
+
+
 def load_test_catalog() -> list[TestRecord]:
     """Build a list of TestRecord — one per id in schemas.TEST_IDS.
 
     Tests missing from agentic-tasks.json get a record with all framework
     memberships False (their ID is still in the catalog so they appear in
     the picker).
+
+    Cached after first call — the catalog is static and re-reading the
+    JSON file on every TestsScreen mount blocks the Textual main thread.
     """
+    global _cached_catalog
+    if _cached_catalog is not None:
+        return _cached_catalog
     by_id: dict[str, dict[str, bool]] = {
         tid: {f: False for f in FRAMEWORKS} for tid in TEST_IDS
     }
@@ -59,4 +68,5 @@ def load_test_catalog() -> list[TestRecord]:
         f = case.get("frameworks", {}) or {}
         for label, key in _FRAMEWORK_KEY_MAP.items():
             by_id[cid][label] = bool(f.get(key))
-    return [TestRecord(id=tid, frameworks=by_id[tid]) for tid in TEST_IDS]
+    _cached_catalog = [TestRecord(id=tid, frameworks=by_id[tid]) for tid in TEST_IDS]
+    return _cached_catalog

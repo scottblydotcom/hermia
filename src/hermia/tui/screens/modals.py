@@ -79,7 +79,15 @@ class AddHostModal(ModalScreen[Host | None]):
         self.query_one("#addhost-name", Input).focus()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
-        # Submit when the engine field is finished — it's the last in the form.
+        # Enter on name → url; on url → engine; on engine → submit form.
+        # Without this, Enter on the first two fields does nothing, which is
+        # counter-intuitive.
+        if event.input.id == "addhost-name":
+            self.query_one("#addhost-url", Input).focus()
+            return
+        if event.input.id == "addhost-url":
+            self.query_one("#addhost-engine", Input).focus()
+            return
         if event.input.id != "addhost-engine":
             return
         name = self.query_one("#addhost-name", Input).value.strip()

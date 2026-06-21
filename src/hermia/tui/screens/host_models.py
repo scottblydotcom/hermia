@@ -11,6 +11,7 @@ from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import Screen
 
+from hermia.tui.screens._dirty import _mark_dirty_in_stack
 from hermia.tui.state import Host
 from hermia.tui.widgets.breadcrumb import Breadcrumb
 from hermia.tui.widgets.drillable_list import DrillableList, ListRow
@@ -60,6 +61,7 @@ class HostModelsScreen(Screen[None]):
             if m.name == event.row_id:
                 m.selected = not m.selected
                 break
+        _mark_dirty_in_stack(self.app)
 
     def on_drillable_list_selection_changed(
         self, event: DrillableList.SelectionChanged
@@ -68,6 +70,7 @@ class HostModelsScreen(Screen[None]):
         selected = set(event.selected_ids)
         for m in self._host.models:
             m.selected = m.name in selected
+        _mark_dirty_in_stack(self.app)
 
     def on_search_bar_query_changed(self, event: SearchBar.QueryChanged) -> None:
         self.query_one(DrillableList).apply_query(event.query)
@@ -87,18 +90,12 @@ class HostModelsScreen(Screen[None]):
         self.query_one(DrillableList).toggle()
 
     def action_select_all(self) -> None:
-        dl = self.query_one(DrillableList)
-        dl.select_all()
-        # Sync state to host.models.
-        for m in self._host.models:
-            if m.name in dl._selected:
-                m.selected = True
+        # dl.select_all() posts SelectionChanged which our handler picks up
+        # and syncs to host.models — no manual mutation needed here.
+        self.query_one(DrillableList).select_all()
 
     def action_select_none(self) -> None:
-        dl = self.query_one(DrillableList)
-        dl.select_none()
-        for m in self._host.models:
-            m.selected = False
+        self.query_one(DrillableList).select_none()
 
     def action_search_open(self) -> None:
         self.query_one(SearchBar).open()

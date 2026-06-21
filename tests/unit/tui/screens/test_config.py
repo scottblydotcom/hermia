@@ -125,3 +125,47 @@ class TestSave:
                 assert isinstance(pilot.app.screen, FleetNameModal)
 
         asyncio.run(_run())
+
+
+class TestDirtyPropagation:
+    def test_test_toggle_marks_config_dirty(self) -> None:
+        from hermia.tui.screens.tests import TestsScreen
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                pilot.app.config.name = "smoke"
+                pilot.app.push_screen(FleetConfigScreen())
+                await pilot.pause()
+                config_screen: FleetConfigScreen = pilot.app.screen  # type: ignore[assignment]
+                assert config_screen.dirty is False
+                pilot.app.push_screen(TestsScreen())
+                await pilot.pause()
+                # Toggle the first test via space — should propagate to dirty.
+                await pilot.press("space")
+                await pilot.pause()
+                assert config_screen.dirty is True
+
+        asyncio.run(_run())
+
+    def test_host_model_toggle_marks_config_dirty(self) -> None:
+        from hermia.tui.screens.host_models import HostModelsScreen
+        from hermia.tui.state import Host, ModelChoice
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                host = Host(
+                    name="h1", url="http://h1", engine="ollama",
+                    models=[ModelChoice(name="m1"), ModelChoice(name="m2")],
+                )
+                pilot.app.config.name = "smoke"
+                pilot.app.config.hosts = [host]
+                pilot.app.push_screen(FleetConfigScreen())
+                await pilot.pause()
+                config_screen: FleetConfigScreen = pilot.app.screen  # type: ignore[assignment]
+                pilot.app.push_screen(HostModelsScreen(host=host))
+                await pilot.pause()
+                await pilot.press("space")
+                await pilot.pause()
+                assert config_screen.dirty is True
+
+        asyncio.run(_run())

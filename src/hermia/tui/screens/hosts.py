@@ -20,6 +20,7 @@ from textual.widgets import Static
 
 from hermia.tui.bus import SessionBus
 from hermia.tui.probe import DEFAULT_PROBE_TIMEOUT_SECONDS, probe_host
+from hermia.tui.screens._dirty import _mark_dirty_in_stack
 from hermia.tui.state import FleetConfig, Host
 from hermia.tui.widgets.breadcrumb import Breadcrumb
 
@@ -51,6 +52,9 @@ class HostsScreen(Screen[None]):
         # Per-screen bus so probe events don't bleed into Plan 3's app.bus
         # when the runner lands.
         self._bus: SessionBus = SessionBus()
+        # Listener tasks — created once on first probe and reused, so
+        # re-firing _start_probes (after add-host) doesn't subscribe twice.
+        self._listener_tasks: list[asyncio.Task[None]] = []
 
     @property
     def app_config(self) -> FleetConfig:
@@ -77,9 +81,22 @@ class HostsScreen(Screen[None]):
 
     def _rerender(self) -> None:
         root = self.query_one("#hosts-root", Vertical)
-        for child in list(root.children):
-            if isinstance(child, Breadcrumb):
-                continue
+        existing_rows = [c for c in root.children if not isinstance(c, Breadcrumb)]
+        # Stable-row optimization (Plan 1 lesson): when host count is unchanged
+        # and we're not transitioning to/from empty state, update Statics in
+        # place. Cursor moves and probe-state updates take this path.
+        if (
+            self.app_config.hosts
+            and len(existing_rows) == len(self.app_config.hosts)
+            and all(isinstance(c, Static) for c in existing_rows)
+        ):
+            for i, host in enumerate(self.app_config.hosts):
+                existing_rows[i].update(self._row_text(host, i))  # type: ignore[attr-defined]
+            return
+        # Structural change (add-host, first mount, mode transition) — full
+        # remount with seq-bumped IDs so AwaitRemove can't collide with new
+        # mount IDs.
+        for child in existing_rows:
             child.remove()
         self._render_seq += 1
         seq = self._render_seq
@@ -119,6 +136,7 @@ class HostsScreen(Screen[None]):
             return
         self.app_config.hosts.append(host)
         self._rerender()
+        _mark_dirty_in_stack(self.app)
         # Kick a probe for the new host.
         self._start_probes()
 
@@ -128,14 +146,20 @@ class HostsScreen(Screen[None]):
     async def _start_probes(self) -> None:
         """Background worker: subscribe to probe events, then fire probes.
 
-        Started in on_mount and after any host is added. Idempotent — probes
-        are skipped for hosts that already have a recorded probe_state.
+        Started in on_mount and after any host is added. Idempotent on two
+        axes: per-host (probes skipped for hosts with recorded probe_state)
+        and per-screen (listener tasks created once and reused).
         """
-        # Subscribe first so events fired during probe_host land in our queues.
-        asyncio.create_task(self._listen("probe.started", "probing"))
-        asyncio.create_task(self._listen("probe.completed", "ok"))
-        asyncio.create_task(self._listen("probe.failed", "failed"))
-        await asyncio.sleep(0)
+        # Subscribe first so events fired during probe_host land in queues.
+        # Listeners are screen-lifetime singletons — multiple _start_probes
+        # calls reuse the same subscribers (no duplicate event handling).
+        if not self._listener_tasks:
+            self._listener_tasks = [
+                asyncio.create_task(self._listen("probe.started", "probing")),
+                asyncio.create_task(self._listen("probe.completed", "ok")),
+                asyncio.create_task(self._listen("probe.failed", "failed")),
+            ]
+            await asyncio.sleep(0)  # give subscribers a tick to register
 
         # Resolve transport factory lazily so unit tests don't import urllib
         # paths unless a real probe runs.
@@ -144,9 +168,7 @@ class HostsScreen(Screen[None]):
             from hermia.tui.transport_adapter import transport_for
             factory = transport_for
 
-        for host in list(self.app_config.hosts):
-            if host.name in self.probe_state:
-                continue
+        async def _probe(host: Host) -> None:
             transport = factory(host)
             # The transport satisfies probe._ListModelsTransport structurally
             # (Protocol checks); mypy can't always see through Callable wrap.
@@ -156,6 +178,17 @@ class HostsScreen(Screen[None]):
                 bus=self._bus,
                 timeout=self._probe_timeout,
             )
+
+        # Probe all unprobed hosts concurrently — sequential gather would
+        # serialize a slow host's timeout across the entire fleet.
+        to_probe = [h for h in list(self.app_config.hosts) if h.name not in self.probe_state]
+        if to_probe:
+            await asyncio.gather(*[_probe(h) for h in to_probe])
+
+    def on_unmount(self) -> None:
+        # Cancel listener tasks so they don't outlive the screen.
+        for t in self._listener_tasks:
+            t.cancel()
 
     async def _listen(self, topic: str, final_state: str) -> None:
         async for ev in self._bus.subscribe(topic):

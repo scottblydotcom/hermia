@@ -46,15 +46,25 @@ class _BaseProbeTransport:
     auth_header: str | None = None
 
     def _fetch_sync(self, path: str) -> dict[str, Any]:
-        # noqa-justified: the URL is built from a user-supplied host config
-        # (validated as http:// or https://); we are not opening arbitrary
-        # schemes like file://.
-        req = urllib.request.Request(f"{self.url.rstrip('/')}{path}")  # noqa: S310
+        # The S310/B310 suppressions below are justified: the URL is built
+        # from a user-supplied host config (http:// or https://); we are not
+        # opening arbitrary schemes like file://.
+        url = f"{self.url.rstrip('/')}{path}"
+        req = urllib.request.Request(url)  # noqa: S310
         if self.auth_header:
             req.add_header("Authorization", self.auth_header)
         try:
-            with urllib.request.urlopen(req, timeout=10.0) as resp:  # noqa: S310
-                data: dict[str, Any] = json.loads(resp.read())
+            with urllib.request.urlopen(req, timeout=10.0) as resp:  # noqa: S310  # nosec B310
+                try:
+                    data: dict[str, Any] = json.loads(resp.read())
+                except json.JSONDecodeError as exc:
+                    # Non-JSON body (HTML error page from a misbehaving proxy,
+                    # truncated response, etc). Convert to URLError so probe.py's
+                    # (OSError, ConnectionError) handler treats it as offline
+                    # rather than letting it bubble as `unexpected`.
+                    raise urllib.error.URLError(
+                        f"Invalid JSON response from {self.url}"
+                    ) from exc
                 return data
         except urllib.error.HTTPError as exc:
             if exc.code in (401, 403):
