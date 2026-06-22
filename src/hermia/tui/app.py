@@ -25,3 +25,6 @@ class HermiaApp(App[None]):
         # Import here to avoid a circular import — screens.launch imports HermiaApp.
         from hermia.tui.screens.launch import LaunchScreen
         self.push_screen(LaunchScreen())
+
+    def on_unmount(self) -> None:
+        self.bus.close()

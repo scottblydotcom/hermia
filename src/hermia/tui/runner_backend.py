@@ -165,7 +165,7 @@ class TuiRunner:
         })
 
         if self._results_dir is not None:
-            self._write_result(result, host.name)
+            await asyncio.to_thread(self._write_result, result, host.name)
 
     def _write_result(self, result: dict[str, Any], fleet_host_name: str) -> None:
         from hermia.results import append_result
