@@ -65,7 +65,7 @@ class RunnerDetailScreen(Screen[None]):
         else:
             elapsed = f"{t.elapsed_sec:.2f}s" if t.elapsed_sec is not None else "—"
             # Escape square brackets so Rich doesn't treat them as markup tags.
-            reason = f"  \[{t.failure_reason}]" if t.failure_reason else ""
+            reason = rf"  \[{t.failure_reason}]" if t.failure_reason else ""
             summary = f"verdict: {t.state}  elapsed: {elapsed}{reason}"
 
         self._summary = summary
