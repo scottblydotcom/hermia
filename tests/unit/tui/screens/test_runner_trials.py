@@ -57,7 +57,10 @@ class TestRunnerTrialsScreenLayout:
                 pilot.app.push_screen(RunnerTrialsScreen(host=host))
                 await pilot.pause()
                 screen: RunnerTrialsScreen = pilot.app.screen  # type: ignore[assignment]
-                assert screen.trial_state(model_name="qwen3:32b", test_id="t1", repeat_idx=1) == "pending"
+                assert (
+                    screen.trial_state(model_name="qwen3:32b", test_id="t1", repeat_idx=1)
+                    == "pending"
+                )
 
         asyncio.run(_run())
 

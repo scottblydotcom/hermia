@@ -109,7 +109,8 @@ class TuiRunner:
         ]
         results = await asyncio.gather(*host_tasks, return_exceptions=True)
         for host, host_result in zip(self._config.hosts, results, strict=True):
-            if isinstance(host_result, BaseException) and not isinstance(host_result, asyncio.CancelledError):
+            is_exc = isinstance(host_result, BaseException)
+            if is_exc and not isinstance(host_result, asyncio.CancelledError):
                 await self._bus.publish("run.trial_finished", {
                     "host_name": host.name,
                     "model_name": "",

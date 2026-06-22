@@ -1,8 +1,6 @@
 """Tests for hermia.tui.runner_backend — TuiRunner + helpers."""
 import asyncio
 
-import pytest
-
 from hermia.tui.bus import SessionBus
 from hermia.tui.runner_backend import TuiRunner, verdict_from_result
 from hermia.tui.state import FleetConfig, Host, ModelChoice

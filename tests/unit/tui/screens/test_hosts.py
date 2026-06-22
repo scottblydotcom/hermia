@@ -167,10 +167,10 @@ class TestHostsScreenBusMigration:
         """After migration, probe.completed events appear on app.bus, not a private bus."""
         import asyncio
 
-        from tests.fixtures.fake_transport import FakeTransport
         from hermia.tui.app import HermiaApp
         from hermia.tui.screens.hosts import HostsScreen
         from hermia.tui.state import Host
+        from tests.fixtures.fake_transport import FakeTransport
 
         async def _run() -> None:
             async with HermiaApp().run_test() as pilot:
