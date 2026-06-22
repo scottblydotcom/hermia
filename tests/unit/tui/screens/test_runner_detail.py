@@ -1,7 +1,10 @@
 """Tests for RunnerDetailScreen (L3 detail view)."""
 import asyncio
 
+from textual.widgets import Footer
+
 from hermia.tui.app import HermiaApp
+from hermia.tui.screens.runner_detail import RunnerDetailScreen
 from hermia.tui.screens.runner_trials import RunnerTrialsScreen, _TrialRow
 
 
@@ -130,4 +133,17 @@ class TestRunnerDetailScreenNavigation:
                 await pilot.pause()
                 assert isinstance(pilot.app.screen, RunnerTrialsScreen)
 
+        asyncio.run(_run())
+
+
+class TestRunnerDetailFooter:
+    def test_footer_present(self) -> None:
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                trial = _make_finished_trial()
+                pilot.app.push_screen(RunnerDetailScreen(trial=trial))
+                await pilot.pause()
+                screen = pilot.app.screen
+                assert isinstance(screen, RunnerDetailScreen)
+                assert len(screen.query(Footer)) == 1
         asyncio.run(_run())
