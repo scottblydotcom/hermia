@@ -14,7 +14,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import Screen
-from textual.widgets import Static
+from textual.widgets import Footer, Static
 
 from hermia.tui.state import FleetConfig, Host
 from hermia.tui.widgets.breadcrumb import Breadcrumb
@@ -67,6 +67,7 @@ class RunnerScreen(Screen[None]):
         with Vertical(id="runner-root"):
             yield Breadcrumb(["hermia", "fleet", name, "runner"])
             yield Static("", id="runner-progress")
+        yield Footer()
 
     def on_mount(self) -> None:
         for host in self.app_config.hosts:

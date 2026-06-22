@@ -12,7 +12,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import Screen
-from textual.widgets import Static
+from textual.widgets import Footer, Static
 
 from hermia.tui.screens.runner_trials import _TrialRow
 from hermia.tui.widgets.breadcrumb import Breadcrumb
@@ -47,6 +47,7 @@ class RunnerDetailScreen(Screen[None]):
             yield Breadcrumb(["hermia", "runner", t.model_name, t.test_id])
             yield Static("", id="detail-summary")
             yield Static("", id="detail-output")
+        yield Footer()
 
     def on_mount(self) -> None:
         self._refresh()

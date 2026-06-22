@@ -1,6 +1,8 @@
 """Tests for RunnerScreen (L1 aggregate view)."""
 import asyncio
 
+from textual.widgets import Footer
+
 from hermia.tui.app import HermiaApp
 from hermia.tui.screens.runner import RunnerScreen
 from hermia.tui.state import FleetConfig, Host, ModelChoice
@@ -206,5 +208,18 @@ class TestRunnerScreenNavigation:
                 await pilot.press("escape")
                 await pilot.pause()
                 assert isinstance(pilot.app.screen, FleetConfigScreen)
+
+        asyncio.run(_run())
+
+
+class TestRunnerFooter:
+    def test_footer_present(self) -> None:
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                pilot.app.push_screen(RunnerScreen())
+                await pilot.pause()
+                screen = pilot.app.screen
+                assert isinstance(screen, RunnerScreen)
+                assert len(screen.query(Footer)) == 1
 
         asyncio.run(_run())
