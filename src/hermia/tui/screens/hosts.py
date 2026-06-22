@@ -56,12 +56,6 @@ class HostsScreen(Screen[None]):
         self._listener_tasks: list[asyncio.Task[None]] = []
 
     @property
-    def _bus(self):  # type: ignore[no-untyped-def]
-        """Shared app-level bus. probe.* events use the same bus as run.* events;
-        screens subscribe only to the topics they care about, so there is no bleeding."""
-        return self.app.bus  # type: ignore[attr-defined]
-
-    @property
     def app_config(self) -> FleetConfig:
         return self.app.config  # type: ignore[attr-defined,no-any-return]
 
@@ -179,7 +173,7 @@ class HostsScreen(Screen[None]):
             await probe_host(
                 host,
                 transport=transport,  # type: ignore[arg-type]
-                bus=self._bus,
+                bus=self.app.bus,  # type: ignore[attr-defined]
                 timeout=self._probe_timeout,
             )
 
@@ -205,7 +199,7 @@ class HostsScreen(Screen[None]):
         self.workers.cancel_all()
 
     async def _listen(self, topic: str, final_state: str) -> None:
-        async for ev in self._bus.subscribe(topic):
+        async for ev in self.app.bus.subscribe(topic):  # type: ignore[attr-defined]
             self.probe_state[ev["host_name"]] = final_state
             if self.is_mounted:
                 self._rerender()

@@ -78,6 +78,7 @@ class RunnerDetailScreen(Screen[None]):
                 ev.get("model_name") == t.model_name
                 and ev.get("test_id") == t.test_id
                 and ev.get("repeat_idx") == t.repeat_idx
+                and (not t.host_name or ev.get("host_name") == t.host_name)
             ):
                 t.state = ev.get("verdict", "error")
                 t.elapsed_sec = ev.get("elapsed_sec")

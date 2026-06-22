@@ -80,7 +80,21 @@ class TuiRunner:
     # ── Internal ───────────────────────────────────────────────────────────
 
     async def _run(self) -> None:
-        n_trials = self._count_trials()
+        try:
+            tests = self._load_tests()
+        except Exception as exc:  # noqa: BLE001
+            await self._bus.publish("run.started", {
+                "run_id": _make_run_id(),
+                "n_hosts": len(self._config.hosts),
+                "n_trials_total": 0,
+            })
+            await self._bus.publish("run.aborted", {
+                "n_completed": 0,
+                "error": str(exc),
+            })
+            return
+
+        n_trials = self._count_trials(tests)
         await self._bus.publish("run.started", {
             "run_id": _make_run_id(),
             "n_hosts": len(self._config.hosts),
@@ -90,10 +104,22 @@ class TuiRunner:
         # Hosts run concurrently; trials within a host run sequentially
         # (VRAM-aware — one model loaded at a time on each GPU host).
         host_tasks = [
-            asyncio.create_task(self._run_host(host))
+            asyncio.create_task(self._run_host(host, tests))
             for host in self._config.hosts
         ]
-        await asyncio.gather(*host_tasks, return_exceptions=True)
+        results = await asyncio.gather(*host_tasks, return_exceptions=True)
+        for host, host_result in zip(self._config.hosts, results, strict=True):
+            if isinstance(host_result, BaseException) and not isinstance(host_result, asyncio.CancelledError):
+                await self._bus.publish("run.trial_finished", {
+                    "host_name": host.name,
+                    "model_name": "",
+                    "test_id": "",
+                    "repeat_idx": 0,
+                    "verdict": "error",
+                    "elapsed_sec": 0.0,
+                    "failure_reason": f"HOST_ERROR: {host_result}",
+                    "output_preview": str(host_result)[:120],
+                })
 
         if self._abort_requested:
             await self._bus.publish("run.aborted", {"n_completed": self._n_completed})
@@ -103,8 +129,7 @@ class TuiRunner:
                 "n_completed": self._n_completed,
             })
 
-    async def _run_host(self, host: Host) -> None:
-        tests = self._load_tests()
+    async def _run_host(self, host: Host, tests: list[dict[str, Any]]) -> None:
         for model in host.models:
             if not model.selected:
                 continue
@@ -171,17 +196,19 @@ class TuiRunner:
         from hermia.results import append_result
         # Caller (_run_trial) guards with `if self._results_dir is not None`.
         results_dir: Path = self._results_dir  # type: ignore[assignment]
+        results_dir.mkdir(parents=True, exist_ok=True)
         result = dict(result)
         result["fleet_host_name"] = fleet_host_name
         jsonl_path = results_dir / "results.jsonl"
         csv_path = results_dir / "results.csv"
         append_result(result, jsonl_path, csv_path)
 
-    def _count_trials(self) -> int:
+    def _count_trials(self, tests: list[dict[str, Any]]) -> int:
+        n_tests = len(tests)
         n = 0
         for host in self._config.hosts:
             n_selected = sum(1 for m in host.models if m.selected)
-            n += n_selected * len(self._config.tests) * self._config.repeat
+            n += n_selected * n_tests * self._config.repeat
         return n
 
     def _load_tests(self) -> list[dict[str, Any]]:

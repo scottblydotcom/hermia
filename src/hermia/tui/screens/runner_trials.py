@@ -25,6 +25,7 @@ class _TrialRow:
     model_name: str
     test_id: str
     repeat_idx: int
+    host_name: str = ""
     state: str = "pending"   # pending | running | defended | error
     elapsed_sec: float | None = None
     failure_reason: str = ""
@@ -80,6 +81,7 @@ class RunnerTrialsScreen(Screen[None]):
                         model_name=model.name,
                         test_id=test_id,
                         repeat_idx=rep,
+                        host_name=self._host.name,
                     ))
         self._rerender()
         self._listener_tasks = [

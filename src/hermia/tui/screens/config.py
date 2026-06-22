@@ -157,8 +157,12 @@ class FleetConfigScreen(Screen[None]):
         from hermia.tui.screens.runner import RunnerScreen
         results_dir: Path | None = None
         if self.app_config.name:
-            results_dir = Path("results") / self.app_config.name
-            results_dir.mkdir(parents=True, exist_ok=True)
+            # Strip any directory components from the fleet name before using
+            # it as a path segment (guards against '../' traversal in YAML).
+            safe_name = Path(self.app_config.name).name or "unnamed"
+            results_dir = Path("results") / safe_name
+            # mkdir is deferred to _write_result so no empty dir is created
+            # if the run is aborted before writing any results.
         runner = TuiRunner(
             config=self.app_config,
             bus=self.app.bus,  # type: ignore[attr-defined]
