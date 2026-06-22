@@ -127,6 +127,35 @@ class TestSave:
         asyncio.run(_run())
 
 
+class TestFleetConfigScreenActionRun:
+    def test_action_run_pushes_runner_screen(self, tmp_path, monkeypatch) -> None:
+        from hermia.tui.screens.runner import RunnerScreen
+        monkeypatch.chdir(tmp_path)
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                pilot.app.config = FleetConfig(
+                    name="run-smoke",
+                    hosts=[
+                        Host(
+                            name="local",
+                            url="http://localhost:11434",
+                            engine="ollama",
+                            models=[ModelChoice(name="qwen3:32b", selected=True)],
+                        )
+                    ],
+                    tests=["t1"],
+                    repeat=1,
+                )
+                pilot.app.push_screen(FleetConfigScreen())
+                await pilot.pause()
+                await pilot.press("r")
+                await pilot.pause()
+                assert isinstance(pilot.app.screen, RunnerScreen)
+
+        asyncio.run(_run())
+
+
 class TestDirtyPropagation:
     def test_test_toggle_marks_config_dirty(self) -> None:
         from hermia.tui.screens.tests import TestsScreen
