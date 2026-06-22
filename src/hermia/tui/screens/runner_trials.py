@@ -101,12 +101,18 @@ class RunnerTrialsScreen(Screen[None]):
 
     def _rerender(self) -> None:
         root = self.query_one("#trials-root", Vertical)
-        existing = [c for c in root.children if not isinstance(c, Breadcrumb)]
-        if existing and len(existing) == len(self._trials):
+        prefix = f"trial-row-{self._render_seq}-"
+        current = [
+            c for c in root.children
+            if not isinstance(c, Breadcrumb)
+            and str(getattr(c, "id", "")).startswith(prefix)
+        ]
+        if current and len(current) == len(self._trials):
             for i, trial in enumerate(self._trials):
-                existing[i].update(self._row_text(trial, i))
+                current[i].update(self._row_text(trial, i))
             return
-        for child in existing:
+        stale = [c for c in root.children if not isinstance(c, Breadcrumb)]
+        for child in stale:
             child.remove()
         self._render_seq += 1
         seq = self._render_seq

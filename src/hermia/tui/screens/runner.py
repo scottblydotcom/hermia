@@ -38,6 +38,7 @@ class RunnerScreen(Screen[None]):
         # {host_name: {"defended": int, "error": int, "status": str}}
         self._host_counts: dict[str, dict[str, Any]] = {}
         self._listener_tasks: list[asyncio.Task[None]] = []
+        self._runner_task: asyncio.Task[None] | None = None
         self._render_seq: int = 0
         self._runner = runner
 
@@ -77,11 +78,13 @@ class RunnerScreen(Screen[None]):
             asyncio.create_task(self._listen_aborted()),
         ]
         if self._runner is not None:
-            asyncio.create_task(self._runner.start())
+            self._runner_task = asyncio.create_task(self._runner.start())
 
     def on_unmount(self) -> None:
         for t in self._listener_tasks:
             t.cancel()
+        if self._runner_task is not None:
+            self._runner_task.cancel()
 
     # ── Rendering ─────────────────────────────────────────────────────────
 
@@ -96,17 +99,23 @@ class RunnerScreen(Screen[None]):
 
     def _rerender(self) -> None:
         root = self.query_one("#runner-root", Vertical)
+        prefix = f"runner-row-{self._render_seq}-"
         host_rows = [
             c for c in root.children
             if isinstance(c, Static) and not isinstance(c, Breadcrumb)
-            and getattr(c, "id", "") != "runner-progress"
+            and str(getattr(c, "id", "")).startswith(prefix)
         ]
         hosts = self.app_config.hosts
         if hosts and len(host_rows) == len(hosts):
             for i, host in enumerate(hosts):
                 host_rows[i].update(self._row_text(host, i))
             return
-        for child in host_rows:
+        stale = [
+            c for c in root.children
+            if isinstance(c, Static) and not isinstance(c, Breadcrumb)
+            and getattr(c, "id", "") != "runner-progress"
+        ]
+        for child in stale:
             child.remove()
         self._render_seq += 1
         seq = self._render_seq
@@ -142,7 +151,7 @@ class RunnerScreen(Screen[None]):
     def _mark_done(self) -> None:
         self.run_done = True
         for counts in self._host_counts.values():
-            if counts["status"] == "running":
+            if counts["status"] != "done":
                 counts["status"] = "done"
         if self.is_mounted:
             self._rerender()

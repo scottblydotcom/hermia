@@ -27,6 +27,7 @@ class RunnerDetailScreen(Screen[None]):
         super().__init__()
         self._trial = trial
         self._listener_task: asyncio.Task[None] | None = None
+        self._summary: str = ""
 
     @property
     def breadcrumb_text(self) -> str:
@@ -34,7 +35,7 @@ class RunnerDetailScreen(Screen[None]):
 
     @property
     def summary_text(self) -> str:
-        return str(self.query_one("#detail-summary", Static).render())
+        return self._summary
 
     @property
     def is_awaiting_result(self) -> bool:
@@ -66,6 +67,7 @@ class RunnerDetailScreen(Screen[None]):
             reason = f"  \[{t.failure_reason}]" if t.failure_reason else ""
             summary = f"verdict: {t.state}  elapsed: {elapsed}{reason}"
 
+        self._summary = summary
         self.query_one("#detail-summary", Static).update(summary)
         self.query_one("#detail-output", Static).update(t.output_preview or "")
 
