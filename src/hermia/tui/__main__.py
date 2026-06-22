@@ -1,9 +1,4 @@
-"""`python -m hermia.tui` — launches the unified Fleet TUI.
-
-Separate from the existing `hermia` CLI (src/hermia/app.py:main) during
-Plan 2 development. Plan 4 rewires the main entry to point here and deletes
-src/hermia/screens.py.
-"""
+"""`python -m hermia.tui` — launches the unified Fleet TUI."""
 from hermia.tui.app import HermiaApp
 
 
