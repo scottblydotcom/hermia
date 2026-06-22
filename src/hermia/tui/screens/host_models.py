@@ -10,6 +10,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import Screen
+from textual.widgets import Footer
 
 from hermia.tui.screens._dirty import _mark_dirty_in_stack
 from hermia.tui.state import Host
@@ -45,6 +46,7 @@ class HostModelsScreen(Screen[None]):
             rows = [ListRow(id_=m.name, label=m.name) for m in self._host.models]
             yield DrillableList(rows)
             yield SearchBar()
+        yield Footer()
 
     def on_mount(self) -> None:
         # Mirror host.models[].selected into the widget via its public API.

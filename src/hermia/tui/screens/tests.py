@@ -10,6 +10,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import Screen
+from textual.widgets import Footer
 
 from hermia.tui.screens._dirty import _mark_dirty_in_stack
 from hermia.tui.test_catalog import FRAMEWORKS, load_test_catalog
@@ -56,6 +57,7 @@ class TestsScreen(Screen[None]):
             rows = [ListRow(id_=r.id, label=r.id) for r in self._catalog]
             yield DrillableList(rows)
             yield SearchBar()
+        yield Footer()
 
     def on_mount(self) -> None:
         # Mirror app.config.tests into the widget via its public API.

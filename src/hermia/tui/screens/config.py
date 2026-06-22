@@ -10,7 +10,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import Screen
-from textual.widgets import Static
+from textual.widgets import Footer, Static
 
 from hermia.tui.state import FleetConfig
 from hermia.tui.widgets.breadcrumb import Breadcrumb
@@ -61,6 +61,7 @@ class FleetConfigScreen(Screen[None]):
             yield Static("", id="config-summary-hosts")
             yield Static("", id="config-summary-tests")
             yield Static("", id="config-run-plan")
+        yield Footer()
 
     def on_mount(self) -> None:
         self._refresh()
