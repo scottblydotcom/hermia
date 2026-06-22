@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from typing import cast
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -94,10 +95,14 @@ class RunnerTrialsScreen(Screen[None]):
 
     def _row_text(self, trial: _TrialRow, idx: int) -> str:
         cursor = "▸" if idx == self.cursor_idx else " "
-        state_icon = {"pending": " ", "running": "↺", "defended": "✓", "error": "✗"}.get(trial.state, "?")
+        _icons = {"pending": " ", "running": "↺", "defended": "✓", "error": "✗"}
+        state_icon = _icons.get(trial.state, "?")
         elapsed = f"  {trial.elapsed_sec:.1f}s" if trial.elapsed_sec is not None else ""
         reason = f"  [{trial.failure_reason}]" if trial.failure_reason else ""
-        return f"{cursor} {state_icon}  {trial.model_name:<20}  {trial.test_id:<24}{elapsed}{reason}"
+        return (
+            f"{cursor} {state_icon}  {trial.model_name:<20}"
+            f"  {trial.test_id:<24}{elapsed}{reason}"
+        )
 
     def _rerender(self) -> None:
         root = self.query_one("#trials-root", Vertical)
@@ -109,7 +114,7 @@ class RunnerTrialsScreen(Screen[None]):
         ]
         if current and len(current) == len(self._trials):
             for i, trial in enumerate(self._trials):
-                current[i].update(self._row_text(trial, i))
+                cast("Static", current[i]).update(self._row_text(trial, i))
             return
         stale = [c for c in root.children if not isinstance(c, Breadcrumb)]
         for child in stale:

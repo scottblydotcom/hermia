@@ -31,7 +31,7 @@ class RunnerScreen(Screen[None]):
         Binding("enter", "drill", "Trials", show=True),
     ]
 
-    def __init__(self, runner: "TuiRunner | None" = None) -> None:
+    def __init__(self, runner: TuiRunner | None = None) -> None:
         super().__init__()
         self.cursor_idx: int = 0
         self.run_done: bool = False

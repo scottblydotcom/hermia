@@ -152,6 +152,7 @@ class FleetConfigScreen(Screen[None]):
 
     def action_run(self) -> None:
         from pathlib import Path
+
         from hermia.tui.runner_backend import TuiRunner
         from hermia.tui.screens.runner import RunnerScreen
         results_dir: Path | None = None

@@ -169,10 +169,12 @@ class TuiRunner:
 
     def _write_result(self, result: dict[str, Any], fleet_host_name: str) -> None:
         from hermia.results import append_result
+        # Caller (_run_trial) guards with `if self._results_dir is not None`.
+        results_dir: Path = self._results_dir  # type: ignore[assignment]
         result = dict(result)
         result["fleet_host_name"] = fleet_host_name
-        jsonl_path = self._results_dir / "results.jsonl"
-        csv_path = self._results_dir / "results.csv"
+        jsonl_path = results_dir / "results.jsonl"
+        csv_path = results_dir / "results.csv"
         append_result(result, jsonl_path, csv_path)
 
     def _count_trials(self) -> int:
@@ -221,7 +223,7 @@ def _real_run_test(
         else OllamaTransport(host, headers)
     )
     sampler = MetricsSampler()
-    return run_test(  # type: ignore[return-value]
+    return run_test(
         model_name, test, sampler,
         host=host, transport=transport, locality="remote",
     )
