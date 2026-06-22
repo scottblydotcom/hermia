@@ -206,3 +206,15 @@ class TestQuickLocalRun:
                 assert isinstance(pilot.app.screen, FleetConfigScreen)
 
         asyncio.run(_run())
+
+
+class TestLaunchFooter:
+    def test_footer_present(self) -> None:
+        from textual.widgets import Footer
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                screen = pilot.app.screen
+                assert screen.query_one(Footer) is not None
+
+        asyncio.run(_run())

@@ -16,7 +16,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import Screen
-from textual.widgets import Static
+from textual.widgets import Footer, Static
 
 from hermia.tui.state import FleetConfig, Host
 
@@ -54,6 +54,7 @@ class LaunchScreen(Screen[None]):
     def compose(self) -> ComposeResult:
         with Vertical(id="launch-root"):
             yield Static("Welcome to hermia fleet", id="launch-title")
+        yield Footer()
 
     def on_mount(self) -> None:
         self._rerender()
