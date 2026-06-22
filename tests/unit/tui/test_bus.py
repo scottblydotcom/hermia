@@ -148,3 +148,50 @@ class TestBoundedQueue:
             assert events == [{"chunk": "c3"}, {"chunk": "c4"}]
 
         asyncio.run(_run())
+
+
+class TestSessionBusClose:
+    def test_close_clears_subscriber_registry(self) -> None:
+        async def _run() -> None:
+            bus = SessionBus()
+            events: list[dict] = []
+
+            async def reader() -> None:
+                try:
+                    async for ev in bus.subscribe("probe.started"):
+                        events.append(ev)
+                except asyncio.CancelledError:
+                    return
+
+            task = asyncio.create_task(reader())
+            await asyncio.sleep(0)
+            assert "probe.started" in bus._subscribers
+
+            bus.close()
+            # After close, the registry is empty.
+            assert bus._subscribers == {}
+            # Cancel the reader (it's blocked on q.get — close doesn't unblock it).
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        asyncio.run(_run())
+
+    def test_publish_after_close_is_noop(self) -> None:
+        async def _run() -> None:
+            bus = SessionBus()
+            bus.close()
+            # Should not raise.
+            await bus.publish("run.started", {"run_id": "r1"})
+
+        asyncio.run(_run())
+
+    def test_close_is_idempotent(self) -> None:
+        async def _run() -> None:
+            bus = SessionBus()
+            bus.close()
+            bus.close()  # should not raise
+
+        asyncio.run(_run())

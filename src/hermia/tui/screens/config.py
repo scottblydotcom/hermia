@@ -151,5 +151,21 @@ class FleetConfigScreen(Screen[None]):
         self.app.pop_screen()
 
     def action_run(self) -> None:
-        # Plan 3 wires this to the runner.
-        pass
+        from pathlib import Path
+
+        from hermia.tui.runner_backend import TuiRunner
+        from hermia.tui.screens.runner import RunnerScreen
+        results_dir: Path | None = None
+        if self.app_config.name:
+            # Strip any directory components from the fleet name before using
+            # it as a path segment (guards against '../' traversal in YAML).
+            safe_name = Path(self.app_config.name).name or "unnamed"
+            results_dir = Path("results") / safe_name
+            # mkdir is deferred to _write_result so no empty dir is created
+            # if the run is aborted before writing any results.
+        runner = TuiRunner(
+            config=self.app_config,
+            bus=self.app.bus,  # type: ignore[attr-defined]
+            results_dir=results_dir,
+        )
+        self.app.push_screen(RunnerScreen(runner=runner))

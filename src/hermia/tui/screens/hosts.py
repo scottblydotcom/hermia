@@ -1,9 +1,12 @@
 """Hosts drill — list, add, remove, probe state.
 
 Lists existing hosts in app.config. `+` opens AddHostModal; enter drills
-into the host's models (Task 12); escape pops back. Background probes via
-SessionBus update probe_state per host (`probing` / `ok` / `failed`) which
-renders as inline `[state]` tags on each row.
+into the host's models; escape pops back. Background probes via app.bus
+update probe_state per host (`probing` / `ok` / `failed`) which renders
+as inline `[state]` tags on each row.
+
+Probe events use the `probe.*` topic prefix; runner events use `run.*`.
+Both share app.bus — screens subscribe only to their own prefix.
 """
 from __future__ import annotations
 
@@ -18,7 +21,6 @@ from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Static
 
-from hermia.tui.bus import SessionBus
 from hermia.tui.probe import DEFAULT_PROBE_TIMEOUT_SECONDS, probe_host
 from hermia.tui.screens._dirty import _mark_dirty_in_stack
 from hermia.tui.state import FleetConfig, Host
@@ -49,9 +51,6 @@ class HostsScreen(Screen[None]):
         self._make_transport = transport_factory
         self._probe_timeout = probe_timeout
         self._render_seq: int = 0
-        # Per-screen bus so probe events don't bleed into Plan 3's app.bus
-        # when the runner lands.
-        self._bus: SessionBus = SessionBus()
         # Listener tasks — created once on first probe and reused, so
         # re-firing _start_probes (after add-host) doesn't subscribe twice.
         self._listener_tasks: list[asyncio.Task[None]] = []
@@ -148,7 +147,8 @@ class HostsScreen(Screen[None]):
 
         Started in on_mount and after any host is added. Idempotent on two
         axes: per-host (probes skipped for hosts with recorded probe_state)
-        and per-screen (listener tasks created once and reused).
+        and per-screen (listener tasks created once and reused, so
+        re-firing _start_probes after add-host doesn't double-subscribe).
         """
         # Subscribe first so events fired during probe_host land in queues.
         # Listeners are screen-lifetime singletons — multiple _start_probes
@@ -170,28 +170,20 @@ class HostsScreen(Screen[None]):
 
         async def _probe(host: Host) -> None:
             transport = factory(host)
-            # The transport satisfies probe._ListModelsTransport structurally
-            # (Protocol checks); mypy can't always see through Callable wrap.
             await probe_host(
                 host,
                 transport=transport,  # type: ignore[arg-type]
-                bus=self._bus,
+                bus=self.app.bus,  # type: ignore[attr-defined]
                 timeout=self._probe_timeout,
             )
 
-        # Probe all unprobed hosts concurrently — sequential gather would
-        # serialize a slow host's timeout across the entire fleet.
-        # return_exceptions=True ensures one host blowing up (with a class
-        # probe_host doesn't catch) doesn't abort the other in-flight probes.
+        # Probe all unprobed hosts concurrently.
         to_probe = [h for h in list(self.app_config.hosts) if h.name not in self.probe_state]
         if to_probe:
             results = await asyncio.gather(
                 *[_probe(h) for h in to_probe],
                 return_exceptions=True,
             )
-            # Any host whose probe raised an unexpected exception (one that
-            # probe_host didn't catch and translate into a bus event) would
-            # otherwise stay stuck in "probing" forever. Mark them failed.
             any_failed = False
             for host, result in zip(to_probe, results, strict=True):
                 if isinstance(result, BaseException):
@@ -204,18 +196,10 @@ class HostsScreen(Screen[None]):
         # Cancel listener tasks so they don't outlive the screen.
         for t in self._listener_tasks:
             t.cancel()
-        # Also cancel any @work probe workers still in flight — Textual's
-        # default cleanup is not guaranteed to drop them synchronously, and
-        # an orphan probe writing to host.models after the screen tears down
-        # would race the next mount. workers.cancel_all() is sync + safe.
         self.workers.cancel_all()
 
     async def _listen(self, topic: str, final_state: str) -> None:
-        async for ev in self._bus.subscribe(topic):
+        async for ev in self.app.bus.subscribe(topic):  # type: ignore[attr-defined]
             self.probe_state[ev["host_name"]] = final_state
-            # Re-render so the row's [state] tag updates. Skip if unmounting
-            # — on_unmount cancels these tasks but a late event may sneak in.
-            # Avoid a bare `except Exception` which would silently mask real
-            # bugs in _rerender / _row_text.
             if self.is_mounted:
                 self._rerender()
