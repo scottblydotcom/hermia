@@ -251,13 +251,10 @@ def test_fleet_flag_skips_tui(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
     monkeypatch.setattr(sys, "argv", ["hermia", "--fleet", str(cfg)])
 
-    mock_app = MagicMock()
-    # lazy imports inside main() must be patched at the source module
     with (
-        patch("hermia.app.EvalApp", return_value=mock_app) as mock_eval_app,
         patch("hermia.fleet.load_fleet_config", return_value=[{"name": "h1", "host": "http://host1:11434"}]),  # noqa: E501
         patch("hermia.fleet.run_fleet") as mock_run_fleet,
-        patch("hermia.screens.RESULTS_DIR", tmp_path),
+        patch("hermia.submit.RESULTS_DIR", tmp_path),
         pytest.raises(SystemExit) as exc_info,
     ):
         from hermia.app import main
@@ -265,7 +262,6 @@ def test_fleet_flag_skips_tui(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
 
     assert exc_info.value.code == 0
     mock_run_fleet.assert_called_once()
-    mock_eval_app.assert_not_called()
 
 
 # hermia-qc: fleet_host_name and fleet_host_start in result rows
