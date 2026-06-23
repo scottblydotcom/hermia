@@ -146,4 +146,5 @@ class TestRunnerDetailFooter:
                 screen = pilot.app.screen
                 assert isinstance(screen, RunnerDetailScreen)
                 assert len(screen.query(Footer)) == 1
+
         asyncio.run(_run())
