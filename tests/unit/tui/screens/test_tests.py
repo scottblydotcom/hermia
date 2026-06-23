@@ -1,6 +1,8 @@
 """Tests for TestsScreen — fleet-scoped test multi-select with framework filter."""
 import asyncio
 
+from textual.widgets import Footer
+
 from hermia.tui.app import HermiaApp
 from hermia.tui.screens.tests import TestsScreen
 
@@ -86,4 +88,16 @@ class TestTestsScreen:
                 await pilot.pause()
                 assert isinstance(pilot.app.screen, FleetConfigScreen)
 
+        asyncio.run(_run())
+
+
+class TestTestsScreenFooter:
+    def test_footer_present(self) -> None:
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                pilot.app.push_screen(TestsScreen())
+                await pilot.pause()
+                screen = pilot.app.screen
+                assert isinstance(screen, TestsScreen)
+                assert len(screen.query(Footer)) == 1
         asyncio.run(_run())

@@ -19,7 +19,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import Screen
-from textual.widgets import Static
+from textual.widgets import Footer, Static
 
 from hermia.tui.probe import DEFAULT_PROBE_TIMEOUT_SECONDS, probe_host
 from hermia.tui.screens._dirty import _mark_dirty_in_stack
@@ -67,6 +67,7 @@ class HostsScreen(Screen[None]):
         name = self.app_config.name or "(unnamed)"
         with Vertical(id="hosts-root"):
             yield Breadcrumb(["hermia", "fleet", name, "hosts"])
+        yield Footer()
 
     def on_mount(self) -> None:
         self._rerender()

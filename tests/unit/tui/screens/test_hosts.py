@@ -1,6 +1,8 @@
 """Tests for HostsScreen — list + AddHostModal + escape back."""
 import asyncio
 
+from textual.widgets import Footer
+
 from hermia.tui.app import HermiaApp
 from hermia.tui.screens.config import FleetConfigScreen
 from hermia.tui.screens.hosts import HostsScreen
@@ -195,4 +197,16 @@ class TestHostsScreenBusMigration:
                 await asyncio.wait_for(task, timeout=3.0)
                 assert received[0]["host_name"] == "eric-5090"
 
+        asyncio.run(_run())
+
+
+class TestHostsFooter:
+    def test_footer_present(self) -> None:
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                pilot.app.push_screen(HostsScreen())
+                await pilot.pause()
+                screen = pilot.app.screen
+                assert isinstance(screen, HostsScreen)
+                assert len(screen.query(Footer)) == 1
         asyncio.run(_run())

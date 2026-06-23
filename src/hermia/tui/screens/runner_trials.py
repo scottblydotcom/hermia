@@ -14,7 +14,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import Screen
-from textual.widgets import Static
+from textual.widgets import Footer, Static
 
 from hermia.tui.state import FleetConfig, Host
 from hermia.tui.widgets.breadcrumb import Breadcrumb
@@ -70,6 +70,7 @@ class RunnerTrialsScreen(Screen[None]):
         name = self.app_config.name or "(unnamed)"
         with Vertical(id="trials-root"):
             yield Breadcrumb(["hermia", "fleet", name, "runner", self._host.name])
+        yield Footer()
 
     def on_mount(self) -> None:
         for model in self._host.models:

@@ -1,6 +1,8 @@
 """Tests for RunnerTrialsScreen (L2 trial table)."""
 import asyncio
 
+from textual.widgets import Footer
+
 from hermia.tui.app import HermiaApp
 from hermia.tui.screens.runner import RunnerScreen
 from hermia.tui.screens.runner_trials import RunnerTrialsScreen
@@ -166,5 +168,19 @@ class TestRunnerTrialsScreenNavigation:
                 await pilot.press("enter")
                 await pilot.pause()
                 assert isinstance(pilot.app.screen, RunnerDetailScreen)
+
+        asyncio.run(_run())
+
+
+class TestRunnerTrialsFooter:
+    def test_footer_present(self) -> None:
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                host = _host_with_models()
+                pilot.app.push_screen(RunnerTrialsScreen(host=host))
+                await pilot.pause()
+                screen = pilot.app.screen
+                assert isinstance(screen, RunnerTrialsScreen)
+                assert len(screen.query(Footer)) == 1
 
         asyncio.run(_run())

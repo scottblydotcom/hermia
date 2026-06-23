@@ -76,8 +76,14 @@ reviews:
         pytest-asyncio — not in pyproject deps; adding requires explicit
         approval per AGENTS.md rule 3). Use `FakeTransport` from
         tests/fixtures/fake_transport.py for any test driving probe / runner.
-        Pilot tests for screens should test key routing end-to-end; widget
-        tests test API contracts directly.
+        Textual screens require an App event loop to compose — there is no
+        direct instantiation path that produces a queryable DOM. Screen
+        composition tests (Footer presence, widget layout) MUST use
+        `App.run_test()` — this is a framework constraint, not a design
+        choice. Pilot tests that exercise the Pilot object for key routing
+        are preferred for behavioral tests; composition-only tests that
+        obtain `run_test()` context solely to query the DOM are acceptable
+        and do not need to be refactored into a separate layer.
 
     - path: ".github/workflows/**"
       instructions: |

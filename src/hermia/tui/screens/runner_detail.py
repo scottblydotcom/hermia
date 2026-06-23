@@ -12,7 +12,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import Screen
-from textual.widgets import Static
+from textual.widgets import Footer, Static
 
 from hermia.tui.screens.runner_trials import _TrialRow
 from hermia.tui.widgets.breadcrumb import Breadcrumb
@@ -47,6 +47,7 @@ class RunnerDetailScreen(Screen[None]):
             yield Breadcrumb(["hermia", "runner", t.model_name, t.test_id])
             yield Static("", id="detail-summary")
             yield Static("", id="detail-output")
+        yield Footer()
 
     def on_mount(self) -> None:
         self._refresh()
@@ -64,7 +65,7 @@ class RunnerDetailScreen(Screen[None]):
         else:
             elapsed = f"{t.elapsed_sec:.2f}s" if t.elapsed_sec is not None else "—"
             # Escape square brackets so Rich doesn't treat them as markup tags.
-            reason = f"  \[{t.failure_reason}]" if t.failure_reason else ""
+            reason = rf"  \[{t.failure_reason}]" if t.failure_reason else ""
             summary = f"verdict: {t.state}  elapsed: {elapsed}{reason}"
 
         self._summary = summary

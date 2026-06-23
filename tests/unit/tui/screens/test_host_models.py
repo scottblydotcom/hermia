@@ -1,6 +1,8 @@
 """Tests for HostModelsScreen — model picker for one host."""
 import asyncio
 
+from textual.widgets import Footer
+
 from hermia.tui.app import HermiaApp
 from hermia.tui.screens.host_models import HostModelsScreen
 from hermia.tui.state import Host, ModelChoice
@@ -89,4 +91,17 @@ class TestHostModelsScreen:
                 await pilot.pause()
                 assert isinstance(pilot.app.screen, HostsScreen)
 
+        asyncio.run(_run())
+
+
+class TestHostModelsFooter:
+    def test_footer_present(self) -> None:
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                host = Host(name="local", url="http://localhost:11434", engine="ollama")
+                pilot.app.push_screen(HostModelsScreen(host=host))
+                await pilot.pause()
+                screen = pilot.app.screen
+                assert isinstance(screen, HostModelsScreen)
+                assert len(screen.query(Footer)) == 1
         asyncio.run(_run())

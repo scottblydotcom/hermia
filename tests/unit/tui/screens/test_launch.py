@@ -1,6 +1,8 @@
 """Tests for LaunchScreen — initial entries + cursor + key bindings."""
 import asyncio
 
+from textual.widgets import Footer
+
 from hermia.tui.app import HermiaApp
 from hermia.tui.screens.launch import LaunchScreen
 
@@ -204,5 +206,16 @@ class TestQuickLocalRun:
                 assert h.name == "local"
                 assert cfg.tests == list(TEST_IDS)
                 assert isinstance(pilot.app.screen, FleetConfigScreen)
+
+        asyncio.run(_run())
+
+
+class TestLaunchFooter:
+    def test_footer_present(self) -> None:
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                screen = pilot.app.screen
+                assert isinstance(screen, LaunchScreen)
+                assert len(screen.query(Footer)) == 1
 
         asyncio.run(_run())
