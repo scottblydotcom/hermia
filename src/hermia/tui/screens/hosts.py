@@ -165,7 +165,10 @@ class HostsScreen(Screen[None]):
         # with no race window. create_task() schedules but doesn't step the
         # coroutine; anything published between create_task and the first sleep(0)
         # would be lost if subscribe() were called inside the task.
-        if not self._listener_tasks:
+        if not self._listener_tasks or any(t.done() for t in self._listener_tasks):
+            for t in self._listener_tasks:
+                if not t.done():
+                    t.cancel()
             self._listener_tasks = [
                 asyncio.create_task(
                     self._listen(self.app.bus.subscribe("probe.started"), "probing")  # type: ignore[attr-defined]
