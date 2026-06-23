@@ -24,7 +24,7 @@ class FleetConfigScreen(Screen[None]):
         Binding("enter", "drill", "Drill", show=True),
         Binding("s", "save", "Save", show=True),
         Binding("l", "load", "Load", show=False),
-        Binding("r", "run", "Run", show=False),
+        Binding("r", "run", "Run", show=True),
     ]
 
     ROWS = [("hosts", "Hosts"), ("tests", "Tests")]
