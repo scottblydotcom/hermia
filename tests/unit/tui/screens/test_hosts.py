@@ -200,6 +200,131 @@ class TestHostsScreenBusMigration:
         asyncio.run(_run())
 
 
+class TestSubscriptionRace:
+    """hermia-izi: probe subscriptions must be registered before probes fire.
+
+    SessionBus.subscribe() is synchronous — it appends the queue to _subscribers
+    immediately. But _listen() calls subscribe() *inside* a task created with
+    create_task(). Tasks don't step until the event loop yields (sleep(0)), so
+    there's a race window between create_task() and the first sleep(0): if a probe
+    publishes an event in that window the event is lost.
+
+    Fix: call bus.subscribe() synchronously before create_task() and pass the
+    pre-created generator to the listener task, eliminating the race window.
+    """
+
+    def test_subscribe_inside_task_not_registered_until_task_steps(self) -> None:
+        """Demonstrates the race: subscribe() called inside a create_task coroutine
+        is NOT registered until the event loop steps that task (after sleep(0)).
+        This is the window in which a probe.* publish would be lost."""
+        import asyncio
+
+        from hermia.tui.bus import SessionBus
+
+        async def _run() -> None:
+            bus = SessionBus()
+
+            async def listener() -> None:
+                async for _ in bus.subscribe("probe.completed"):
+                    break
+
+            task = asyncio.create_task(listener())
+            # Race window: task scheduled but not yet stepped — no subscriber yet.
+            assert "probe.completed" not in bus._subscribers, (
+                "subscription must not exist before the task steps"
+            )
+
+            await asyncio.sleep(0)  # step the task
+            assert "probe.completed" in bus._subscribers, (
+                "subscription must exist after the task steps"
+            )
+
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        asyncio.run(_run())
+
+    def test_subscribe_before_create_task_registers_immediately(self) -> None:
+        """The fix: call subscribe() synchronously BEFORE create_task so the
+        subscription is registered with no race window."""
+        import asyncio
+
+        from hermia.tui.bus import SessionBus
+
+        async def _run() -> None:
+            bus = SessionBus()
+
+            # Subscribe synchronously — registration is immediate.
+            gen = bus.subscribe("probe.completed")
+            assert "probe.completed" in bus._subscribers, (
+                "subscription must be registered synchronously before create_task"
+            )
+
+            async def listener() -> None:
+                async for _ in gen:
+                    break
+
+            task = asyncio.create_task(listener())
+            # Still registered — no race window.
+            assert "probe.completed" in bus._subscribers
+
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+        asyncio.run(_run())
+
+    def test_all_three_probe_topics_subscribed_before_probes_fire(self) -> None:
+        """Integration: when the first probe event hits the bus, all 3 probe
+        topics must already have subscribers — no event should be lost."""
+        import asyncio
+
+        from tests.fixtures.fake_transport import FakeTransport
+
+        from hermia.tui.app import HermiaApp
+        from hermia.tui.screens.hosts import HostsScreen
+        from hermia.tui.state import Host
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                pilot.app.config.hosts = [
+                    Host(name="h1", url="http://h1", engine="ollama"),
+                ]
+                subscribed_at_first_publish: set[str] = set()
+
+                original_publish = pilot.app.bus.publish
+
+                async def spy_publish(topic: str, event: dict) -> None:
+                    if topic.startswith("probe.") and not subscribed_at_first_publish:
+                        subscribed_at_first_publish.update(pilot.app.bus._subscribers.keys())
+                    await original_publish(topic, event)
+
+                pilot.app.bus.publish = spy_publish  # type: ignore[method-assign]
+
+                screen = HostsScreen(
+                    transport_factory=lambda h: FakeTransport(models=[]),
+                    probe_timeout=2.0,
+                )
+                pilot.app.push_screen(screen)
+
+                for _ in range(30):
+                    if subscribed_at_first_publish:
+                        break
+                    await pilot.pause()
+
+                assert subscribed_at_first_publish, "no probe events published"
+                assert "probe.started" in subscribed_at_first_publish
+                assert "probe.completed" in subscribed_at_first_publish
+                assert "probe.failed" in subscribed_at_first_publish
+
+        asyncio.run(_run())
+
+
 class TestHostsFooter:
     def test_footer_present(self) -> None:
         async def _run() -> None:

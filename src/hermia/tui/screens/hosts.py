@@ -11,7 +11,7 @@ Both share app.bus — screens subscribe only to their own prefix.
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 from textual import work
@@ -161,16 +161,22 @@ class HostsScreen(Screen[None]):
         and per-screen (listener tasks created once and reused, so
         re-firing _start_probes after add-host doesn't double-subscribe).
         """
-        # Subscribe first so events fired during probe_host land in queues.
-        # Listeners are screen-lifetime singletons — multiple _start_probes
-        # calls reuse the same subscribers (no duplicate event handling).
+        # Subscribe synchronously before spawning tasks so queues are registered
+        # with no race window. create_task() schedules but doesn't step the
+        # coroutine; anything published between create_task and the first sleep(0)
+        # would be lost if subscribe() were called inside the task.
         if not self._listener_tasks:
             self._listener_tasks = [
-                asyncio.create_task(self._listen("probe.started", "probing")),
-                asyncio.create_task(self._listen("probe.completed", "ok")),
-                asyncio.create_task(self._listen("probe.failed", "failed")),
+                asyncio.create_task(
+                    self._listen(self.app.bus.subscribe("probe.started"), "probing")  # type: ignore[attr-defined]
+                ),
+                asyncio.create_task(
+                    self._listen(self.app.bus.subscribe("probe.completed"), "ok")  # type: ignore[attr-defined]
+                ),
+                asyncio.create_task(
+                    self._listen(self.app.bus.subscribe("probe.failed"), "failed")  # type: ignore[attr-defined]
+                ),
             ]
-            await asyncio.sleep(0)  # give subscribers a tick to register
 
         # Resolve transport factory lazily so unit tests don't import urllib
         # paths unless a real probe runs.
@@ -209,8 +215,8 @@ class HostsScreen(Screen[None]):
             t.cancel()
         self.workers.cancel_all()
 
-    async def _listen(self, topic: str, final_state: str) -> None:
-        async for ev in self.app.bus.subscribe(topic):  # type: ignore[attr-defined]
+    async def _listen(self, gen: AsyncIterator[dict[str, Any]], final_state: str) -> None:
+        async for ev in gen:
             self.probe_state[ev["host_name"]] = final_state
             if self.is_mounted:
                 self._rerender()

@@ -699,6 +699,100 @@ def test_run_fleet_zero_models_counts_as_skipped(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# hermia-7ao: load_fleet_config must accept TUI-saved fleet YAML
+# ---------------------------------------------------------------------------
+
+
+def test_load_fleet_config_accepts_tui_format(tmp_path: Path) -> None:
+    """load_fleet_config must accept TUI-saved YAML (hosts:/url:/engine: schema).
+
+    TUI's save_fleet writes a different schema than the headless runner expects:
+      - key 'hosts' (not 'fleet')
+      - field 'url' (not 'host')
+      - field 'engine' (not 'transport')
+      - auth as flat 'auth_header_env' (not nested auth.bearer.key_env)
+
+    Users who create fleets in the TUI and try to run them headless get:
+      ValueError: Fleet config must contain at least one entry under 'fleet'
+    """
+    from hermia.tui.fleet_io import save_fleet
+    from hermia.tui.state import FleetConfig, Host, ModelChoice
+
+    config = FleetConfig(
+        name="kwaainet-baseline",
+        hosts=[
+            Host(
+                name="eric-5090",
+                url="https://eric:11434",
+                engine="ollama",
+                models=[ModelChoice(name="qwen3:32b", selected=True)],
+            )
+        ],
+        tests=["prompt-injection-1"],
+        repeat=2,
+    )
+    yaml_path = save_fleet(config, root=tmp_path)
+
+    entries = load_fleet_config(yaml_path)
+
+    assert len(entries) == 1
+    assert entries[0]["name"] == "eric-5090"
+    assert entries[0]["host"] == "https://eric:11434"
+    assert entries[0].get("transport", "ollama") == "ollama"
+
+
+def test_load_fleet_config_tui_format_with_auth(tmp_path: Path) -> None:
+    """TUI-saved auth_header_env maps to the headless auth.bearer.key_env structure."""
+    from hermia.tui.fleet_io import save_fleet
+    from hermia.tui.state import FleetConfig, Host
+
+    config = FleetConfig(
+        name="secured",
+        hosts=[
+            Host(
+                name="gateway",
+                url="https://gw:4000",
+                engine="openai-compat",
+                auth_header_env="LITELLM_KEY",
+            )
+        ],
+    )
+    yaml_path = save_fleet(config, root=tmp_path)
+
+    entries = load_fleet_config(yaml_path)
+
+    assert entries[0]["auth"]["bearer"]["key_env"] == "LITELLM_KEY"
+    assert entries[0].get("transport", "ollama") == "openai-compat"
+
+
+def test_load_fleet_config_tui_format_preserves_model_list(tmp_path: Path) -> None:
+    """TUI-saved selected models are preserved as a list when loaded headless."""
+    from hermia.tui.fleet_io import save_fleet
+    from hermia.tui.state import FleetConfig, Host, ModelChoice
+
+    config = FleetConfig(
+        name="models-test",
+        hosts=[
+            Host(
+                name="node",
+                url="http://node:11434",
+                engine="ollama",
+                models=[
+                    ModelChoice(name="qwen3:32b", selected=True),
+                    ModelChoice(name="llama3:8b", selected=True),
+                    ModelChoice(name="unused", selected=False),
+                ],
+            )
+        ],
+    )
+    yaml_path = save_fleet(config, root=tmp_path)
+
+    entries = load_fleet_config(yaml_path)
+
+    assert entries[0]["models"] == ["qwen3:32b", "llama3:8b"]
+
+
 def test_load_fleet_config_transport_default(tmp_path: Path) -> None:
     """No transport field → loads without error; default resolves to 'ollama'."""
     cfg = tmp_path / "fleet.yaml"
