@@ -262,6 +262,50 @@ class TestTuiRunnerBusEvents:
 
         asyncio.run(_run())
 
+    def test_stalled_trial_times_out_and_publishes_error_verdict(self) -> None:
+        """A run_fn that stalls beyond trial_timeout must resolve as error, not hang."""
+        import threading
+
+        async def _run() -> None:
+            bus = SessionBus()
+            finished: list[dict] = []
+            unblock = threading.Event()
+
+            def stall_fn(model_name, test, *, host, engine, auth_env):
+                # Blocks until unblock is set — simulates Ollama stall.
+                unblock.wait(timeout=10)
+                return {
+                    "model": model_name, "test_id": test["id"],
+                    "failure_reason": "", "elapsed_sec": 0.0, "output_preview": "", "signals": {},
+                }
+
+            async def listen() -> None:
+                async for ev in bus.subscribe("run.trial_finished"):
+                    finished.append(ev)
+                    return
+
+            task = asyncio.create_task(listen())
+            await asyncio.sleep(0)
+
+            config = _make_config()
+            runner = TuiRunner(
+                config=config,
+                bus=bus,
+                results_dir=None,
+                run_test_fn=stall_fn,
+                _tests_override=[{"id": "t1"}],
+                trial_timeout=0.05,
+            )
+            await runner.start()
+            # Should resolve within a short window — trial_timeout=0.05s + slack.
+            await asyncio.wait_for(task, timeout=3.0)
+            unblock.set()  # release the stalled thread
+
+            assert finished[0]["verdict"] == "error"
+            assert "TIMEOUT" in finished[0]["failure_reason"]
+
+        asyncio.run(_run())
+
     def test_error_result_publishes_error_verdict(self) -> None:
         async def _run() -> None:
             bus = SessionBus()

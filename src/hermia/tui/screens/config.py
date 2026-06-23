@@ -21,10 +21,10 @@ class FleetConfigScreen(Screen[None]):
         Binding("escape", "back", "Back", show=True),
         Binding("up", "cursor_prev", "Up", show=False),
         Binding("down", "cursor_next", "Down", show=False),
-        Binding("enter", "drill", "Drill", show=True),
+        Binding("enter", "drill", "Open", show=True),
         Binding("s", "save", "Save", show=True),
         Binding("l", "load", "Load", show=False),
-        Binding("r", "run", "Run", show=False),
+        Binding("r", "run", "Run", show=True),
     ]
 
     ROWS = [("hosts", "Hosts"), ("tests", "Tests")]
@@ -58,6 +58,14 @@ class FleetConfigScreen(Screen[None]):
     def compose(self) -> ComposeResult:
         with Vertical():
             yield Breadcrumb(self._breadcrumb_segments())
+            yield Static(
+                "Step 1: Open Hosts to pick which models to test.\n"
+                "Step 2: Open Tests to choose which security tests to run.\n"
+                "Step 3: Press r to start the run.\n"
+                "\n"
+                "Use ↑↓ to move between rows, Enter to open.",
+                id="config-instructions",
+            )
             yield Static("", id="config-summary-hosts")
             yield Static("", id="config-summary-tests")
             yield Static("", id="config-run-plan")

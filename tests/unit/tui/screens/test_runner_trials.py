@@ -1,11 +1,13 @@
 """Tests for RunnerTrialsScreen (L2 trial table)."""
 import asyncio
+from io import StringIO
 
+from rich.console import Console
 from textual.widgets import Footer
 
 from hermia.tui.app import HermiaApp
 from hermia.tui.screens.runner import RunnerScreen
-from hermia.tui.screens.runner_trials import RunnerTrialsScreen
+from hermia.tui.screens.runner_trials import RunnerTrialsScreen, _TrialRow
 from hermia.tui.state import FleetConfig, Host, ModelChoice
 
 
@@ -170,6 +172,47 @@ class TestRunnerTrialsScreenNavigation:
                 assert isinstance(pilot.app.screen, RunnerDetailScreen)
 
         asyncio.run(_run())
+
+
+class TestRowText:
+    def _make_screen(self) -> RunnerTrialsScreen:
+        host = Host(name="h", url="http://h:11434", engine="ollama", models=[])
+        screen = RunnerTrialsScreen.__new__(RunnerTrialsScreen)
+        screen._host = host
+        screen.cursor_idx = 0
+        return screen
+
+    def _render(self, text: str) -> str:
+        buf = StringIO()
+        console = Console(file=buf, markup=True, no_color=True, highlight=False, width=200)
+        console.print(text, end="")
+        return buf.getvalue()
+
+    def test_failure_reason_rich_style_name_survives_rendering(self) -> None:
+        # _row_text wraps failure_reason in [...]. A reason equal to a Rich style
+        # name (e.g. "bold", "b", "red") produces "[bold]" in the row string, which
+        # Rich consumes as a markup tag — the reason disappears from the output.
+        # rich.markup.escape in _row_text prevents this.
+        screen = self._make_screen()
+        trial = _TrialRow(
+            model_name="m", test_id="t1", repeat_idx=1,
+            state="error", failure_reason="bold",
+        )
+        row = screen._row_text(trial, 0)
+        rendered = self._render(row)
+        assert "bold" in rendered
+
+    def test_failure_reason_with_inner_brackets_survives_rich_rendering(self) -> None:
+        # failure_reason containing brackets (e.g. from Go panic messages:
+        # "index out of range [5]") must appear intact in the rendered row.
+        screen = self._make_screen()
+        trial = _TrialRow(
+            model_name="llama3.2", test_id="t1", repeat_idx=1,
+            state="error", failure_reason="TIMEOUT: no response in [120s]",
+        )
+        row = screen._row_text(trial, 0)
+        rendered = self._render(row)
+        assert "TIMEOUT: no response in [120s]" in rendered
 
 
 class TestRunnerTrialsFooter:

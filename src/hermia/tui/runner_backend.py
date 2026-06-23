@@ -20,6 +20,8 @@ from typing import Any
 from hermia.tui.bus import SessionBus
 from hermia.tui.state import FleetConfig, Host, ModelChoice
 
+TRIAL_WALL_TIMEOUT: float = 120.0
+
 
 def verdict_from_result(result: dict[str, Any]) -> str:
     """Convert a run_test result dict to a TUI verdict string.
@@ -53,12 +55,14 @@ class TuiRunner:
         *,
         run_test_fn: RunTestFn | None = None,
         _tests_override: list[dict[str, Any]] | None = None,  # for tests only
+        trial_timeout: float = TRIAL_WALL_TIMEOUT,
     ) -> None:
         self._config = config
         self._bus = bus
         self._results_dir = results_dir
         self._run_fn: RunTestFn = run_test_fn or _real_run_test
         self._tests_override = _tests_override
+        self._trial_timeout = trial_timeout
         self._abort_requested = False
         self._n_completed = 0
         self._task: asyncio.Task[None] | None = None
@@ -159,14 +163,30 @@ class TuiRunner:
         })
 
         try:
-            result: dict[str, Any] = await asyncio.to_thread(
-                self._run_fn,
-                model.name,
-                test,
-                host=host.url,
-                engine=host.engine,
-                auth_env=host.auth_header_env,
+            # wait_for cancels the coroutine wrapper on timeout but cannot kill
+            # the OS thread. The thread runs until _run_fn returns or its own
+            # socket timeout fires (~90 s via the transport layer), so zombie
+            # threads are bounded to at most 1-2 per host lane at any moment.
+            result: dict[str, Any] = await asyncio.wait_for(
+                asyncio.to_thread(
+                    self._run_fn,
+                    model.name,
+                    test,
+                    host=host.url,
+                    engine=host.engine,
+                    auth_env=host.auth_header_env,
+                ),
+                timeout=self._trial_timeout,
             )
+        except TimeoutError:
+            result = {
+                "model": model.name,
+                "test_id": test["id"],
+                "failure_reason": f"TIMEOUT: no response in {self._trial_timeout:.0f}s",
+                "elapsed_sec": self._trial_timeout,
+                "output_preview": "",
+                "signals": {},
+            }
         except Exception as exc:  # noqa: BLE001
             result = {
                 "model": model.name,

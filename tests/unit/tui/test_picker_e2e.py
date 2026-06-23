@@ -85,8 +85,8 @@ class TestPickerE2E:
     def test_quick_local_flow_ends_in_config_screen_with_pre_populated_config(self) -> None:
         async def _run() -> None:
             async with HermiaApp().run_test() as pilot:
-                # Launch → Quick local run (third entry).
-                await pilot.press("down", "down", "enter")
+                # Launch → Quick local run (first entry).
+                await pilot.press("enter")
                 await pilot.pause()
                 assert isinstance(pilot.app.screen, FleetConfigScreen)
                 cfg = pilot.app.config
@@ -110,8 +110,8 @@ class TestPickerE2E:
 
         async def _run() -> None:
             async with HermiaApp().run_test() as pilot:
-                # Launch → Load existing (first entry) → enter on the only fleet.
-                await pilot.press("enter")
+                # Launch → Load existing (third entry) → enter on the only fleet.
+                await pilot.press("down", "down", "enter")
                 await pilot.pause()
                 await pilot.press("enter")
                 await pilot.pause()

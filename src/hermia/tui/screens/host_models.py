@@ -10,7 +10,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import Screen
-from textual.widgets import Footer
+from textual.widgets import Footer, Static
 
 from hermia.tui.screens._dirty import _mark_dirty_in_stack
 from hermia.tui.state import Host
@@ -27,7 +27,7 @@ class HostModelsScreen(Screen[None]):
         Binding("space", "toggle_model", "Toggle", show=True),
         Binding("a", "select_all", "All", show=True),
         Binding("n", "select_none", "None", show=True),
-        Binding("slash", "search_open", "Search", show=False),
+        Binding("slash", "search_open", "Search", show=True),
     ]
 
     def __init__(self, *, host: Host) -> None:
@@ -43,6 +43,13 @@ class HostModelsScreen(Screen[None]):
         name = self.app.config.name or "(unnamed)"  # type: ignore[attr-defined]
         with Vertical():
             yield Breadcrumb(["hermia", "fleet", name, "hosts", self._host.name])
+            yield Static(
+                "Select which models on this host to include in the run.\n"
+                "\n"
+                "  Space  Toggle selected     a  Select all     n  Select none\n"
+                "  /  Search by name          Esc  Back to hosts",
+                id="host-models-instructions",
+            )
             rows = [ListRow(id_=m.name, label=m.name) for m in self._host.models]
             yield DrillableList(rows)
             yield SearchBar()
