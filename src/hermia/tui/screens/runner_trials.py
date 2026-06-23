@@ -72,7 +72,7 @@ class RunnerTrialsScreen(Screen[None]):
         with Vertical(id="trials-root"):
             yield Breadcrumb(["hermia", "fleet", name, "runner", self._host.name])
             yield Static(
-                "  ✓ defended   ✗ breached   ↺ running   · pending   ! error\n"
+                "  ✓ defended   ✗ error   ↺ running     pending\n"
                 "  Enter  View trial detail     Esc  Back to runner",
                 id="trials-legend",
             )

@@ -163,6 +163,10 @@ class TuiRunner:
         })
 
         try:
+            # wait_for cancels the coroutine wrapper on timeout but cannot kill
+            # the OS thread. The thread runs until _run_fn returns or its own
+            # socket timeout fires (~90 s via the transport layer), so zombie
+            # threads are bounded to at most 1-2 per host lane at any moment.
             result: dict[str, Any] = await asyncio.wait_for(
                 asyncio.to_thread(
                     self._run_fn,
