@@ -61,7 +61,8 @@ def load_fleet_config(path: Path) -> list[dict[str, Any]]:
         raw = data.get("fleet") if isinstance(data, dict) else None
         entries = raw if isinstance(raw, list) else None
     if not isinstance(entries, list) or not entries:
-        key_name = "hosts" if isinstance(data, dict) and "hosts" in data and "fleet" not in data else "fleet"
+        is_tui_fmt = isinstance(data, dict) and "hosts" in data and "fleet" not in data
+        key_name = "hosts" if is_tui_fmt else "fleet"
         raise ValueError(f"Fleet config must contain at least one entry under '{key_name}'")
     for i, entry in enumerate(entries):
         if not isinstance(entry, dict):

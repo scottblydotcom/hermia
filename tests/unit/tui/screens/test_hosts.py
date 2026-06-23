@@ -284,11 +284,10 @@ class TestSubscriptionRace:
         topics must already have subscribers — no event should be lost."""
         import asyncio
 
-        from tests.fixtures.fake_transport import FakeTransport
-
         from hermia.tui.app import HermiaApp
         from hermia.tui.screens.hosts import HostsScreen
         from hermia.tui.state import Host
+        from tests.fixtures.fake_transport import FakeTransport
 
         async def _run() -> None:
             async with HermiaApp().run_test() as pilot:
