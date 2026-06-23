@@ -1,7 +1,6 @@
 """Tests for RunnerTrialsScreen (L2 trial table)."""
 import asyncio
 from io import StringIO
-from unittest.mock import MagicMock
 
 from rich.console import Console
 from textual.widgets import Footer
@@ -185,7 +184,8 @@ class TestRowText:
 
     def _render(self, text: str) -> str:
         buf = StringIO()
-        Console(file=buf, markup=True, no_color=True, highlight=False, width=200).print(text, end="")
+        console = Console(file=buf, markup=True, no_color=True, highlight=False, width=200)
+        console.print(text, end="")
         return buf.getvalue()
 
     def test_failure_reason_rich_style_name_survives_rendering(self) -> None:
