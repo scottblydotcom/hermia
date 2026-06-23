@@ -37,10 +37,16 @@ class LaunchScreen(Screen[None]):
     ]
 
     HOME_ENTRIES: list[LaunchEntry] = [
-        LaunchEntry(id="load", label="Load existing fleet"),
-        LaunchEntry(id="new", label="New fleet"),
         LaunchEntry(id="quick", label="Quick local run"),
+        LaunchEntry(id="new", label="New fleet"),
+        LaunchEntry(id="load", label="Load existing fleet"),
     ]
+
+    HOME_DESCRIPTIONS: dict[str, str] = {
+        "quick": "Probe localhost:11434 (Ollama) and run all 30 security tests. Start here.",
+        "new":   "Choose which hosts, models, and tests to include. Save as a named fleet.",
+        "load":  "Resume a previously saved fleet configuration.",
+    }
 
     def __init__(self) -> None:
         super().__init__()
@@ -53,7 +59,8 @@ class LaunchScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="launch-root"):
-            yield Static("Welcome to hermia fleet", id="launch-title")
+            yield Static("hermia — LLM security evaluation", id="launch-title")
+            yield Static("", id="launch-subtitle")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -65,12 +72,19 @@ class LaunchScreen(Screen[None]):
 
     def _rerender(self) -> None:
         root = self.query_one("#launch-root", Vertical)
-        # Update title in place rather than re-mounting.
-        title = root.query_one("#launch-title", Static)
-        title.update("Welcome to hermia fleet" if self.mode == "home" else "Load fleet")
-        # Remove old dynamic children (everything except the title).
+        # Update title + subtitle in place.
+        root.query_one("#launch-title", Static).update(
+            "hermia — LLM security evaluation" if self.mode == "home" else "Load fleet"
+        )
+        subtitle = root.query_one("#launch-subtitle", Static)
+        subtitle.update(
+            "Use ↑↓ to move, Enter to select, q to quit."
+            if self.mode == "home"
+            else "Select a saved fleet with Enter, or Esc to go back."
+        )
+        # Remove old dynamic children (everything except title + subtitle).
         for child in list(root.children):
-            if child.id == "launch-title":
+            if child.id in ("launch-title", "launch-subtitle"):
                 continue
             child.remove()
         # Mount fresh dynamic children with seq-bumped IDs so any AwaitRemove
@@ -80,8 +94,12 @@ class LaunchScreen(Screen[None]):
         if not self.entries:
             root.mount(Static("No saved fleets in fleets/", id="launch-empty-notice"))
             return
+        root.mount(Static("", id=f"launch-gap-{seq}"))
         for i, entry in enumerate(self.entries):
             root.mount(Static(self._row_text(entry, i), id=f"launch-row-{seq}-{i}"))
+            if self.mode == "home" and entry.id in self.HOME_DESCRIPTIONS:
+                desc = self.HOME_DESCRIPTIONS[entry.id]
+                root.mount(Static(f"       {desc}", id=f"launch-desc-{seq}-{i}"))
 
     def _scan_fleets(self) -> list[LaunchEntry]:
         fleets_dir = Path("fleets")

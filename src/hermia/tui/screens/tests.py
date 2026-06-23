@@ -10,7 +10,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
 from textual.screen import Screen
-from textual.widgets import Footer
+from textual.widgets import Footer, Static
 
 from hermia.tui.screens._dirty import _mark_dirty_in_stack
 from hermia.tui.test_catalog import FRAMEWORKS, load_test_catalog
@@ -32,8 +32,8 @@ class TestsScreen(Screen[None]):
         Binding("space", "toggle_test", "Toggle", show=True),
         Binding("a", "select_all", "All", show=True),
         Binding("n", "select_none", "None", show=True),
-        Binding("slash", "search_open", "Search", show=False),
-        Binding("tab", "next_axis", "Filter axis", show=False),
+        Binding("slash", "search_open", "Search", show=True),
+        Binding("tab", "next_axis", "Filter", show=True),
         Binding("right", "next_value", "Next value", show=False),
         Binding("left", "prev_value", "Prev value", show=False),
     ]
@@ -53,6 +53,15 @@ class TestsScreen(Screen[None]):
         name = self.app.config.name or "(unnamed)"  # type: ignore[attr-defined]
         with Vertical():
             yield Breadcrumb(["hermia", "fleet", name, "tests"])
+            yield Static(
+                "Choose which security tests to run against your models.\n"
+                "All 30 tests are selected by default — deselect any you want to skip.\n"
+                "\n"
+                "  Space  Toggle     a  Select all     n  Select none\n"
+                "  /  Search by test ID     Tab  Cycle framework filter\n"
+                "  ←→  Change filter value     Esc  Back to fleet config",
+                id="tests-instructions",
+            )
             yield FilterAxis({"framework": FRAMEWORKS})
             rows = [ListRow(id_=r.id, label=r.id) for r in self._catalog]
             yield DrillableList(rows)

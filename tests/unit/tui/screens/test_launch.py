@@ -14,7 +14,7 @@ class TestLaunchEntries:
                 assert isinstance(pilot.app.screen, LaunchScreen)
                 screen: LaunchScreen = pilot.app.screen  # type: ignore[assignment]
                 labels = [e.label for e in screen.entries]
-                assert labels == ["Load existing fleet", "New fleet", "Quick local run"]
+                assert labels == ["Quick local run", "New fleet", "Load existing fleet"]
 
         asyncio.run(_run())
 
@@ -78,7 +78,9 @@ class TestLoadExisting:
 
         async def _run() -> None:
             async with HermiaApp().run_test() as pilot:
-                await pilot.press("enter")  # selects Load
+                await pilot.press("down")
+                await pilot.press("down")  # cursor → Load (index 2)
+                await pilot.press("enter")
                 await pilot.pause()
                 screen: LaunchScreen = pilot.app.screen  # type: ignore[assignment]
                 labels = [e.label for e in screen.entries]
@@ -101,7 +103,9 @@ class TestLoadExisting:
 
         async def _run() -> None:
             async with HermiaApp().run_test() as pilot:
-                await pilot.press("enter")  # Load
+                await pilot.press("down")
+                await pilot.press("down")  # cursor → Load (index 2)
+                await pilot.press("enter")
                 await pilot.pause()
                 await pilot.press("enter")  # select alpha
                 await pilot.pause()
@@ -125,7 +129,9 @@ class TestLoadExisting:
 
         async def _run() -> None:
             async with HermiaApp().run_test() as pilot:
-                await pilot.press("enter")  # Load
+                await pilot.press("down")
+                await pilot.press("down")  # cursor → Load (index 2)
+                await pilot.press("enter")
                 await pilot.pause()
                 await pilot.press("enter")  # try to load 'broken'
                 await pilot.pause()
@@ -140,7 +146,9 @@ class TestLoadExisting:
 
         async def _run() -> None:
             async with HermiaApp().run_test() as pilot:
-                await pilot.press("enter")  # Load
+                await pilot.press("down")
+                await pilot.press("down")  # cursor → Load (index 2)
+                await pilot.press("enter")
                 await pilot.pause()
                 await pilot.pause()  # let _rerender mount() complete
                 screen: LaunchScreen = pilot.app.screen  # type: ignore[assignment]
@@ -155,14 +163,16 @@ class TestLoadExisting:
 
         async def _run() -> None:
             async with HermiaApp().run_test() as pilot:
-                await pilot.press("enter")  # Load
+                await pilot.press("down")
+                await pilot.press("down")  # cursor → Load (index 2)
+                await pilot.press("enter")
                 await pilot.pause()
                 await pilot.press("escape")
                 await pilot.pause()
                 screen: LaunchScreen = pilot.app.screen  # type: ignore[assignment]
                 assert screen.mode == "home"
                 assert [e.label for e in screen.entries] == [
-                    "Load existing fleet", "New fleet", "Quick local run",
+                    "Quick local run", "New fleet", "Load existing fleet",
                 ]
 
         asyncio.run(_run())
@@ -176,7 +186,7 @@ class TestNewFleet:
             async with HermiaApp().run_test() as pilot:
                 # Mutate config first so we can prove New resets it.
                 pilot.app.config.name = "stale"
-                await pilot.press("down")  # cursor → New
+                await pilot.press("down")  # cursor → New (index 1)
                 await pilot.press("enter")
                 await pilot.pause()
                 assert pilot.app.config.name == ""
@@ -193,9 +203,7 @@ class TestQuickLocalRun:
 
         async def _run() -> None:
             async with HermiaApp().run_test() as pilot:
-                await pilot.press("down")
-                await pilot.press("down")  # cursor → Quick
-                await pilot.press("enter")
+                await pilot.press("enter")  # Quick local run is index 0
                 await pilot.pause()
                 cfg = pilot.app.config
                 assert cfg.name == "quick-local"

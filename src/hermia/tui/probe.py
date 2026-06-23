@@ -59,7 +59,10 @@ async def probe_host(
         # Happy-path inside the try block so a transport returning None or a
         # non-iterable surfaces as `unexpected` (catches our own bugs) rather
         # than crashing the coroutine outside the handler.
-        host.models = [ModelChoice(name=n, selected=False) for n in model_names]
+        # Preserve selected state for models that already exist — re-probing
+        # (e.g. when HostsScreen is pushed again) must not wipe user selections.
+        existing_selected = {m.name for m in host.models if m.selected}
+        host.models = [ModelChoice(name=n, selected=n in existing_selected) for n in model_names]
         await bus.publish(
             "probe.completed",
             {

@@ -70,6 +70,11 @@ class RunnerTrialsScreen(Screen[None]):
         name = self.app_config.name or "(unnamed)"
         with Vertical(id="trials-root"):
             yield Breadcrumb(["hermia", "fleet", name, "runner", self._host.name])
+            yield Static(
+                "  ✓ defended   ✗ breached   ↺ running   · pending   ! error\n"
+                "  Enter  View trial detail     Esc  Back to runner",
+                id="trials-legend",
+            )
         yield Footer()
 
     def on_mount(self) -> None:
@@ -119,7 +124,10 @@ class RunnerTrialsScreen(Screen[None]):
             for i, trial in enumerate(self._trials):
                 cast("Static", current[i]).update(self._row_text(trial, i))
             return
-        stale = [c for c in root.children if not isinstance(c, Breadcrumb)]
+        stale = [
+            c for c in root.children
+            if not isinstance(c, Breadcrumb) and c.id != "trials-legend"
+        ]
         for child in stale:
             child.remove()
         self._render_seq += 1

@@ -67,6 +67,13 @@ class HostsScreen(Screen[None]):
         name = self.app_config.name or "(unnamed)"
         with Vertical(id="hosts-root"):
             yield Breadcrumb(["hermia", "fleet", name, "hosts"])
+            yield Static(
+                "Each host is an Ollama endpoint. hermia will probe it and list available models.\n"
+                "\n"
+                "  +  Add a new host          Enter  Choose models for this host\n"
+                "  Esc  Back to fleet config",
+                id="hosts-instructions",
+            )
         yield Footer()
 
     def on_mount(self) -> None:
@@ -81,7 +88,10 @@ class HostsScreen(Screen[None]):
 
     def _rerender(self) -> None:
         root = self.query_one("#hosts-root", Vertical)
-        existing_rows = [c for c in root.children if not isinstance(c, Breadcrumb)]
+        existing_rows = [
+            c for c in root.children
+            if not isinstance(c, Breadcrumb) and c.id != "hosts-instructions"
+        ]
         # Stable-row optimization (Plan 1 lesson): when host count is unchanged
         # and we're not transitioning to/from empty state, update Statics in
         # place. Cursor moves and probe-state updates take this path.
