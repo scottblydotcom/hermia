@@ -10,6 +10,7 @@ import asyncio
 from dataclasses import dataclass
 from typing import cast
 
+from rich.markup import escape
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
@@ -106,7 +107,7 @@ class RunnerTrialsScreen(Screen[None]):
         _icons = {"pending": " ", "running": "↺", "defended": "✓", "error": "✗"}
         state_icon = _icons.get(trial.state, "?")
         elapsed = f"  {trial.elapsed_sec:.1f}s" if trial.elapsed_sec is not None else ""
-        reason = f"  [{trial.failure_reason}]" if trial.failure_reason else ""
+        reason = f"  {escape(f'[{trial.failure_reason}]')}" if trial.failure_reason else ""
         return (
             f"{cursor} {state_icon}  {trial.model_name:<20}"
             f"  {trial.test_id:<24}{elapsed}{reason}"
