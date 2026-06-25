@@ -1320,7 +1320,7 @@ def test_run_host_eval_shares_one_cache_across_run_test_calls(
     seen_caches: list[object] = []
 
     def fake_run_test(model, test, sampler, host=None, headers=None,
-                      transport=None, *, locality=None, fp_cache=None):
+                      transport=None, *, locality=None, fp_cache=None, **kw):
         seen_caches.append(fp_cache)
         return {
             "model": model, "test_id": test["id"], "failure_reason": "",
@@ -1411,3 +1411,203 @@ def test_run_host_eval_dispatches_openai_compat_engine(
     assert seen_engines == ["openai-compat"], (
         f"openai-compat entry must dispatch engine='openai-compat'; got {seen_engines}"
     )
+
+
+# ---------------------------------------------------------------------------
+# test_timeout — configurable per-request timeout (hermia-rc8)
+# ---------------------------------------------------------------------------
+
+def _minimal_run_result(model: str = "m1", test_id: str = "t1") -> dict:
+    return {
+        "model": model, "test_id": test_id, "failure_reason": "",
+        "elapsed_sec": 0.1, "tokens_per_sec": 1.0, "mode": "fleet",
+        "peak_cpu_pct": None, "peak_ram_used_gb": None,
+        "peak_gpu_pct": None, "peak_vram_used_gb": None,
+    }
+
+
+def test_run_test_uses_custom_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    """run_test forwards test_timeout to _play_turns."""
+    import requests
+    from hermia.runner import run_test
+    from hermia.metrics import MetricsSampler
+
+    captured: list[int] = []
+
+    class FakeTransport:
+        is_api_mode = True
+
+        def generate(self, model, messages, **opts):
+            from hermia.transport.base import Response
+            captured.append(opts.get("timeout", -1))
+            return Response(text='{"ok": true}', tokens=5, elapsed_sec=0.1,
+                            orchestration="test", orchestration_version=None,
+                            is_api_mode=True)
+
+    monkeypatch.setattr("hermia.runner.FingerprintCache",
+                        lambda: MagicMock(get_or_probe=lambda *a, **k: (None, "none")),
+                        raising=False)
+    monkeypatch.setattr("hermia.runner.SCHEMA_CHECKS", {}, raising=False)
+    monkeypatch.setattr("hermia.runner.SIGNAL_EXTRACTORS", {}, raising=False)
+    monkeypatch.setattr("hermia.runner.fetch_server_ps_data",
+                        lambda *a, **k: {"vram_server_gb": None, "model_size_server_gb": None},
+                        raising=False)
+    monkeypatch.setattr("hermia.runner.load_framework_versions", lambda: {}, raising=False)
+
+    test = {"id": "t1", "prompt": "hello", "dimension": "tool-calling", "frameworks": {}}
+    run_test("m1", test, MetricsSampler(), transport=FakeTransport(), test_timeout=180)
+
+    assert captured == [180], f"expected timeout=180 passed to transport.generate, got {captured}"
+
+
+def test_run_test_timeout_error_message_uses_custom_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the request times out, the failure_reason includes the custom timeout value."""
+    import requests
+    from hermia.runner import run_test
+    from hermia.metrics import MetricsSampler
+
+    class TimingOutTransport:
+        is_api_mode = True
+
+        def generate(self, model, messages, **opts):
+            raise requests.exceptions.Timeout("timed out")
+
+    monkeypatch.setattr("hermia.runner.FingerprintCache",
+                        lambda: MagicMock(get_or_probe=lambda *a, **k: (None, "none")),
+                        raising=False)
+    monkeypatch.setattr("hermia.runner.SCHEMA_CHECKS", {}, raising=False)
+    monkeypatch.setattr("hermia.runner.SIGNAL_EXTRACTORS", {}, raising=False)
+    monkeypatch.setattr("hermia.runner.fetch_server_ps_data",
+                        lambda *a, **k: {"vram_server_gb": None, "model_size_server_gb": None},
+                        raising=False)
+    monkeypatch.setattr("hermia.runner.load_framework_versions", lambda: {}, raising=False)
+
+    test = {"id": "t1", "prompt": "hello", "dimension": "tool-calling", "frameworks": {}}
+    result = run_test("m1", test, MetricsSampler(), transport=TimingOutTransport(), test_timeout=120)
+
+    assert "120s" in result["failure_reason"], (
+        f"expected '120s' in failure_reason, got {result['failure_reason']!r}"
+    )
+
+
+def test_run_host_eval_cli_timeout_overrides_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CLI-supplied test_timeout reaches run_test when entry has no test_timeout key."""
+    import hermia.fleet as fleet
+    from hermia.results import open_run
+
+    captured_timeouts: list[int] = []
+
+    def fake_run_test(model, test, sampler, host=None, headers=None,
+                      transport=None, *, locality=None, fp_cache=None,
+                      test_timeout=90, **kw):  # type: ignore[no-untyped-def]
+        captured_timeouts.append(test_timeout)
+        return _minimal_run_result(model, test["id"])
+
+    monkeypatch.setattr("hermia.runner.run_test", fake_run_test, raising=False)
+    monkeypatch.setattr("hermia.runner.load_tests_all", lambda: [{"id": "t1"}], raising=False)
+    monkeypatch.setattr("hermia.runner.get_available_models",
+                        lambda host=None, headers=None: [{"name": "m1"}], raising=False)
+
+    jsonl, csv = open_run(tmp_path)
+    entry = {"name": "node", "host": "http://node:11434"}
+    fleet._run_host_eval(
+        entry, repeat=1, run_id="rid", jsonl_path=jsonl, csv_path=csv,
+        print_lock=__import__("threading").Lock(),
+        print_fn=lambda s: None, stderr_fn=lambda s: None, verbosity=-1,
+        test_timeout=180,
+    )
+
+    assert captured_timeouts == [180], f"expected [180], got {captured_timeouts}"
+
+
+def test_run_host_eval_yaml_timeout_used_when_no_cli_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Per-host 'test_timeout' in fleet YAML is used when no CLI flag is given."""
+    import hermia.fleet as fleet
+    from hermia.results import open_run
+
+    captured_timeouts: list[int] = []
+
+    def fake_run_test(model, test, sampler, host=None, headers=None,
+                      transport=None, *, locality=None, fp_cache=None,
+                      test_timeout=90, **kw):  # type: ignore[no-untyped-def]
+        captured_timeouts.append(test_timeout)
+        return _minimal_run_result(model, test["id"])
+
+    monkeypatch.setattr("hermia.runner.run_test", fake_run_test, raising=False)
+    monkeypatch.setattr("hermia.runner.load_tests_all", lambda: [{"id": "t1"}], raising=False)
+    monkeypatch.setattr("hermia.runner.get_available_models",
+                        lambda host=None, headers=None: [{"name": "m1"}], raising=False)
+
+    jsonl, csv = open_run(tmp_path)
+    entry = {"name": "node", "host": "http://node:11434", "test_timeout": 120}
+    fleet._run_host_eval(
+        entry, repeat=1, run_id="rid", jsonl_path=jsonl, csv_path=csv,
+        print_lock=__import__("threading").Lock(),
+        print_fn=lambda s: None, stderr_fn=lambda s: None, verbosity=-1,
+        test_timeout=None,  # no CLI flag
+    )
+
+    assert captured_timeouts == [120], f"expected [120] from YAML, got {captured_timeouts}"
+
+
+def test_run_host_eval_cli_timeout_overrides_yaml_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CLI flag wins over per-host 'test_timeout' in fleet YAML."""
+    import hermia.fleet as fleet
+    from hermia.results import open_run
+
+    captured_timeouts: list[int] = []
+
+    def fake_run_test(model, test, sampler, host=None, headers=None,
+                      transport=None, *, locality=None, fp_cache=None,
+                      test_timeout=90, **kw):  # type: ignore[no-untyped-def]
+        captured_timeouts.append(test_timeout)
+        return _minimal_run_result(model, test["id"])
+
+    monkeypatch.setattr("hermia.runner.run_test", fake_run_test, raising=False)
+    monkeypatch.setattr("hermia.runner.load_tests_all", lambda: [{"id": "t1"}], raising=False)
+    monkeypatch.setattr("hermia.runner.get_available_models",
+                        lambda host=None, headers=None: [{"name": "m1"}], raising=False)
+
+    jsonl, csv = open_run(tmp_path)
+    entry = {"name": "node", "host": "http://node:11434", "test_timeout": 120}
+    fleet._run_host_eval(
+        entry, repeat=1, run_id="rid", jsonl_path=jsonl, csv_path=csv,
+        print_lock=__import__("threading").Lock(),
+        print_fn=lambda s: None, stderr_fn=lambda s: None, verbosity=-1,
+        test_timeout=300,  # CLI wins
+    )
+
+    assert captured_timeouts == [300], f"expected CLI value [300], got {captured_timeouts}"
+
+
+def test_run_fleet_passes_timeout_to_host_eval(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """run_fleet forwards test_timeout kwarg into _run_host_eval."""
+    import hermia.fleet as fleet
+
+    captured: list[int | None] = []
+
+    def fake_run_host_eval(entry, repeat, run_id, jsonl_path, csv_path,
+                           print_lock, print_fn, stderr_fn, verbosity,
+                           test_timeout=None):  # type: ignore[no-untyped-def]
+        captured.append(test_timeout)
+        return True
+
+    monkeypatch.setattr(fleet, "_run_host_eval", fake_run_host_eval)
+    monkeypatch.setattr("hermia.results.open_run",
+                        lambda p: (tmp_path / "r.jsonl", tmp_path / "r.csv"))
+
+    entry = {"name": "n", "host": "http://node:11434"}
+    fleet.run_fleet([entry], repeat=1, results_dir=tmp_path,
+                    print_fn=lambda s: None, test_timeout=180)
+
+    assert captured == [180], f"expected [180] forwarded to _run_host_eval, got {captured}"

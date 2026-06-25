@@ -280,7 +280,9 @@ def run_test(
     *,
     locality: Literal["local", "remote"] | None = None,
     fp_cache: FingerprintCache | None = None,
+    test_timeout: int | None = None,
 ) -> dict[str, Any]:
+    _timeout = test_timeout if test_timeout is not None else TEST_TIMEOUT
     _host = _normalize_host(host) if host is not None else get_ollama_host()
     if locality is not None and locality not in ("local", "remote"):
         raise ValueError(
@@ -315,11 +317,11 @@ def run_test(
             model,
             test.get("system") or "",
             user_turns,
-            TEST_TIMEOUT,
+            _timeout,
             sampling_opts=_EVAL_SAMPLING,
         )
     except requests.exceptions.Timeout:
-        error_type = f"TIMEOUT: no response in {TEST_TIMEOUT}s"
+        error_type = f"TIMEOUT: no response in {_timeout}s"
     except TransportError as e:
         prefix = "OLLAMA_ERROR" if e.kind == "ollama" else "API_ERROR"
         error_type = f"{prefix}: {e}"
@@ -334,7 +336,7 @@ def run_test(
     tokens: int = response.tokens if response is not None else 0
     elapsed: float = (
         response.elapsed_sec if response is not None
-        else (TEST_TIMEOUT if "TIMEOUT" in error_type else error_elapsed)
+        else (_timeout if "TIMEOUT" in error_type else error_elapsed)
     )
     orchestration: str = response.orchestration if response is not None else "unknown"
     orchestration_version: str | None = (
