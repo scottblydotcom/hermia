@@ -11,8 +11,42 @@ from typing import Any
 import yaml
 
 
+def _tui_fleet_to_entries(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Convert TUI save_fleet format to headless fleet entries.
+
+    TUI writes: hosts[]{name, url, engine, auth_header_env?, hardware?, models[]}
+    Headless expects: fleet[]{name, host, transport?, auth.bearer.key_env?, models?}
+    """
+    hosts = data.get("hosts")
+    if hosts is not None and not isinstance(hosts, list):
+        raise ValueError(f"TUI fleet 'hosts' must be a list, got {type(hosts).__name__}")
+    entries = []
+    for h in (hosts or []):
+        if not isinstance(h, dict):
+            raise ValueError(
+                f"TUI fleet 'hosts' entry must be a mapping, got {type(h).__name__}"
+            )
+        entry: dict[str, Any] = {
+            "name": h.get("name"),
+            "host": h.get("url"),
+            "transport": h.get("engine", "ollama"),
+        }
+        if h.get("auth_header_env"):
+            entry["auth"] = {"bearer": {"key_env": h["auth_header_env"]}}
+        if h.get("models"):
+            entry["models"] = h["models"]
+        if h.get("stack"):
+            entry["stack"] = h["stack"]
+        entries.append(entry)
+    return entries
+
+
 def load_fleet_config(path: Path) -> list[dict[str, Any]]:
-    """Parse fleet YAML. Returns list of host entries. Raises ValueError on invalid config."""
+    """Parse fleet YAML. Returns list of host entries. Raises ValueError on invalid config.
+
+    Accepts both the headless format (fleet: key) and the TUI save_fleet format
+    (hosts: key) so fleets created in the TUI can be run headless without conversion.
+    """
     try:
         with path.open(encoding="utf-8") as f:
             data = yaml.safe_load(f)
@@ -20,9 +54,16 @@ def load_fleet_config(path: Path) -> list[dict[str, Any]]:
         raise ValueError(f"Cannot read fleet config {path}: {exc}") from exc
     except yaml.YAMLError as exc:
         raise ValueError(f"Invalid YAML in fleet config {path}: {exc}") from exc
-    entries = data.get("fleet") if isinstance(data, dict) else None
+    entries: list[dict[str, Any]] | None
+    if isinstance(data, dict) and "hosts" in data and "fleet" not in data:
+        entries = _tui_fleet_to_entries(data)
+    else:
+        raw = data.get("fleet") if isinstance(data, dict) else None
+        entries = raw if isinstance(raw, list) else None
     if not isinstance(entries, list) or not entries:
-        raise ValueError("Fleet config must contain at least one entry under 'fleet'")
+        is_tui_fmt = isinstance(data, dict) and "hosts" in data and "fleet" not in data
+        key_name = "hosts" if is_tui_fmt else "fleet"
+        raise ValueError(f"Fleet config must contain at least one entry under '{key_name}'")
     for i, entry in enumerate(entries):
         if not isinstance(entry, dict):
             raise ValueError(f"Fleet entry [{i}] must be a mapping, got {type(entry).__name__}")
