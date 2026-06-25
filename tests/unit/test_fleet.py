@@ -1428,9 +1428,8 @@ def _minimal_run_result(model: str = "m1", test_id: str = "t1") -> dict:
 
 def test_run_test_uses_custom_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     """run_test forwards test_timeout to _play_turns."""
-    import requests
-    from hermia.runner import run_test
     from hermia.metrics import MetricsSampler
+    from hermia.runner import run_test
 
     captured: list[int] = []
 
@@ -1464,9 +1463,10 @@ def test_run_test_timeout_error_message_uses_custom_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When the request times out, the failure_reason includes the custom timeout value."""
-    import requests
-    from hermia.runner import run_test
+    import requests  # noqa: PLC0415
+
     from hermia.metrics import MetricsSampler
+    from hermia.runner import run_test
 
     class TimingOutTransport:
         is_api_mode = True
@@ -1485,7 +1485,9 @@ def test_run_test_timeout_error_message_uses_custom_timeout(
     monkeypatch.setattr("hermia.runner.load_framework_versions", lambda: {}, raising=False)
 
     test = {"id": "t1", "prompt": "hello", "dimension": "tool-calling", "frameworks": {}}
-    result = run_test("m1", test, MetricsSampler(), transport=TimingOutTransport(), test_timeout=120)
+    result = run_test(
+        "m1", test, MetricsSampler(), transport=TimingOutTransport(), test_timeout=120
+    )
 
     assert "120s" in result["failure_reason"], (
         f"expected '120s' in failure_reason, got {result['failure_reason']!r}"
