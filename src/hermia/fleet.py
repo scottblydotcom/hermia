@@ -33,7 +33,7 @@ def _tui_fleet_to_entries(data: dict[str, Any]) -> list[dict[str, Any]]:
         }
         if h.get("auth_header_env"):
             entry["auth"] = {"bearer": {"key_env": h["auth_header_env"]}}
-        if h.get("models"):
+        if h.get("models") is not None:
             entry["models"] = h["models"]
         if h.get("stack"):
             entry["stack"] = h["stack"]
@@ -150,6 +150,7 @@ def _run_host_eval(
     print_fn: Callable[[str], None],
     stderr_fn: Callable[[str], None],
     verbosity: int,
+    test_timeout: int | None = None,
 ) -> bool:
     """Evaluate every (model, test, repeat) for one fleet host. Writes rows as it goes.
 
@@ -167,9 +168,30 @@ def _run_host_eval(
     from hermia.metrics import MetricsSampler
     from hermia.results import append_result
     from hermia.robustness import compute_reproducibility, score_rows
-    from hermia.runner import _normalize_host, get_available_models, load_tests_all, run_test
+    from hermia.runner import (
+        TEST_TIMEOUT,
+        _normalize_host,
+        get_available_models,
+        load_tests_all,
+        run_test,
+    )
     from hermia.transport.ollama import OllamaTransport
     from hermia.transport.openai_compat import OpenAICompatTransport
+
+    # Priority: caller-supplied (CLI flag) > per-host YAML key > module default.
+    if test_timeout is not None:
+        effective_timeout: int = test_timeout
+    elif "test_timeout" not in entry:
+        effective_timeout = TEST_TIMEOUT
+    else:
+        _yaml_timeout = entry["test_timeout"]
+        if isinstance(_yaml_timeout, bool) or not isinstance(_yaml_timeout, int) \
+                or _yaml_timeout < 1:
+            raise ValueError(
+                f"host '{entry.get('name')}': 'test_timeout' must be a positive integer,"
+                f" got {_yaml_timeout!r}"
+            )
+        effective_timeout = _yaml_timeout
 
     tests = load_tests_all()
     name = entry["name"]
@@ -264,6 +286,7 @@ def _run_host_eval(
                     model, test, sampler,
                     host=host_url, headers=headers, transport=host_transport,
                     locality="remote", fp_cache=fp_cache,
+                    test_timeout=effective_timeout,
                 )
                 result["run_id"] = run_id
                 result["run_timestamp"] = datetime.now(UTC).isoformat()
@@ -334,6 +357,7 @@ def run_fleet(
     stderr_fn: Callable[[str], None] = lambda msg: print(msg, file=sys.stderr),
     verbosity: int = 0,
     max_concurrency: int = 4,
+    test_timeout: int | None = None,
 ) -> Path:
     """Run headless eval against all fleet entries, concurrently across hosts.
 
@@ -365,6 +389,7 @@ def run_fleet(
             if _run_host_eval(
                 entry, repeat, run_id, jsonl_path, csv_path,
                 print_lock, print_fn, stderr_fn, verbosity,
+                test_timeout=test_timeout,
             ):
                 evaluated += 1
             else:

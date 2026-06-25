@@ -50,6 +50,17 @@ def main() -> None:
         help="Max number of distinct hosts evaluated concurrently (default: 4)",
     )
     parser.add_argument(
+        "--test-timeout",
+        type=_positive_int,
+        default=None,
+        metavar="SECONDS",
+        dest="test_timeout",
+        help=(
+            "Seconds to wait for each test request (default: 90)."
+            " Overrides per-host 'test_timeout:' in fleet YAML."
+        ),
+    )
+    parser.add_argument(
         "--audit",
         nargs="?",
         const=True,
@@ -86,6 +97,9 @@ def main() -> None:
     if args.repeat != 1 and not args.fleet:
         parser.error("--repeat can only be used with --fleet")
 
+    if args.test_timeout is not None and not args.fleet:
+        parser.error("--test-timeout can only be used with --fleet")
+
     if args.audit is not None:
         from hermia.audit import run_audit
         from hermia.submit import RESULTS_DIR
@@ -116,6 +130,7 @@ def main() -> None:
                 results_dir=RESULTS_DIR,
                 verbosity=verbosity,
                 max_concurrency=args.max_concurrency,
+                test_timeout=args.test_timeout,
             )
         except (ValueError, RuntimeError, OSError) as exc:
             print(f"hermia: {exc}", file=sys.stderr)
