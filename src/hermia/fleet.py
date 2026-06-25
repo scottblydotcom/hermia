@@ -185,7 +185,8 @@ def _run_host_eval(
         effective_timeout = TEST_TIMEOUT
     else:
         _yaml_timeout = entry["test_timeout"]
-        if not isinstance(_yaml_timeout, int) or _yaml_timeout < 1:
+        if isinstance(_yaml_timeout, bool) or not isinstance(_yaml_timeout, int) \
+                or _yaml_timeout < 1:
             raise ValueError(
                 f"host '{entry.get('name')}': 'test_timeout' must be a positive integer,"
                 f" got {_yaml_timeout!r}"

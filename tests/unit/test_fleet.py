@@ -1648,7 +1648,7 @@ def test_run_host_eval_rejects_invalid_yaml_timeout(
                         lambda host=None, headers=None: [{"name": "m1"}], raising=False)
 
     jsonl, csv = open_run(tmp_path)
-    for bad_value in ("fast", 0, -5, None):
+    for bad_value in ("fast", 0, -5, None, True, False):
         entry = {"name": "node", "host": "http://node:11434", "test_timeout": bad_value}
         with pytest.raises(ValueError, match="test_timeout"):
             fleet._run_host_eval(
