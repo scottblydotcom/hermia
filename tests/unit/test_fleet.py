@@ -1414,6 +1414,26 @@ def test_run_host_eval_dispatches_openai_compat_engine(
 
 
 # ---------------------------------------------------------------------------
+# TUI format edge cases
+# ---------------------------------------------------------------------------
+
+
+def test_tui_format_empty_models_list_preserved(tmp_path: Path) -> None:
+    """TUI host entry with models: [] must not fall back to Ollama auto-discovery."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "hosts:\n"
+        "  - name: node\n"
+        "    url: http://node:11434\n"
+        "    engine: ollama\n"
+        "    models: []\n"
+    )
+    entries = load_fleet_config(cfg)
+    assert "models" in entries[0], "explicit models: [] must be preserved as an empty list"
+    assert entries[0]["models"] == []
+
+
+# ---------------------------------------------------------------------------
 # test_timeout — configurable per-request timeout (hermia-rc8)
 # ---------------------------------------------------------------------------
 
@@ -1613,3 +1633,27 @@ def test_run_fleet_passes_timeout_to_host_eval(
                     print_fn=lambda s: None, test_timeout=180)
 
     assert captured == [180], f"expected [180] forwarded to _run_host_eval, got {captured}"
+
+
+def test_run_host_eval_rejects_invalid_yaml_timeout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """_run_host_eval raises ValueError when test_timeout in YAML is not a positive int."""
+    import hermia.fleet as fleet
+    from hermia.results import open_run
+
+    monkeypatch.setattr("hermia.runner.run_test", lambda *a, **k: {}, raising=False)
+    monkeypatch.setattr("hermia.runner.load_tests_all", lambda: [{"id": "t1"}], raising=False)
+    monkeypatch.setattr("hermia.runner.get_available_models",
+                        lambda host=None, headers=None: [{"name": "m1"}], raising=False)
+
+    jsonl, csv = open_run(tmp_path)
+    for bad_value in ("fast", 0, -5, None):
+        entry = {"name": "node", "host": "http://node:11434", "test_timeout": bad_value}
+        with pytest.raises(ValueError, match="test_timeout"):
+            fleet._run_host_eval(
+                entry, repeat=1, run_id="rid", jsonl_path=jsonl, csv_path=csv,
+                print_lock=__import__("threading").Lock(),
+                print_fn=lambda s: None, stderr_fn=lambda s: None, verbosity=-1,
+                test_timeout=None,
+            )

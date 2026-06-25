@@ -33,7 +33,7 @@ def _tui_fleet_to_entries(data: dict[str, Any]) -> list[dict[str, Any]]:
         }
         if h.get("auth_header_env"):
             entry["auth"] = {"bearer": {"key_env": h["auth_header_env"]}}
-        if h.get("models"):
+        if h.get("models") is not None:
             entry["models"] = h["models"]
         if h.get("stack"):
             entry["stack"] = h["stack"]
@@ -179,11 +179,18 @@ def _run_host_eval(
     from hermia.transport.openai_compat import OpenAICompatTransport
 
     # Priority: caller-supplied (CLI flag) > per-host YAML key > module default.
-    effective_timeout: int = (
-        test_timeout
-        if test_timeout is not None
-        else int(entry.get("test_timeout", TEST_TIMEOUT))
-    )
+    if test_timeout is not None:
+        effective_timeout: int = test_timeout
+    elif "test_timeout" not in entry:
+        effective_timeout = TEST_TIMEOUT
+    else:
+        _yaml_timeout = entry["test_timeout"]
+        if not isinstance(_yaml_timeout, int) or _yaml_timeout < 1:
+            raise ValueError(
+                f"host '{entry.get('name')}': 'test_timeout' must be a positive integer,"
+                f" got {_yaml_timeout!r}"
+            )
+        effective_timeout = _yaml_timeout
 
     tests = load_tests_all()
     name = entry["name"]
