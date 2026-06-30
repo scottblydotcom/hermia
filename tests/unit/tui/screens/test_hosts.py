@@ -218,6 +218,36 @@ class TestHostsScreenEmptyStateHints:
 
         asyncio.run(_run())
 
+    def test_multi_host_failed_burst_does_not_double_mount_hint(self) -> None:
+        """Regression: 5 hosts completing probes in a burst used to race
+        the AwaitRemove of the previous tick's hint mount, raising
+        DuplicateIds. _sync_hint is now mount-only-if-absent.
+        """
+        from tests.fixtures.fake_transport import FakeTransport
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                pilot.app.config.hosts = [
+                    Host(name=f"h{i}", url=f"http://h{i}:11434", engine="ollama")
+                    for i in range(5)
+                ]
+                screen = HostsScreen(
+                    transport_factory=lambda h: FakeTransport(
+                        models=[], fail_with=ConnectionRefusedError("nope"),
+                    ),
+                )
+                pilot.app.push_screen(screen)
+                for _ in range(60):
+                    if all(screen.probe_state.get(f"h{i}") == "failed" for i in range(5)):
+                        break
+                    await pilot.pause()
+                await pilot.pause()
+                # Exactly one hint Static, despite 5 probe.failed events.
+                hints = screen.query("#hosts-probe-failed-hint")
+                assert len(hints) == 1
+
+        asyncio.run(_run())
+
     def test_hints_absent_on_healthy_probe(self) -> None:
         from textual.css.query import NoMatches
 

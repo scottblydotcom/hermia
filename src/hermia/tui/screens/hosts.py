@@ -134,27 +134,45 @@ class HostsScreen(Screen[None]):
         a first-time user has no map from "[failed]" to "start Ollama". These
         hints fill the gap (hermia-1pj). Idempotent — safe to call from both
         the stable-row fast path and the structural-change slow path.
+
+        Implementation note: a burst of probe events (multi-host fleet, 5 hosts
+        completing within a tick) triggers `_rerender` repeatedly. A
+        remove-then-mount with fixed IDs would race the previous tick's
+        in-flight AwaitRemove and raise DuplicateIds (same lesson as
+        launch-row-N seq-bumping). The mount-only-if-absent / remove-only-if-
+        present pattern below avoids the race entirely by short-circuiting
+        when the visible state already matches.
         """
         any_failed = any(s == "failed" for s in self.probe_state.values())
         any_no_models = bool(self.probe_warnings)
-        # Remove any stale hints first so condition flips are reflected.
-        for hid in self._HINT_IDS:
-            for w in root.query(f"#{hid}"):
-                w.remove()
-        if any_failed:
-            root.mount(Static(
+        self._sync_hint(
+            root,
+            "hosts-probe-failed-hint",
+            want=any_failed,
+            text=(
                 "Hint: a host probe failed. Is Ollama running? "
                 "Start it with `ollama serve`, then leave and re-enter this "
-                "screen to re-probe.",
-                id="hosts-probe-failed-hint",
-            ))
-        if any_no_models:
-            root.mount(Static(
+                "screen to re-probe."
+            ),
+        )
+        self._sync_hint(
+            root,
+            "hosts-no-models-hint",
+            want=any_no_models,
+            text=(
                 "Hint: a host is reachable but has no models pulled. "
                 "Try `ollama pull llama3.2`, then leave and re-enter to "
-                "re-probe.",
-                id="hosts-no-models-hint",
-            ))
+                "re-probe."
+            ),
+        )
+
+    def _sync_hint(self, root: Vertical, hid: str, *, want: bool, text: str) -> None:
+        present = bool(root.query(f"#{hid}"))
+        if want and not present:
+            root.mount(Static(text, id=hid))
+        elif not want and present:
+            for w in root.query(f"#{hid}"):
+                w.remove()
 
     # ── Navigation ────────────────────────────────────────────────────────
 

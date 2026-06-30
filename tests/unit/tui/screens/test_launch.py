@@ -248,6 +248,24 @@ class TestLaunchFirstRunNudge:
 
         asyncio.run(_run())
 
+    def test_first_run_nudge_shown_when_fleets_dir_empty(self, tmp_path, monkeypatch) -> None:
+        """fleets/ existing but empty (e.g., .gitkeep, no .yaml) should still
+        nudge — the _scan_fleets path matters distinctly from 'fleets/ absent'.
+        """
+        from textual.widgets import Static
+
+        (tmp_path / "fleets").mkdir()  # exists, no .yaml inside
+        monkeypatch.chdir(tmp_path)
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                await pilot.pause()
+                screen: LaunchScreen = pilot.app.screen  # type: ignore[assignment]
+                nudge = screen.query_one(".launch-first-run-nudge", Static)
+                assert "ollama pull" in str(nudge.render())
+
+        asyncio.run(_run())
+
     def test_no_nudge_when_saved_fleets_exist(self, tmp_path, monkeypatch) -> None:
         from textual.css.query import NoMatches
 
