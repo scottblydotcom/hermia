@@ -167,11 +167,21 @@ class HostsScreen(Screen[None]):
         )
 
     def _sync_hint(self, root: Vertical, hid: str, *, want: bool, text: str) -> None:
-        present = bool(root.query(f"#{hid}"))
-        if want and not present:
+        # Mount-only-if-absent / remove-only-if-present. Short-circuits when
+        # the visible state already matches so AwaitRemove can never collide
+        # with a same-ID mount on a burst of probe events.
+        #
+        # NOTE: when want=True and the hint is already present, the existing
+        # Static is left in place — the new `text` is ignored. That's correct
+        # today because the two hint strings are constants. A future PR that
+        # makes hint text dynamic (e.g. "3 hosts failed" with a count) must
+        # either call existing.update(text) here or seq-bump the ID per the
+        # launch.py pattern.
+        existing = list(root.query(f"#{hid}"))
+        if want and not existing:
             root.mount(Static(text, id=hid))
-        elif not want and present:
-            for w in root.query(f"#{hid}"):
+        elif not want and existing:
+            for w in existing:
                 w.remove()
 
     # ── Navigation ────────────────────────────────────────────────────────

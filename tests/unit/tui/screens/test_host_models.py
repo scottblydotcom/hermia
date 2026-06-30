@@ -141,3 +141,25 @@ class TestHostModelsEmptyState:
                     pass
 
         asyncio.run(_run())
+
+    def test_empty_hint_escapes_rich_markup_in_host_name(self) -> None:
+        """Static parses Rich markup by default — a YAML host name like
+        `lab[1]` would otherwise render as styled text or raise MarkupError
+        because Rich treats `[...]` as a tag. The host name field is
+        YAML-controlled and from the widget's perspective untrusted.
+        """
+        from textual.widgets import Static
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                host = Host(name="lab[1]", url="http://h", engine="ollama")
+                pilot.app.push_screen(HostModelsScreen(host=host))
+                await pilot.pause()
+                screen: HostModelsScreen = pilot.app.screen  # type: ignore[assignment]
+                hint = screen.query_one("#host-models-empty-hint", Static)
+                rendered = str(hint.render())
+                # The literal brackets must round-trip through render — Rich
+                # would otherwise consume them as a markup tag.
+                assert "lab[1]" in rendered
+
+        asyncio.run(_run())

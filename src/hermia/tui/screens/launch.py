@@ -99,7 +99,8 @@ class LaunchScreen(Screen[None]):
         # the one piece of context a brand-new user is missing — that Quick
         # local run only finds models Ollama has *already* pulled (hermia-1pj).
         # Seq-bumped ID for the same reason as launch-row-N — fixed IDs collide
-        # with the previous rerender's in-flight AwaitRemove.
+        # with the previous rerender's in-flight AwaitRemove. The fixed class
+        # is the stable test selector (ID is per-render and not predictable).
         if self.mode == "home" and not self._scan_fleets():
             root.mount(Static(
                 "       First time? Pull a model first: `ollama pull llama3.2`",
