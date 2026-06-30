@@ -95,6 +95,18 @@ class LaunchScreen(Screen[None]):
             root.mount(Static("No saved fleets in fleets/", id="launch-empty-notice"))
             return
         root.mount(Static("", id=f"launch-gap-{seq}"))
+        # First-run nudge: in home mode, when no fleets are saved yet, surface
+        # the one piece of context a brand-new user is missing — that Quick
+        # local run only finds models Ollama has *already* pulled (hermia-1pj).
+        # Seq-bumped ID for the same reason as launch-row-N — fixed IDs collide
+        # with the previous rerender's in-flight AwaitRemove.
+        if self.mode == "home" and not self._scan_fleets():
+            root.mount(Static(
+                "       First time? Pull a model first: `ollama pull llama3.2`",
+                id=f"launch-first-run-nudge-{seq}",
+                classes="launch-first-run-nudge",
+            ))
+            root.mount(Static("", id=f"launch-nudge-gap-{seq}"))
         for i, entry in enumerate(self.entries):
             root.mount(Static(self._row_text(entry, i), id=f"launch-row-{seq}-{i}"))
             if self.mode == "home" and entry.id in self.HOME_DESCRIPTIONS:

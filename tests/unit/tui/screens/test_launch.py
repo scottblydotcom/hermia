@@ -227,3 +227,43 @@ class TestLaunchFooter:
                 assert len(screen.query(Footer)) == 1
 
         asyncio.run(_run())
+
+
+class TestLaunchFirstRunNudge:
+    """First-time users get no map from `hermia` → an eval — they don't know
+    Ollama needs a model pulled. Show a tiny nudge in home mode when fleets/
+    has no saved configs (proxy for 'first run on this machine'). hermia-1pj."""
+
+    def test_first_run_nudge_shown_when_no_saved_fleets(self, tmp_path, monkeypatch) -> None:
+        from textual.widgets import Static
+
+        monkeypatch.chdir(tmp_path)
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                await pilot.pause()
+                screen: LaunchScreen = pilot.app.screen  # type: ignore[assignment]
+                nudge = screen.query_one(".launch-first-run-nudge", Static)
+                assert "ollama pull" in str(nudge.render())
+
+        asyncio.run(_run())
+
+    def test_no_nudge_when_saved_fleets_exist(self, tmp_path, monkeypatch) -> None:
+        from textual.css.query import NoMatches
+
+        fleets_dir = tmp_path / "fleets"
+        fleets_dir.mkdir()
+        (fleets_dir / "saved.yaml").write_text("fleet: []\n", encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                await pilot.pause()
+                screen: LaunchScreen = pilot.app.screen  # type: ignore[assignment]
+                try:
+                    screen.query_one(".launch-first-run-nudge")
+                    raise AssertionError("nudge should be suppressed once fleets/ has saved configs")
+                except NoMatches:
+                    pass
+
+        asyncio.run(_run())

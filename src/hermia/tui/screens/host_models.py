@@ -50,6 +50,15 @@ class HostModelsScreen(Screen[None]):
                 "  /  Search by name          Esc  Back to hosts",
                 id="host-models-instructions",
             )
+            if not self._host.models:
+                # Bare empty list left first-time users with no map from
+                # "no rows" to "pull a model" (hermia-1pj).
+                yield Static(
+                    f"No models on '{self._host.name}'. "
+                    f"Pull one (e.g. `ollama pull llama3.2`) then go back to "
+                    f"hosts and re-enter this screen to re-probe.",
+                    id="host-models-empty-hint",
+                )
             rows = [ListRow(id_=m.name, label=m.name) for m in self._host.models]
             yield DrillableList(rows)
             yield SearchBar()

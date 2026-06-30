@@ -105,3 +105,39 @@ class TestHostModelsFooter:
                 assert isinstance(screen, HostModelsScreen)
                 assert len(screen.query(Footer)) == 1
         asyncio.run(_run())
+
+
+class TestHostModelsEmptyState:
+    """Empty model list needs an actionable nudge — silent empty list left
+    first-time users staring at nothing (hermia-1pj)."""
+
+    def test_empty_models_shows_pull_hint(self) -> None:
+        from textual.widgets import Static
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                host = Host(name="local", url="http://localhost:11434", engine="ollama")
+                pilot.app.push_screen(HostModelsScreen(host=host))
+                await pilot.pause()
+                screen: HostModelsScreen = pilot.app.screen  # type: ignore[assignment]
+                hint = screen.query_one("#host-models-empty-hint", Static)
+                assert "ollama pull" in str(hint.render())
+
+        asyncio.run(_run())
+
+    def test_populated_models_no_hint(self) -> None:
+        from textual.css.query import NoMatches
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                host = _host_with_models()
+                pilot.app.push_screen(HostModelsScreen(host=host))
+                await pilot.pause()
+                screen: HostModelsScreen = pilot.app.screen  # type: ignore[assignment]
+                try:
+                    screen.query_one("#host-models-empty-hint")
+                    raise AssertionError("hint should not appear when models present")
+                except NoMatches:
+                    pass
+
+        asyncio.run(_run())

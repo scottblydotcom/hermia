@@ -46,6 +46,11 @@ class HostsScreen(Screen[None]):
         self.cursor_idx: int = 0
         # probe_state[host.name] = "probing" | "ok" | "failed".
         self.probe_state: dict[str, str] = {}
+        # Tracks "ok" hosts that came back with zero models — the actionable
+        # "host reachable but bare" case (Ollama running, nothing pulled).
+        # Kept separate from probe_state so the inline [ok] badge stays
+        # accurate while the hint surface picks up the empty case.
+        self.probe_warnings: dict[str, str] = {}
         # Injected for tests; production uses transport_adapter.transport_for
         # (resolved at probe time so the import stays lazy).
         self._make_transport = transport_factory
@@ -86,11 +91,15 @@ class HostsScreen(Screen[None]):
         state_str = f" [{state}]" if state else ""
         return f"{cursor} {host.name}    {host.url}    [{host.engine}]{state_str}"
 
+    _HINT_IDS = ("hosts-probe-failed-hint", "hosts-no-models-hint")
+
     def _rerender(self) -> None:
         root = self.query_one("#hosts-root", Vertical)
         existing_rows = [
             c for c in root.children
-            if not isinstance(c, Breadcrumb) and c.id != "hosts-instructions"
+            if not isinstance(c, Breadcrumb)
+            and c.id != "hosts-instructions"
+            and c.id not in self._HINT_IDS
         ]
         # Stable-row optimization (Plan 1 lesson): when host count is unchanged
         # and we're not transitioning to/from empty state, update Statics in
@@ -102,6 +111,7 @@ class HostsScreen(Screen[None]):
         ):
             for i, host in enumerate(self.app_config.hosts):
                 existing_rows[i].update(self._row_text(host, i))  # type: ignore[attr-defined]
+            self._sync_probe_hints(root)
             return
         # Structural change (add-host, first mount, mode transition) — full
         # remount with seq-bumped IDs so AwaitRemove can't collide with new
@@ -115,6 +125,36 @@ class HostsScreen(Screen[None]):
             return
         for i, host in enumerate(self.app_config.hosts):
             root.mount(Static(self._row_text(host, i), id=f"host-row-{seq}-{i}"))
+        self._sync_probe_hints(root)
+
+    def _sync_probe_hints(self, root: Vertical) -> None:
+        """Surface actionable nudges when probes fail or come back bare.
+
+        The bare [failed] / [ok] state badges are not actionable on their own —
+        a first-time user has no map from "[failed]" to "start Ollama". These
+        hints fill the gap (hermia-1pj). Idempotent — safe to call from both
+        the stable-row fast path and the structural-change slow path.
+        """
+        any_failed = any(s == "failed" for s in self.probe_state.values())
+        any_no_models = bool(self.probe_warnings)
+        # Remove any stale hints first so condition flips are reflected.
+        for hid in self._HINT_IDS:
+            for w in root.query(f"#{hid}"):
+                w.remove()
+        if any_failed:
+            root.mount(Static(
+                "Hint: a host probe failed. Is Ollama running? "
+                "Start it with `ollama serve`, then leave and re-enter this "
+                "screen to re-probe.",
+                id="hosts-probe-failed-hint",
+            ))
+        if any_no_models:
+            root.mount(Static(
+                "Hint: a host is reachable but has no models pulled. "
+                "Try `ollama pull llama3.2`, then leave and re-enter to "
+                "re-probe.",
+                id="hosts-no-models-hint",
+            ))
 
     # ── Navigation ────────────────────────────────────────────────────────
 
@@ -220,6 +260,15 @@ class HostsScreen(Screen[None]):
 
     async def _listen(self, gen: AsyncIterator[dict[str, Any]], final_state: str) -> None:
         async for ev in gen:
-            self.probe_state[ev["host_name"]] = final_state
+            host_name = ev["host_name"]
+            self.probe_state[host_name] = final_state
+            # probe.completed carries `warning: "no_models" | None`; capture
+            # it so the hint surface can show the actionable "pull a model"
+            # nudge when an otherwise-ok host has zero models pulled.
+            warning = ev.get("warning") if final_state == "ok" else None
+            if warning:
+                self.probe_warnings[host_name] = warning
+            else:
+                self.probe_warnings.pop(host_name, None)
             if self.is_mounted:
                 self._rerender()

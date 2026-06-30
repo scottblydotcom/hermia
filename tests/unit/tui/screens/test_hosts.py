@@ -164,6 +164,90 @@ class TestHostsProbe:
         asyncio.run(_run())
 
 
+class TestHostsScreenEmptyStateHints:
+    """Probe failures and 'reachable but empty' both need actionable user guidance,
+    not just a bare [failed] tag. These tests pin the surfaced hints (hermia-1pj)."""
+
+    def test_probe_failure_surfaces_ollama_serve_hint(self) -> None:
+        from textual.widgets import Static
+
+        from tests.fixtures.fake_transport import FakeTransport
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                pilot.app.config.hosts = [
+                    Host(name="local", url="http://localhost:11434", engine="ollama"),
+                ]
+                screen = HostsScreen(
+                    transport_factory=lambda h: FakeTransport(
+                        models=[], fail_with=ConnectionRefusedError("connection refused"),
+                    ),
+                )
+                pilot.app.push_screen(screen)
+                for _ in range(30):
+                    if screen.probe_state.get("local") == "failed":
+                        break
+                    await pilot.pause()
+                await pilot.pause()  # let _rerender mount the hint
+                hint = screen.query_one("#hosts-probe-failed-hint", Static)
+                assert "ollama serve" in str(hint.render())
+
+        asyncio.run(_run())
+
+    def test_no_models_warning_surfaces_pull_hint(self) -> None:
+        from textual.widgets import Static
+
+        from tests.fixtures.fake_transport import FakeTransport
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                pilot.app.config.hosts = [
+                    Host(name="bare", url="http://localhost:11434", engine="ollama"),
+                ]
+                screen = HostsScreen(
+                    transport_factory=lambda h: FakeTransport(models=[]),
+                )
+                pilot.app.push_screen(screen)
+                for _ in range(30):
+                    if screen.probe_state.get("bare") == "ok":
+                        break
+                    await pilot.pause()
+                await pilot.pause()  # let _rerender mount the hint
+                hint = screen.query_one("#hosts-no-models-hint", Static)
+                assert "ollama pull" in str(hint.render())
+
+        asyncio.run(_run())
+
+    def test_hints_absent_on_healthy_probe(self) -> None:
+        from textual.css.query import NoMatches
+
+        from tests.fixtures.fake_transport import FakeTransport
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                pilot.app.config.hosts = [
+                    Host(name="healthy", url="http://h:11434", engine="ollama"),
+                ]
+                screen = HostsScreen(
+                    transport_factory=lambda h: FakeTransport(models=["llama3.2"]),
+                )
+                pilot.app.push_screen(screen)
+                for _ in range(30):
+                    if screen.probe_state.get("healthy") == "ok":
+                        break
+                    await pilot.pause()
+                await pilot.pause()
+                # Neither hint should be mounted.
+                for hid in ("#hosts-probe-failed-hint", "#hosts-no-models-hint"):
+                    try:
+                        screen.query_one(hid)
+                        raise AssertionError(f"{hid} should not be mounted on healthy probe")
+                    except NoMatches:
+                        pass
+
+        asyncio.run(_run())
+
+
 class TestHostsScreenBusMigration:
     def test_probe_events_flow_through_app_bus(self) -> None:
         """After migration, probe.completed events appear on app.bus, not a private bus."""
