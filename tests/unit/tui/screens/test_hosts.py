@@ -266,12 +266,17 @@ class TestHostsScreenEmptyStateHints:
                     if screen.probe_state.get("healthy") == "ok":
                         break
                     await pilot.pause()
+                # Without this assert the test would also pass if the probe
+                # never completed at all (both hints would still be absent).
+                assert screen.probe_state.get("healthy") == "ok"
                 await pilot.pause()
                 # Neither hint should be mounted.
                 for hid in ("#hosts-probe-failed-hint", "#hosts-no-models-hint"):
                     try:
                         screen.query_one(hid)
-                        raise AssertionError(f"{hid} should not be mounted on healthy probe")
+                        raise AssertionError(
+                            f"{hid} should not be mounted on healthy probe"
+                        )
                     except NoMatches:
                         pass
 

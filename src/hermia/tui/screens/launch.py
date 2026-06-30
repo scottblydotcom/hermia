@@ -56,6 +56,14 @@ class LaunchScreen(Screen[None]):
         # Render counter — appended to dynamic IDs so a pending AwaitRemove
         # from the previous render doesn't clash with the new mount.
         self._render_seq: int = 0
+        # Cached "are there saved fleets" answer — _scan_fleets() does
+        # is_dir() + glob('*.yaml') + sorted(). Calling it from _rerender on
+        # every cursor keypress would syscall on every arrow press. The
+        # state can only change when the user enters load mode (which lists
+        # them) or saves a new fleet from elsewhere (FleetConfigScreen pops
+        # back here on save, which triggers on_screen_resume). Refreshed in
+        # both places.
+        self._has_saved_fleets: bool = bool(self._scan_fleets())
 
     def compose(self) -> ComposeResult:
         with Vertical(id="launch-root"):
@@ -64,6 +72,13 @@ class LaunchScreen(Screen[None]):
         yield Footer()
 
     def on_mount(self) -> None:
+        self._rerender()
+
+    def on_screen_resume(self) -> None:
+        # Fires when FleetConfigScreen pops back to LaunchScreen — refresh
+        # the saved-fleets cache so the first-run nudge disappears as soon
+        # as the user saves a fleet.
+        self._has_saved_fleets = bool(self._scan_fleets())
         self._rerender()
 
     def _row_text(self, entry: LaunchEntry, idx: int) -> str:
@@ -101,7 +116,7 @@ class LaunchScreen(Screen[None]):
         # Seq-bumped ID for the same reason as launch-row-N — fixed IDs collide
         # with the previous rerender's in-flight AwaitRemove. The fixed class
         # is the stable test selector (ID is per-render and not predictable).
-        if self.mode == "home" and not self._scan_fleets():
+        if self.mode == "home" and not self._has_saved_fleets:
             root.mount(Static(
                 "       First time? Pull a model first: `ollama pull llama3.2`",
                 id=f"launch-first-run-nudge-{seq}",
@@ -161,6 +176,7 @@ class LaunchScreen(Screen[None]):
     def _enter_load_mode(self) -> None:
         self.mode = "load"
         self.entries = self._scan_fleets()
+        self._has_saved_fleets = bool(self.entries)
         self.cursor_index = 0 if self.entries else -1
         self._rerender()
 
