@@ -1,7 +1,10 @@
-# Getting Started with Hermia
+# Hermia Usage Reference
 
-This guide walks you through installing Hermia, running your first eval, interpreting the
-results, and optionally exporting to Postgres for long-term tracking.
+This is the full reference: install, eval flow, result schema, repeat runs, fleet mode,
+regression detection, and Postgres export.
+
+> **Want the 5-minute version?** See [getting-started.md](getting-started.md) for the
+> minimal zero-to-first-eval path.
 
 ---
 
@@ -38,7 +41,10 @@ hermia --help
 Expected output:
 
 ```
-usage: hermia [-h] [--host HOST] [--repeat N]
+usage: hermia [-h] [--version] [--repeat N] [--fleet FILE] [--verbose | --quiet]
+              [--max-concurrency MAX_CONCURRENCY] [--test-timeout SECONDS]
+              [--audit [FILE]] [--audit-format {jsonl,html,spill}]
+              [--submit | --submit-dry-run]
 ```
 
 ---
@@ -51,41 +57,53 @@ Make sure Ollama is running and has at least one model pulled, then launch the T
 hermia
 ```
 
-### SelectionScreen
+### LaunchScreen
 
-Hermia opens the **SelectionScreen**. You'll see two columns:
+Hermia opens the **LaunchScreen** with three entries (in this order):
 
-- **Models** — all models currently available via `ollama list`, pre-checked
-- **Eval dimensions** — `security`, `tool-use`, `reasoning`, `constraint`, `routing`,
-  `memory`, `domain`, pre-checked
+- **Quick local run** — pre-fills a fleet with `localhost:11434` (engine: ollama) and the
+  full default test set, then jumps to the FleetConfigScreen so you can confirm or edit.
+- **New fleet** — starts an empty FleetConfig.
+- **Load existing fleet** — scans `fleets/*.yaml` and lists saved configs; Enter loads one.
 
-Use the checkboxes to select which models and dimensions to run. Press **Run** to start.
+Use ↑/↓ to navigate, Enter to select, `q` to quit.
 
-If no models appear, Ollama is not running or has no models pulled. Start it with
-`ollama serve` and pull a model with `ollama pull llama3.2`.
+### FleetConfigScreen
 
-### RunnerScreen
+The **FleetConfigScreen** is the central editor. Two rows — **Hosts** and **Tests** —
+each open a subscreen:
 
-The **RunnerScreen** shows a live feed as each test runs:
+- **Hosts** → HostsScreen, where each host has its own model picker (HostModelsScreen)
+- **Tests** → TestsScreen, the 30-test corpus catalog
 
-```
-Preflight  VRAM 18.2/18.2 GB free  RAM 10.4/18.0 GB free  Disk 124.3 GB free
-Cold-loading llama3.2...
+Visible footer bindings:
 
-  ✅ security-direct-injection             42.3 t/s  GPU 82%  VRAM 4.2GB  CPU 18%
-  ✅ security-indirect-injection           39.1 t/s  GPU 79%  VRAM 4.2GB  CPU 16%
-  ⚠  tool-use-invalid-invocation          38.8 t/s  GPU 81%  VRAM 4.2GB  CPU 17%
-  ❌ reasoning-partial-failure             35.2 t/s  GPU 76%  VRAM 4.1GB  CPU 15%
-       output did not match expected schema
-```
+- `Enter` — open the focused row
+- `s` — save the fleet to `fleets/<name>.yaml`
+- `r` — run the eval against the current fleet config
+- `Esc` — back
 
-Icons mean:
-- `✅` — JSON valid **and** schema compliant (full pass)
-- `⚠` — JSON valid but schema non-compliant (partial pass)
-- `❌` — JSON invalid or error (full fail); preview of the failure reason shown below
+If no models appear on the per-host model picker, Ollama is not running on that host or
+has no models pulled. Start it with `ollama serve` and pull a model with
+`ollama pull llama3.2`. The hosts screen shows an actionable hint when this happens.
 
-Per-test metrics: `t/s` = tokens per second, `GPU%` = peak GPU utilization,
-`VRAM` = peak VRAM used (GB), `CPU%` = peak CPU utilization.
+### RunnerScreen (L1) → RunnerTrialsScreen (L2) → RunnerDetailScreen (L3)
+
+When the run starts, Hermia drops into a three-level drill view:
+
+- **L1 — RunnerScreen** — aggregate per-host counts (passed / failed / running), updates
+  live as trials complete.
+- **L2 — RunnerTrialsScreen** — per-trial table for one host: model, test ID, status,
+  elapsed time, t/s.
+- **L3 — RunnerDetailScreen** — detail for one trial: full prompt, model output, parsed
+  fields, failure reason if any.
+
+Press Enter on a host to drill from L1 → L2, and Enter on a trial to drill L2 → L3.
+Esc walks back up.
+
+Each trial row carries: status (pass / fail), elapsed seconds, tokens/sec, and a short
+failure reason on fail. Detailed metrics (GPU%, VRAM, CPU%) are written to the result
+files; the live UI focuses on pass/fail and throughput.
 
 ### Summary
 
@@ -157,10 +175,11 @@ Each result row contains:
 ## Repeat runs and consistency scoring
 
 Use `--repeat N` to run each (model, test) pair N times. This enables consistency scoring
-and cold-vs-warm delta measurement:
+and cold-vs-warm delta measurement. `--repeat` requires `--fleet` (it is a headless-only
+flag):
 
 ```bash
-hermia --repeat 5
+hermia --fleet fleets/quick-local.yaml --repeat 5
 ```
 
 Additional fields populated when `--repeat N > 1`:
@@ -179,18 +198,41 @@ reward-hacking — it passes sometimes and fails sometimes on the same input.
 
 ## Run against a remote Ollama host
 
-Use `--host` to target any Ollama-compatible endpoint instead of localhost:
+To target a remote Ollama-compatible endpoint, define it in a fleet YAML and run
+headless. A single-host fleet is the supported equivalent of the old `--host` flag:
 
-```bash
-hermia --host http://192.168.10.50:11434
+```yaml
+# fleets/remote.yaml
+fleet:
+  - name: remote-box
+    host: http://192.168.10.50:11434
+    models:
+      - llama3.2:latest
 ```
 
-In fleet mode (any non-localhost host), local hardware metrics (GPU%, VRAM, CPU%) reflect
-the **inference server's** hardware via Ollama's `/api/ps` endpoint, not the eval client's
-idle laptop. The preflight check is also bypassed — resource checks run on the server side.
+```bash
+hermia --fleet fleets/remote.yaml
+```
+
+For any non-localhost host, hardware metrics (GPU%, VRAM, CPU%) reflect the **inference
+server's** hardware via Ollama's `/api/ps` endpoint, not the eval client's idle laptop.
+The local preflight check is bypassed — resource checks run on the server side.
 
 This works with any host accessible over the network: a bare Ollama server, a LiteLLM
-gateway (in v0.1, use the Ollama-compatible endpoint), or a remote lab machine.
+gateway (use its Ollama-compatible endpoint), or a remote lab machine. For endpoints
+behind a bearer token, add an `auth.bearer.key_env` block naming the env var that
+holds the token:
+
+```yaml
+fleet:
+  - name: remote-box
+    host: http://192.168.10.50:11434
+    auth:
+      bearer:
+        key_env: HERMIA_API_KEY   # bearer token read from $HERMIA_API_KEY at runtime
+    models:
+      - llama3.2:latest
+```
 
 ---
 
@@ -219,6 +261,25 @@ parallel up to `--max-concurrency`.
 point at the same physical machine via different addresses (e.g. `localhost` vs
 `127.0.0.1` vs its hostname), they will **not** be grouped and may run concurrently.
 Use the identical host string for all entries on one box to keep them serialized.
+
+**Per-test timeout for thinking-mode models.** Default test timeout is 90 seconds.
+Thinking models (qwen3 thinking variants, deepseek-r1) regularly need longer. Raise it
+with `--test-timeout SECONDS` or per-host `test_timeout:` in the fleet YAML. Precedence:
+**CLI `--test-timeout` wins over per-host `test_timeout:`, which wins over the 90s
+default.**
+
+```bash
+hermia --fleet fleets/heavy.yaml --test-timeout 180
+```
+
+```yaml
+fleet:
+  - name: thinking-host
+    host: http://192.168.10.50:11434
+    test_timeout: 180
+    models:
+      - qwen3:32b
+```
 
 ---
 
