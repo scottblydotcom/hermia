@@ -115,9 +115,9 @@ and stack fingerprint per trial for audit purposes.
 ## What's next
 
 - **More models?** Run `ollama pull <name>` for each, then re-run Hermia — they'll show up automatically on the next launch.
-- **Multi-host?** See [Multi-host fleet mode](usage.md#multi-host-fleet-mode--fleet) in usage.md.
+- **Multi-host?** See [Multi-host fleet mode](usage.md#multi-host-fleet-mode---fleet) in usage.md.
 - **Track behavior over time?** See [Regression detection](usage.md#regression-detection) in usage.md.
-- **Long-term storage?** See [Postgres export](usage.md#postgres-export) in usage.md.
+- **Long-term storage?** See [Export to Postgres](usage.md#export-to-postgres) in usage.md.
 
 ---
 

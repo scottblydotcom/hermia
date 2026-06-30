@@ -126,7 +126,8 @@ No cloud API keys required. No data leaves your machine.
 | Windows | Any | ❌ Not yet |
 
 *NVIDIA metrics tested on Linux eval client. Windows Ollama servers are supported as fleet
-targets via `--host`; running Hermia itself on Windows is not yet supported.
+targets (point a fleet YAML entry's `host:` at the Windows box); running Hermia itself on
+Windows is not yet supported.
 
 ---
 

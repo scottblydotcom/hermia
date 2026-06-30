@@ -59,12 +59,12 @@ hermia
 
 ### LaunchScreen
 
-Hermia opens the **LaunchScreen** with three entries:
+Hermia opens the **LaunchScreen** with three entries (in this order):
 
 - **Quick local run** — pre-fills a fleet with `localhost:11434` (engine: ollama) and the
   full default test set, then jumps to the FleetConfigScreen so you can confirm or edit.
-- **Load existing fleet** — scans `fleets/*.yaml` and lists saved configs; Enter loads one.
 - **New fleet** — starts an empty FleetConfig.
+- **Load existing fleet** — scans `fleets/*.yaml` and lists saved configs; Enter loads one.
 
 Use ↑/↓ to navigate, Enter to select, `q` to quit.
 
