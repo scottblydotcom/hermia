@@ -125,6 +125,15 @@ class HostsScreen(Screen[None]):
             return
         for i, host in enumerate(self.app_config.hosts):
             root.mount(Static(self._row_text(host, i), id=f"host-row-{seq}-{i}"))
+        # On structural change, any hints persisted from the previous render
+        # are now ABOVE the freshly mounted host rows (they were preserved in
+        # place while the rows around them got removed + re-appended). Move
+        # them to the end so they read as "footer" hints. move_child is
+        # synchronous — sidesteps the AwaitRemove race that remove+remount
+        # would re-introduce.
+        for hid in self._HINT_IDS:
+            for hint in root.query(f"#{hid}"):
+                root.move_child(hint, before=None, after=-1)
         self._sync_probe_hints(root)
 
     def _sync_probe_hints(self, root: Vertical) -> None:

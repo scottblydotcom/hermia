@@ -248,6 +248,54 @@ class TestHostsScreenEmptyStateHints:
 
         asyncio.run(_run())
 
+    def test_hints_stay_below_rows_after_structural_change(self) -> None:
+        """Regression: on the structural change path (add-host), host rows
+        are removed and re-mounted but hints are preserved in place, ending
+        up above the new rows. Caught by Gemini round 3 on PR #129. Fixed
+        by move_child after row remount so hints stay at the end.
+        """
+        from textual.containers import Vertical
+
+        from tests.fixtures.fake_transport import FakeTransport
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                pilot.app.config.hosts = [
+                    Host(name="a", url="http://a:11434", engine="ollama"),
+                ]
+                screen = HostsScreen(
+                    transport_factory=lambda h: FakeTransport(
+                        models=[], fail_with=ConnectionRefusedError("nope"),
+                    ),
+                )
+                pilot.app.push_screen(screen)
+                for _ in range(30):
+                    if screen.probe_state.get("a") == "failed":
+                        break
+                    await pilot.pause()
+                await pilot.pause()
+                # Now drive a structural change (add a host); hints must not
+                # end up above the newly mounted rows.
+                screen._on_host_added(
+                    Host(name="b", url="http://b:11434", engine="ollama"),
+                )
+                await pilot.pause()
+                root = screen.query_one("#hosts-root", Vertical)
+                order = [c.id for c in root.children]
+                hint_idx = order.index("hosts-probe-failed-hint")
+                # All host-row-* IDs must come BEFORE the hint.
+                row_indices = [
+                    i for i, x in enumerate(order)
+                    if x and x.startswith("host-row-")
+                ]
+                assert row_indices, "expected host rows in children list"
+                assert max(row_indices) < hint_idx, (
+                    f"hint at {hint_idx} must follow all host rows {row_indices}; "
+                    f"children: {order}"
+                )
+
+        asyncio.run(_run())
+
     def test_hints_absent_on_healthy_probe(self) -> None:
         from textual.css.query import NoMatches
 
