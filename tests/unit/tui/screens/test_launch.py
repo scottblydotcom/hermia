@@ -280,7 +280,9 @@ class TestLaunchFirstRunNudge:
                 screen: LaunchScreen = pilot.app.screen  # type: ignore[assignment]
                 try:
                     screen.query_one(".launch-first-run-nudge")
-                    raise AssertionError("nudge should be suppressed once fleets/ has saved configs")
+                    raise AssertionError(
+                        "nudge should be suppressed once fleets/ has saved configs"
+                    )
                 except NoMatches:
                     pass
 
