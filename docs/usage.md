@@ -70,17 +70,22 @@ Use ↑/↓ to navigate, Enter to select, `q` to quit.
 
 ### FleetConfigScreen
 
-The **FleetConfigScreen** is the central editor. Five rows (hosts, models, tests, name,
-options) each open a subscreen for inspection or edit. The footer shows the available
-bindings:
+The **FleetConfigScreen** is the central editor. Two rows — **Hosts** and **Tests** —
+each open a subscreen:
 
-- `e` — edit the focused row
-- `r` — run the eval against the current fleet config
+- **Hosts** → HostsScreen, where each host has its own model picker (HostModelsScreen)
+- **Tests** → TestsScreen, the 30-test corpus catalog
+
+Visible footer bindings:
+
+- `Enter` — open the focused row
 - `s` — save the fleet to `fleets/<name>.yaml`
+- `r` — run the eval against the current fleet config
 - `Esc` — back
 
-If no models appear when you open the Models row, Ollama is not running or has no models
-pulled. Start it with `ollama serve` and pull a model with `ollama pull llama3.2`.
+If no models appear on the per-host model picker, Ollama is not running on that host or
+has no models pulled. Start it with `ollama serve` and pull a model with
+`ollama pull llama3.2`. The hosts screen shows an actionable hint when this happens.
 
 ### RunnerScreen (L1) → RunnerTrialsScreen (L2) → RunnerDetailScreen (L3)
 

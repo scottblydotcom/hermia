@@ -74,16 +74,18 @@ Launch Hermia:
 hermia
 ```
 
-You land on the **LaunchScreen**. Three entries:
+You land on the **LaunchScreen**. Three entries (in this order):
 
 - **Quick local run** — pre-fills a fleet pointed at your local Ollama with the full default test set
-- **Load existing fleet** — for saved YAML configs (you don't have any yet)
 - **New fleet** — for building a multi-host config from scratch
+- **Load existing fleet** — for saved YAML configs (you don't have any yet)
 
-Press **↓** to highlight **Quick local run**, then **Enter**.
+Press **Enter** with the cursor on **Quick local run** (the default).
 
 Hermia drops into the **FleetConfigScreen** with a localhost entry pre-filled.
-You'll see five rows — hosts, models, tests, name, options. Press **r** to run.
+You'll see two rows — **Hosts** and **Tests**. Press **Enter** on Hosts to drill
+into the per-host model picker; **Esc** brings you back. Press **r** to start
+the run.
 
 The runner shows a live three-level drill view:
 

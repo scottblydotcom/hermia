@@ -1,8 +1,14 @@
 # Hermia Roadmap
 
 **Status:** Living document. Updated as decisions change.
-**Last revised:** 2026-05-10
+**Last revised:** 2026-05-10 — predates v0.2.0 cut
 **Owner:** @scottblydotcom
+
+> ⚠️ **This roadmap predates the v0.2.0 release.** Some v0.1 milestone planning
+> below (CLI shape, screen names, dates) is now historical, not current state.
+> The v0.2 deliverables described in [README.md](../README.md#roadmap) and
+> [docs/getting-started.md](getting-started.md) supersede the milestone tables
+> here. A post-v0.2 rewrite is tracked separately.
 
 This document is the strategic plan. Beads are the tactical execution. Each leaf entry below is shaped to map 1-to-1 to a `bd add` invocation when work begins. Don't pre-create beads — they go stale before you touch them.
 
