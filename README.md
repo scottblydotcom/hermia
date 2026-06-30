@@ -31,15 +31,17 @@ benchmarking measures actual model load time from a clean VRAM state, not cached
 Because "how fast is it really" is a different question than "how fast is it after it's
 already warm."
 
-**v0.1 scope:** single-turn, deterministic structural eval against Ollama-compatible local
-endpoints. Nuanced intent evaluation and multi-turn support land in v0.3.
+**v0.2 scope:** deterministic structural eval against Ollama-compatible local endpoints,
+with deterministic multi-turn corpus cases for context-carry and boundary-persistence
+testing. LLM-as-judge intent scoring lands in v0.3.
 
 **Fleet mode** (`--fleet FILE`) runs headless multi-host eval from a YAML config — same
 test suite, multiple Ollama endpoints evaluated **concurrently** (default: up to 4 hosts
 in parallel). Compare CUDA vs. Metal on the same model. See where your inference stack
 diverges. Entries that share the same host are evaluated sequentially so a single GPU
 node is never asked to hold two models simultaneously (VRAM-safe). Control parallelism
-with `--max-concurrency N`.
+with `--max-concurrency N`. Per-test timeout is configurable via `--test-timeout SECONDS`
+or per-host `test_timeout:` in the fleet YAML.
 
 ---
 
@@ -174,9 +176,10 @@ and Postgres export.
 
 ## Roadmap
 
-**v0.2 — Endpoint Bus** (target ~2026-06-15): Hermia evaluates anything that speaks
-OpenAI-compatible — LiteLLM, OpenAI, Anthropic, Google, Bedrock, plus local Ollama. Fleet
-config file for multi-host runs; backend stack tagging by GPU arch and runtime version.
+**v0.2 — Fleet + TUI** (shipping): Headless fleet mode for multi-host eval from a YAML
+config; full-featured TUI for launch/configure/run/inspect; backend stack tagging by GPU
+arch, runtime version, and execution path (GPU vs spill). Configurable per-test timeout
+for thinking-mode models.
 
 **v0.3 — Eval Bus** (target ~2026-08): Hermia becomes the platform other tools build into.
 Probe adapters for Garak, PyRIT, and HarmBench pull their results into Hermia's
@@ -189,10 +192,11 @@ See [docs/roadmap.md](docs/roadmap.md) for the full plan.
 
 ## Project Status
 
-**v0.1.1** — stable and tested. The core eval suite, fleet mode, audit trail, and findings
-analysis pipeline are all shipping. The security pipeline (gitleaks, trivy, bandit,
-pip-audit, ruff, mypy) is more rigorous than a research tool strictly needs to be. That
-was intentional.
+**v0.2.0** — stable and tested. The core eval suite, fleet mode, TUI, audit trail, and
+findings analysis pipeline are all shipping. Cross-stack reproducibility evidence
+(Metal × CUDA × ROCm) is captured in the n=3 dataset. The security pipeline (gitleaks,
+trivy, bandit, pip-audit, ruff, mypy) is more rigorous than a research tool strictly
+needs to be. That was intentional.
 
 Available on [PyPI](https://pypi.org/project/hermia/): `pipx install hermia`
 
