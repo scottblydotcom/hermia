@@ -214,8 +214,20 @@ server's** hardware via Ollama's `/api/ps` endpoint, not the eval client's idle 
 The local preflight check is bypassed — resource checks run on the server side.
 
 This works with any host accessible over the network: a bare Ollama server, a LiteLLM
-gateway (use its Ollama-compatible endpoint), or a remote lab machine. Add an `auth:`
-block for endpoints behind a bearer token.
+gateway (use its Ollama-compatible endpoint), or a remote lab machine. For endpoints
+behind a bearer token, add an `auth.bearer.key_env` block naming the env var that
+holds the token:
+
+```yaml
+fleet:
+  - name: remote-box
+    host: http://192.168.10.50:11434
+    auth:
+      bearer:
+        key_env: HERMIA_API_KEY   # bearer token read from $HERMIA_API_KEY at runtime
+    models:
+      - llama3.2:latest
+```
 
 ---
 
@@ -247,8 +259,9 @@ Use the identical host string for all entries on one box to keep them serialized
 
 **Per-test timeout for thinking-mode models.** Default test timeout is 90 seconds.
 Thinking models (qwen3 thinking variants, deepseek-r1) regularly need longer. Raise it
-with `--test-timeout SECONDS` or per-host `test_timeout:` in the fleet YAML (per-host
-wins over CLI; CLI wins over the 90s default):
+with `--test-timeout SECONDS` or per-host `test_timeout:` in the fleet YAML. Precedence:
+**CLI `--test-timeout` wins over per-host `test_timeout:`, which wins over the 90s
+default.**
 
 ```bash
 hermia --fleet fleets/heavy.yaml --test-timeout 180

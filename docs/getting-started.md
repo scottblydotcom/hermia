@@ -26,8 +26,8 @@ curl -fsSL https://ollama.com/install.sh | sh
 ## 2. Start Ollama and pull a model
 
 ```bash
-ollama serve &        # start the daemon in the background
-ollama pull llama3.2  # ~2 GB; takes a minute on a decent connection
+ollama serve > /dev/null 2>&1 &   # start the daemon in the background, log to /dev/null
+ollama pull llama3.2              # ~2 GB; takes a minute on a decent connection
 ```
 
 `llama3.2` is the recommended starter model: small, fast, runs on a laptop CPU
@@ -99,7 +99,7 @@ The runner shows a live three-level drill view:
 
 Each run writes two files to `results/` in your current directory:
 
-```
+```text
 results/eval_TIMESTAMP.jsonl  # one row per trial, full metrics
 results/eval_TIMESTAMP.csv    # same rows, spreadsheet-friendly
 ```
@@ -113,7 +113,7 @@ and stack fingerprint per trial for audit purposes.
 ## What's next
 
 - **More models?** Run `ollama pull <name>` for each, then re-run Hermia — they'll show up automatically on the next launch.
-- **Multi-host?** See [Multi-host fleet mode](usage.md#multi-host-fleet-mode---fleet) in usage.md.
+- **Multi-host?** See [Multi-host fleet mode](usage.md#multi-host-fleet-mode--fleet) in usage.md.
 - **Track behavior over time?** See [Regression detection](usage.md#regression-detection) in usage.md.
 - **Long-term storage?** See [Postgres export](usage.md#postgres-export) in usage.md.
 
