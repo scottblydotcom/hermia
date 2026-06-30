@@ -8,6 +8,7 @@ the screen translates into pop_screen() calls per drill depth.
 """
 from __future__ import annotations
 
+from rich.markup import escape as rich_escape
 from textual.message import Message
 from textual.widgets import Static
 
@@ -15,7 +16,14 @@ SEPARATOR = " ▸ "
 
 
 class Breadcrumb(Static):
-    """Inline segmented drill-path header."""
+    """Inline segmented drill-path header.
+
+    Segments are escaped for Rich markup at the boundary — call sites pass
+    user-controlled YAML strings (fleet name, host name, model name, test id)
+    and Static parses markup by default, so an unescaped `lab[1]` or
+    `[bold red]x[/]` would either render styled or raise MarkupError.
+    Centralized here so the six call sites can't drift.
+    """
 
     DEFAULT_CSS = """
     Breadcrumb {
@@ -32,7 +40,7 @@ class Breadcrumb(Static):
 
     def __init__(self, segments: list[str]) -> None:
         self._segments = list(segments)
-        self._text = SEPARATOR.join(self._segments)
+        self._text = SEPARATOR.join(rich_escape(s) for s in self._segments)
         super().__init__(self._text)
 
     @property
@@ -41,7 +49,7 @@ class Breadcrumb(Static):
 
     def set_segments(self, segments: list[str]) -> None:
         self._segments = list(segments)
-        self._text = SEPARATOR.join(self._segments)
+        self._text = SEPARATOR.join(rich_escape(s) for s in self._segments)
         self.update(self._text)
 
     def jump_to(self, index: int) -> None:

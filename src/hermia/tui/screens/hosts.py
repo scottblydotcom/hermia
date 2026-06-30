@@ -14,6 +14,7 @@ import asyncio
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
+from rich.markup import escape as rich_escape
 from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -88,8 +89,16 @@ class HostsScreen(Screen[None]):
     def _row_text(self, host: Host, idx: int) -> str:
         cursor = "▸" if idx == self.cursor_idx else " "
         state = self.probe_state.get(host.name, "")
-        state_str = f" [{state}]" if state else ""
-        return f"{cursor} {host.name}    {host.url}    [{host.engine}]{state_str}"
+        state_str = f" \\[{state}]" if state else ""
+        # Escape user-controlled YAML fields (name, url) — Static parses Rich
+        # markup, so an unescaped `lab[1]` or `[bold red]x[/]` would render
+        # styled or raise MarkupError. The intentional brackets around state
+        # and engine are escaped with a literal backslash so they render as
+        # plain brackets without being interpreted as markup tags.
+        return (
+            f"{cursor} {rich_escape(host.name)}    {rich_escape(host.url)}    "
+            f"\\[{rich_escape(host.engine)}]{state_str}"
+        )
 
     _HINT_IDS = ("hosts-probe-failed-hint", "hosts-no-models-hint")
 
@@ -154,14 +163,19 @@ class HostsScreen(Screen[None]):
         """
         any_failed = any(s == "failed" for s in self.probe_state.values())
         any_no_models = bool(self.probe_warnings)
+        # Copy note: don't promise "leave and re-enter to re-probe" —
+        # _start_probes deliberately filters out hosts that already have a
+        # recorded probe_state (failed/ok/probing), so re-entry is a no-op
+        # for known hosts. A future explicit-refresh keybind would change
+        # this. For now: tell the user the actionable step and leave the
+        # recovery path implicit.
         self._sync_hint(
             root,
             "hosts-probe-failed-hint",
             want=any_failed,
             text=(
                 "Hint: a host probe failed. Is Ollama running? "
-                "Start it with `ollama serve`, then leave and re-enter this "
-                "screen to re-probe."
+                "Start it with `ollama serve` and restart hermia."
             ),
         )
         self._sync_hint(
@@ -170,8 +184,7 @@ class HostsScreen(Screen[None]):
             want=any_no_models,
             text=(
                 "Hint: a host is reachable but has no models pulled. "
-                "Try `ollama pull llama3.2`, then leave and re-enter to "
-                "re-probe."
+                "Try `ollama pull llama3.2` and restart hermia."
             ),
         )
 

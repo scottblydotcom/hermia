@@ -218,6 +218,40 @@ class TestHostsScreenEmptyStateHints:
 
         asyncio.run(_run())
 
+    def test_row_text_escapes_rich_markup_in_yaml_fields(self) -> None:
+        """Hosts list rows go into Static, which parses Rich markup by
+        default. host.name and host.url come from YAML and are untrusted;
+        unescaped `[bold red]x[/]` would render styled or get consumed.
+        Verify the escape ends up in the rendered output via Static.
+        """
+        from textual.widgets import Static
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                pilot.app.config.hosts = [
+                    Host(
+                        name="[bold red]pwn[/]",
+                        url="http://lab[1]",
+                        engine="ollama",
+                    ),
+                ]
+                pilot.app.push_screen(HostsScreen())
+                await pilot.pause()
+                screen: HostsScreen = pilot.app.screen  # type: ignore[assignment]
+                row_text = screen._row_text(pilot.app.config.hosts[0], 0)
+                # The row text feeds a Static; rendering through Static
+                # should preserve the literal brackets (escape working).
+                probe = Static(row_text)
+                rendered = str(probe.render())
+                assert "[bold red]pwn[/]" in rendered
+                assert "http://lab[1]" in rendered
+                # Engine + state are also bracketed in row_text — they
+                # should appear as literal brackets in the rendered output
+                # too (escaped via the literal backslash in _row_text).
+                assert "[ollama]" in rendered
+
+        asyncio.run(_run())
+
     def test_multi_host_failed_burst_does_not_double_mount_hint(self) -> None:
         """Regression: 5 hosts completing probes in a burst used to race
         the AwaitRemove of the previous tick's hint mount, raising
