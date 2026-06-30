@@ -31,15 +31,17 @@ benchmarking measures actual model load time from a clean VRAM state, not cached
 Because "how fast is it really" is a different question than "how fast is it after it's
 already warm."
 
-**v0.1 scope:** single-turn, deterministic structural eval against Ollama-compatible local
-endpoints. Nuanced intent evaluation and multi-turn support land in v0.3.
+**v0.2 scope:** deterministic structural eval against Ollama-compatible local endpoints,
+with deterministic multi-turn corpus cases for context-carry and boundary-persistence
+testing. LLM-as-judge intent scoring lands in v0.3.
 
 **Fleet mode** (`--fleet FILE`) runs headless multi-host eval from a YAML config — same
 test suite, multiple Ollama endpoints evaluated **concurrently** (default: up to 4 hosts
 in parallel). Compare CUDA vs. Metal on the same model. See where your inference stack
 diverges. Entries that share the same host are evaluated sequentially so a single GPU
 node is never asked to hold two models simultaneously (VRAM-safe). Control parallelism
-with `--max-concurrency N`.
+with `--max-concurrency N`. Per-test timeout is configurable via `--test-timeout SECONDS`
+or per-host `test_timeout:` in the fleet YAML.
 
 ---
 
@@ -124,7 +126,8 @@ No cloud API keys required. No data leaves your machine.
 | Windows | Any | ❌ Not yet |
 
 *NVIDIA metrics tested on Linux eval client. Windows Ollama servers are supported as fleet
-targets via `--host`; running Hermia itself on Windows is not yet supported.
+targets (point a fleet YAML entry's `host:` at the Windows box); running Hermia itself on
+Windows is not yet supported.
 
 ---
 
@@ -166,17 +169,20 @@ Hermia opens a TUI. Select a model from the list, choose which eval dimensions t
 and press **Run**. Results appear live alongside system metrics. Each run writes
 `results/eval_TIMESTAMP.jsonl` and `results/eval_TIMESTAMP.csv`.
 
-See the [Getting Started Guide](docs/usage.md) for a full walkthrough: result
-interpretation, `--repeat N` consistency scoring, fleet mode, regression detection,
-and Postgres export.
+New here? [docs/getting-started.md](docs/getting-started.md) is the 5-minute
+zero-to-first-eval path.
+
+See [docs/usage.md](docs/usage.md) for the full reference: result interpretation,
+`--repeat N` consistency scoring, fleet mode, regression detection, and Postgres export.
 
 ---
 
 ## Roadmap
 
-**v0.2 — Endpoint Bus** (target ~2026-06-15): Hermia evaluates anything that speaks
-OpenAI-compatible — LiteLLM, OpenAI, Anthropic, Google, Bedrock, plus local Ollama. Fleet
-config file for multi-host runs; backend stack tagging by GPU arch and runtime version.
+**v0.2 — Fleet + TUI** (shipping): Headless fleet mode for multi-host eval from a YAML
+config; full-featured TUI for launch/configure/run/inspect; backend stack tagging by GPU
+arch, runtime version, and execution path (GPU vs spill). Configurable per-test timeout
+for thinking-mode models.
 
 **v0.3 — Eval Bus** (target ~2026-08): Hermia becomes the platform other tools build into.
 Probe adapters for Garak, PyRIT, and HarmBench pull their results into Hermia's
@@ -189,10 +195,11 @@ See [docs/roadmap.md](docs/roadmap.md) for the full plan.
 
 ## Project Status
 
-**v0.1.1** — stable and tested. The core eval suite, fleet mode, audit trail, and findings
-analysis pipeline are all shipping. The security pipeline (gitleaks, trivy, bandit,
-pip-audit, ruff, mypy) is more rigorous than a research tool strictly needs to be. That
-was intentional.
+**v0.2.0** — stable and tested. The core eval suite, fleet mode, TUI, audit trail, and
+findings analysis pipeline are all shipping. Cross-stack reproducibility evidence
+(Metal x CUDA x ROCm) is being captured in an n=3 dataset and will publish alongside the
+v0.2.0 release notes. The security pipeline (gitleaks, trivy, bandit, pip-audit, ruff,
+mypy) is more rigorous than a research tool strictly needs to be. That was intentional.
 
 Available on [PyPI](https://pypi.org/project/hermia/): `pipx install hermia`
 
@@ -209,8 +216,9 @@ The tool steals answers from the Oracle and tells you which one to trust.
 
 ## Documentation
 
-- [Getting Started Guide](docs/usage.md) — install, run, interpret results, fleet mode, Postgres export
-- [Roadmap](docs/roadmap.md) — v0.2 endpoint bus, v0.3 eval bus, full backlog
+- [Getting Started](docs/getting-started.md) — 5-minute zero-to-first-eval guide
+- [Usage Reference](docs/usage.md) — full walkthrough: install, run, interpret results, fleet mode, regression detection, Postgres export
+- [Roadmap](docs/roadmap.md) — v0.2 fleet + TUI, v0.3 eval bus, full backlog
 - [GUARDS Framework](docs/GUARDS.md) — six-dimension standard for LLM system-prompt guardrail construction (Goal/Unit/Actions/Response/Detect/Stop)
 
 ---
