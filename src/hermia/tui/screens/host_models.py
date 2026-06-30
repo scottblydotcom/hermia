@@ -6,6 +6,7 @@ trial count updates when the user pops back.
 """
 from __future__ import annotations
 
+from rich.markup import escape as rich_escape
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
@@ -50,6 +51,18 @@ class HostModelsScreen(Screen[None]):
                 "  /  Search by name          Esc  Back to hosts",
                 id="host-models-instructions",
             )
+            if not self._host.models:
+                # Bare empty list left first-time users with no map from
+                # "no rows" to "pull a model" (hermia-1pj). Escape the host
+                # name because Static parses Rich markup by default — a YAML
+                # host name like `lab[1]` or `[bold red]x[/]` would otherwise
+                # render styled or raise MarkupError.
+                yield Static(
+                    f"No models on '{rich_escape(self._host.name)}'. "
+                    f"Pull one (e.g. `ollama pull llama3.2`) then go back to "
+                    f"hosts and re-enter this screen to re-probe.",
+                    id="host-models-empty-hint",
+                )
             rows = [ListRow(id_=m.name, label=m.name) for m in self._host.models]
             yield DrillableList(rows)
             yield SearchBar()

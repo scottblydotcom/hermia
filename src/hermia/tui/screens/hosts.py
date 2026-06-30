@@ -14,6 +14,7 @@ import asyncio
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
+from rich.markup import escape as rich_escape
 from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -46,6 +47,11 @@ class HostsScreen(Screen[None]):
         self.cursor_idx: int = 0
         # probe_state[host.name] = "probing" | "ok" | "failed".
         self.probe_state: dict[str, str] = {}
+        # Tracks "ok" hosts that came back with zero models — the actionable
+        # "host reachable but bare" case (Ollama running, nothing pulled).
+        # Kept separate from probe_state so the inline [ok] badge stays
+        # accurate while the hint surface picks up the empty case.
+        self.probe_warnings: dict[str, str] = {}
         # Injected for tests; production uses transport_adapter.transport_for
         # (resolved at probe time so the import stays lazy).
         self._make_transport = transport_factory
@@ -83,14 +89,26 @@ class HostsScreen(Screen[None]):
     def _row_text(self, host: Host, idx: int) -> str:
         cursor = "▸" if idx == self.cursor_idx else " "
         state = self.probe_state.get(host.name, "")
-        state_str = f" [{state}]" if state else ""
-        return f"{cursor} {host.name}    {host.url}    [{host.engine}]{state_str}"
+        state_str = f" \\[{state}]" if state else ""
+        # Escape user-controlled YAML fields (name, url) — Static parses Rich
+        # markup, so an unescaped `lab[1]` or `[bold red]x[/]` would render
+        # styled or raise MarkupError. The intentional brackets around state
+        # and engine are escaped with a literal backslash so they render as
+        # plain brackets without being interpreted as markup tags.
+        return (
+            f"{cursor} {rich_escape(host.name)}    {rich_escape(host.url)}    "
+            f"\\[{rich_escape(host.engine)}]{state_str}"
+        )
+
+    _HINT_IDS = ("hosts-probe-failed-hint", "hosts-no-models-hint")
 
     def _rerender(self) -> None:
         root = self.query_one("#hosts-root", Vertical)
         existing_rows = [
             c for c in root.children
-            if not isinstance(c, Breadcrumb) and c.id != "hosts-instructions"
+            if not isinstance(c, Breadcrumb)
+            and c.id != "hosts-instructions"
+            and c.id not in self._HINT_IDS
         ]
         # Stable-row optimization (Plan 1 lesson): when host count is unchanged
         # and we're not transitioning to/from empty state, update Statics in
@@ -102,6 +120,7 @@ class HostsScreen(Screen[None]):
         ):
             for i, host in enumerate(self.app_config.hosts):
                 existing_rows[i].update(self._row_text(host, i))  # type: ignore[attr-defined]
+            self._sync_probe_hints(root)
             return
         # Structural change (add-host, first mount, mode transition) — full
         # remount with seq-bumped IDs so AwaitRemove can't collide with new
@@ -115,6 +134,77 @@ class HostsScreen(Screen[None]):
             return
         for i, host in enumerate(self.app_config.hosts):
             root.mount(Static(self._row_text(host, i), id=f"host-row-{seq}-{i}"))
+        # On structural change, any hints persisted from the previous render
+        # are now ABOVE the freshly mounted host rows (they were preserved in
+        # place while the rows around them got removed + re-appended). Move
+        # them to the end so they read as "footer" hints. move_child is
+        # synchronous — sidesteps the AwaitRemove race that remove+remount
+        # would re-introduce.
+        for hid in self._HINT_IDS:
+            for hint in root.query(f"#{hid}"):
+                root.move_child(hint, before=None, after=-1)
+        self._sync_probe_hints(root)
+
+    def _sync_probe_hints(self, root: Vertical) -> None:
+        """Surface actionable nudges when probes fail or come back bare.
+
+        The bare [failed] / [ok] state badges are not actionable on their own —
+        a first-time user has no map from "[failed]" to "start Ollama". These
+        hints fill the gap (hermia-1pj). Idempotent — safe to call from both
+        the stable-row fast path and the structural-change slow path.
+
+        Implementation note: a burst of probe events (multi-host fleet, 5 hosts
+        completing within a tick) triggers `_rerender` repeatedly. A
+        remove-then-mount with fixed IDs would race the previous tick's
+        in-flight AwaitRemove and raise DuplicateIds (same lesson as
+        launch-row-N seq-bumping). The mount-only-if-absent / remove-only-if-
+        present pattern below avoids the race entirely by short-circuiting
+        when the visible state already matches.
+        """
+        any_failed = any(s == "failed" for s in self.probe_state.values())
+        any_no_models = bool(self.probe_warnings)
+        # Copy note: don't promise "leave and re-enter to re-probe" —
+        # _start_probes deliberately filters out hosts that already have a
+        # recorded probe_state (failed/ok/probing), so re-entry is a no-op
+        # for known hosts. A future explicit-refresh keybind would change
+        # this. For now: tell the user the actionable step and leave the
+        # recovery path implicit.
+        self._sync_hint(
+            root,
+            "hosts-probe-failed-hint",
+            want=any_failed,
+            text=(
+                "Hint: a host probe failed. Is Ollama running? "
+                "Start it with `ollama serve` and restart hermia."
+            ),
+        )
+        self._sync_hint(
+            root,
+            "hosts-no-models-hint",
+            want=any_no_models,
+            text=(
+                "Hint: a host is reachable but has no models pulled. "
+                "Try `ollama pull llama3.2` and restart hermia."
+            ),
+        )
+
+    def _sync_hint(self, root: Vertical, hid: str, *, want: bool, text: str) -> None:
+        # Mount-only-if-absent / remove-only-if-present. Short-circuits when
+        # the visible state already matches so AwaitRemove can never collide
+        # with a same-ID mount on a burst of probe events.
+        #
+        # NOTE: when want=True and the hint is already present, the existing
+        # Static is left in place — the new `text` is ignored. That's correct
+        # today because the two hint strings are constants. A future PR that
+        # makes hint text dynamic (e.g. "3 hosts failed" with a count) must
+        # either call existing.update(text) here or seq-bump the ID per the
+        # launch.py pattern.
+        existing = list(root.query(f"#{hid}"))
+        if want and not existing:
+            root.mount(Static(text, id=hid))
+        elif not want and existing:
+            for w in existing:
+                w.remove()
 
     # ── Navigation ────────────────────────────────────────────────────────
 
@@ -220,6 +310,15 @@ class HostsScreen(Screen[None]):
 
     async def _listen(self, gen: AsyncIterator[dict[str, Any]], final_state: str) -> None:
         async for ev in gen:
-            self.probe_state[ev["host_name"]] = final_state
+            host_name = ev["host_name"]
+            self.probe_state[host_name] = final_state
+            # probe.completed carries `warning: "no_models" | None`; capture
+            # it so the hint surface can show the actionable "pull a model"
+            # nudge when an otherwise-ok host has zero models pulled.
+            warning = ev.get("warning") if final_state == "ok" else None
+            if warning:
+                self.probe_warnings[host_name] = warning
+            else:
+                self.probe_warnings.pop(host_name, None)
             if self.is_mounted:
                 self._rerender()

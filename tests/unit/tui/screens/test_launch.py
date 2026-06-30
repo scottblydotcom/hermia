@@ -227,3 +227,92 @@ class TestLaunchFooter:
                 assert len(screen.query(Footer)) == 1
 
         asyncio.run(_run())
+
+
+class TestLaunchFleetsScanCaching:
+    """Verify _scan_fleets() isn't hit on every cursor keypress —
+    multiple reviewers (Opus Finders B+C, Gemini r1+r2) flagged disk I/O
+    per arrow press as a real cost class.
+    """
+
+    def test_cursor_moves_do_not_call_scan_fleets(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.chdir(tmp_path)
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                screen: LaunchScreen = pilot.app.screen  # type: ignore[assignment]
+                calls = [0]
+                orig = screen._scan_fleets
+                screen._scan_fleets = lambda: (calls.__setitem__(0, calls[0] + 1) or orig())  # type: ignore[method-assign]
+                await pilot.press("down")
+                await pilot.pause()
+                await pilot.press("down")
+                await pilot.pause()
+                await pilot.press("up")
+                await pilot.pause()
+                assert calls[0] == 0, (
+                    f"_scan_fleets called {calls[0]} times on cursor moves "
+                    "— should be cached"
+                )
+
+        asyncio.run(_run())
+
+
+class TestLaunchFirstRunNudge:
+    """First-time users get no map from `hermia` → an eval — they don't know
+    Ollama needs a model pulled. Show a tiny nudge in home mode when fleets/
+    has no saved configs (proxy for 'first run on this machine'). hermia-1pj."""
+
+    def test_first_run_nudge_shown_when_no_saved_fleets(self, tmp_path, monkeypatch) -> None:
+        from textual.widgets import Static
+
+        monkeypatch.chdir(tmp_path)
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                await pilot.pause()
+                screen: LaunchScreen = pilot.app.screen  # type: ignore[assignment]
+                nudge = screen.query_one(".launch-first-run-nudge", Static)
+                assert "ollama pull" in str(nudge.render())
+
+        asyncio.run(_run())
+
+    def test_first_run_nudge_shown_when_fleets_dir_empty(self, tmp_path, monkeypatch) -> None:
+        """fleets/ existing but empty (e.g., .gitkeep, no .yaml) should still
+        nudge — the _scan_fleets path matters distinctly from 'fleets/ absent'.
+        """
+        from textual.widgets import Static
+
+        (tmp_path / "fleets").mkdir()  # exists, no .yaml inside
+        monkeypatch.chdir(tmp_path)
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                await pilot.pause()
+                screen: LaunchScreen = pilot.app.screen  # type: ignore[assignment]
+                nudge = screen.query_one(".launch-first-run-nudge", Static)
+                assert "ollama pull" in str(nudge.render())
+
+        asyncio.run(_run())
+
+    def test_no_nudge_when_saved_fleets_exist(self, tmp_path, monkeypatch) -> None:
+        from textual.css.query import NoMatches
+
+        fleets_dir = tmp_path / "fleets"
+        fleets_dir.mkdir()
+        (fleets_dir / "saved.yaml").write_text("fleet: []\n", encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                await pilot.pause()
+                screen: LaunchScreen = pilot.app.screen  # type: ignore[assignment]
+                try:
+                    screen.query_one(".launch-first-run-nudge")
+                    raise AssertionError(
+                        "nudge should be suppressed once fleets/ has saved configs"
+                    )
+                except NoMatches:
+                    pass
+
+        asyncio.run(_run())
