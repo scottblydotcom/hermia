@@ -168,9 +168,11 @@ Hermia opens a TUI. Select a model from the list, choose which eval dimensions t
 and press **Run**. Results appear live alongside system metrics. Each run writes
 `results/eval_TIMESTAMP.jsonl` and `results/eval_TIMESTAMP.csv`.
 
-See the [Getting Started Guide](docs/usage.md) for a full walkthrough: result
-interpretation, `--repeat N` consistency scoring, fleet mode, regression detection,
-and Postgres export.
+New here? [docs/getting-started.md](docs/getting-started.md) is the 5-minute
+zero-to-first-eval path.
+
+See [docs/usage.md](docs/usage.md) for the full reference: result interpretation,
+`--repeat N` consistency scoring, fleet mode, regression detection, and Postgres export.
 
 ---
 
@@ -213,8 +215,9 @@ The tool steals answers from the Oracle and tells you which one to trust.
 
 ## Documentation
 
-- [Getting Started Guide](docs/usage.md) — install, run, interpret results, fleet mode, Postgres export
-- [Roadmap](docs/roadmap.md) — v0.2 endpoint bus, v0.3 eval bus, full backlog
+- [Getting Started](docs/getting-started.md) — 5-minute zero-to-first-eval guide
+- [Usage Reference](docs/usage.md) — full walkthrough: install, run, interpret results, fleet mode, regression detection, Postgres export
+- [Roadmap](docs/roadmap.md) — v0.2 fleet + TUI, v0.3 eval bus, full backlog
 - [GUARDS Framework](docs/GUARDS.md) — six-dimension standard for LLM system-prompt guardrail construction (Goal/Unit/Actions/Response/Detect/Stop)
 
 ---

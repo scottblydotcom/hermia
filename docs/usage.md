@@ -1,7 +1,10 @@
-# Getting Started with Hermia
+# Hermia Usage Reference
 
-This guide walks you through installing Hermia, running your first eval, interpreting the
-results, and optionally exporting to Postgres for long-term tracking.
+This is the full reference: install, eval flow, result schema, repeat runs, fleet mode,
+regression detection, and Postgres export.
+
+> **Want the 5-minute version?** See [getting-started.md](getting-started.md) for the
+> minimal zero-to-first-eval path.
 
 ---
 
