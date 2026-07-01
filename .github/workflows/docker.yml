@@ -1,0 +1,104 @@
+name: Docker Image
+
+# Build and smoke-test the image on PRs and branch pushes touching
+# Docker/packaging bits. Never publishes — see docker-release.yml for that.
+on:
+  push:
+    branches:
+      - main
+      - dev
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - pyproject.toml
+      - src/**
+      - .github/workflows/docker.yml
+  pull_request:
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - pyproject.toml
+      - src/**
+      - .github/workflows/docker.yml
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5  # v4.1.0
+
+      - name: Compute image tags
+        id: meta
+        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9  # v6.1.0
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/hermia
+          tags: |
+            type=ref,event=pr
+            type=ref,event=branch
+
+      - name: Build
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7.2.0
+        with:
+          context: .
+          file: Dockerfile
+          push: false
+          load: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke-test image
+        # `docker run hermia --help` must exit 0 and print the CLI usage.
+        # Uses the first tag emitted by metadata-action.
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          IMAGE="$(printf '%s' "$IMAGE_TAGS" | head -n1)"
+          echo "Smoke-testing $IMAGE"
+          docker run --rm "$IMAGE" --help | grep -q "hermia"
+          docker run --rm "$IMAGE" --version | grep -qE "hermia [0-9]+\.[0-9]+\.[0-9]+"
+
+      - name: Verify non-root user
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          IMAGE="$(printf '%s' "$IMAGE_TAGS" | head -n1)"
+          UID_OUT="$(docker run --rm --entrypoint id "$IMAGE" -u)"
+          test "$UID_OUT" = "1000"
+
+      - name: Smoke-test fleet-mode entrypoint
+        # Points at an unreachable host on purpose — run_fleet records
+        # per-host failures without raising, so this exercises the real
+        # config-parse + run + write-results path end to end.
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -euo pipefail
+          IMAGE="$(printf '%s' "$IMAGE_TAGS" | head -n1)"
+          mkdir -p /tmp/smoke-fleet /tmp/smoke-results
+          # Container writes as uid 1000, which won't generally match the
+          # runner's user — open the scratch dir up for this ephemeral CI
+          # smoke test only (not a pattern for real user-facing usage).
+          chmod 777 /tmp/smoke-results
+          cat > /tmp/smoke-fleet/smoke.yaml <<'EOF'
+          fleet:
+            - name: unreachable
+              host: http://127.0.0.1:1
+              transport: ollama
+          EOF
+          docker run --rm \
+            -v /tmp/smoke-fleet:/workspace/fleets:ro \
+            -v /tmp/smoke-results:/workspace/results \
+            "$IMAGE" --fleet fleets/smoke.yaml --quiet | grep -q "Saved:"

@@ -153,6 +153,20 @@ cd hermia
 pip install -e .
 ```
 
+Or via Docker (headless fleet mode):
+
+```bash
+mkdir -p results && chmod 777 results  # container writes as uid 1000, not your host user
+docker run --rm --network host \
+  -v $PWD/fleets:/workspace/fleets:ro \
+  -v $PWD/results:/workspace/results \
+  ghcr.io/scottblydotcom/hermia:latest \
+  --fleet fleets/local.yaml
+```
+
+See [Docker usage](docs/getting-started.md#appendix-docker) for macOS / Windows
+networking (`host.docker.internal`) and volume-mount details.
+
 ---
 
 ## Quickstart

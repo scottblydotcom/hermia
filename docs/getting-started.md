@@ -121,6 +121,75 @@ and stack fingerprint per trial for audit purposes.
 
 ---
 
+## Appendix: Docker
+
+Hermia ships a Docker image at `ghcr.io/scottblydotcom/hermia:latest`. The
+container is oriented at **headless fleet mode** — the interactive TUI needs
+a real terminal and isn't the primary Docker use case.
+
+### Linux (bare Docker, host networking)
+
+```bash
+mkdir -p results && chmod 777 results  # container writes as uid 1000, not your host user
+docker run --rm --network host \
+  -v $PWD/fleets:/workspace/fleets:ro \
+  -v $PWD/results:/workspace/results \
+  ghcr.io/scottblydotcom/hermia:latest \
+  --fleet fleets/local.yaml
+```
+
+```yaml
+# fleets/local.yaml
+fleet:
+  - name: local
+    host: http://localhost:11434
+    transport: ollama
+    models:
+      - llama3.2:latest
+```
+
+`--network host` lets the container reach `localhost:11434` on the host.
+Bind-mount `fleets/` read-only and `results/` read-write so eval output lands
+on the host filesystem.
+
+### macOS / Windows (Docker Desktop)
+
+Docker Desktop doesn't support `--network host` cleanly. Add the host gateway
+and point the fleet YAML at `host.docker.internal`:
+
+```bash
+mkdir -p results && chmod 777 results  # container writes as uid 1000, not your host user
+docker run --rm \
+  --add-host host.docker.internal:host-gateway \
+  -v $PWD/fleets:/workspace/fleets:ro \
+  -v $PWD/results:/workspace/results \
+  ghcr.io/scottblydotcom/hermia:latest \
+  --fleet fleets/desktop.yaml
+```
+
+```yaml
+# fleets/desktop.yaml
+fleet:
+  - name: docker-desktop
+    host: http://host.docker.internal:11434
+    transport: ollama
+    models:
+      - llama3.2:latest
+```
+
+### Remote Ollama
+
+If Ollama isn't on the same box as the container, no special networking is
+needed — put the remote URL directly in the fleet YAML.
+
+### Version pinning
+
+For reproducible builds, pin the tag to a released version, e.g.
+`ghcr.io/scottblydotcom/hermia:0.1.3` — check
+[releases](https://github.com/scottblydotcom/hermia/releases) for the latest.
+
+---
+
 ## Troubleshooting
 
 **No models listed in the TUI** — Ollama isn't running, or you haven't pulled a
