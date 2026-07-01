@@ -130,6 +130,7 @@ a real terminal and isn't the primary Docker use case.
 ### Linux (bare Docker, host networking)
 
 ```bash
+mkdir -p results  # pre-create so it's owned by you, not root (container runs as uid 1000)
 docker run --rm --network host \
   -v $PWD/fleets:/workspace/fleets:ro \
   -v $PWD/results:/workspace/results \
@@ -147,6 +148,7 @@ Docker Desktop doesn't support `--network host` cleanly. Add the host gateway
 and point the fleet YAML at `host.docker.internal`:
 
 ```bash
+mkdir -p results  # pre-create so it's owned by you, not root (container runs as uid 1000)
 docker run --rm \
   --add-host host.docker.internal:host-gateway \
   -v $PWD/fleets:/workspace/fleets:ro \
@@ -160,7 +162,7 @@ docker run --rm \
 fleet:
   - name: docker-desktop
     host: http://host.docker.internal:11434
-    engine: ollama
+    transport: ollama
     models:
       - llama3.2:latest
 ```
@@ -172,7 +174,9 @@ needed — put the remote URL directly in the fleet YAML.
 
 ### Version pinning
 
-For reproducible builds, pin the tag: `ghcr.io/scottblydotcom/hermia:0.2.0`.
+For reproducible builds, pin the tag to a released version, e.g.
+`ghcr.io/scottblydotcom/hermia:0.1.3` — check
+[releases](https://github.com/scottblydotcom/hermia/releases) for the latest.
 
 ---
 
