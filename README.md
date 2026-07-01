@@ -161,7 +161,7 @@ docker run --rm --network host \
   -v $PWD/fleets:/workspace/fleets:ro \
   -v $PWD/results:/workspace/results \
   ghcr.io/scottblydotcom/hermia:latest \
-  --fleet fleets/quick-local.yaml
+  --fleet fleets/local.yaml
 ```
 
 See [Docker usage](docs/getting-started.md#appendix-docker) for macOS / Windows

@@ -88,6 +88,10 @@ jobs:
           set -euo pipefail
           IMAGE="$(printf '%s' "$IMAGE_TAGS" | head -n1)"
           mkdir -p /tmp/smoke-fleet /tmp/smoke-results
+          # Container writes as uid 1000, which won't generally match the
+          # runner's user — open the scratch dir up for this ephemeral CI
+          # smoke test only (not a pattern for real user-facing usage).
+          chmod 777 /tmp/smoke-results
           cat > /tmp/smoke-fleet/smoke.yaml <<'EOF'
           fleet:
             - name: unreachable
