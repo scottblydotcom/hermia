@@ -156,7 +156,7 @@ pip install -e .
 Or via Docker (headless fleet mode):
 
 ```bash
-mkdir -p results  # pre-create so it's owned by you, not root (container runs as uid 1000)
+mkdir -p results && chmod 777 results  # container writes as uid 1000, not your host user
 docker run --rm --network host \
   -v $PWD/fleets:/workspace/fleets:ro \
   -v $PWD/results:/workspace/results \

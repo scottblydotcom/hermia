@@ -45,7 +45,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 # Non-root user — hermia doesn't need any elevated privileges at runtime.
 RUN groupadd --system --gid 1000 hermia \
  && useradd  --system --uid 1000 --gid hermia --home /workspace --shell /usr/sbin/nologin hermia \
- && mkdir -p /workspace/fleets /workspace/results \
+ && mkdir -p /workspace/results \
  && chown -R hermia:hermia /workspace
 
 COPY --from=builder /opt/venv /opt/venv
