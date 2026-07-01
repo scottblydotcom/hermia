@@ -40,7 +40,7 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
       - name: Trivy dependency scan
-        uses: aquasecurity/trivy-action@314ff8b43182423b84c50b1670b0e10f858f2d98  # master 2026-05-16
+        uses: aquasecurity/trivy-action@df678dbccf677bc6937338d569ba0da18964a8cc  # master 2026-05-16
         with:
           scan-type: fs
           scan-ref: "."
