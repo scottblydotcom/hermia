@@ -1,0 +1,41 @@
+# Keep the build context small. Anything not required at pip-install time
+# should be excluded — the wheel is built from pyproject + src/.
+.git
+.github
+.gitignore
+.venv
+venv
+env
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+coverage.xml
+coverage.html
+coverage.out
+
+# Local dev cruft
+.DS_Store
+.env
+.env.local
+.claude
+.beads
+results/
+fleets/
+session-notes/
+cmd/
+
+# Docs / plans — not needed to install the package
+docs/
+tests/
+
+# Editor
+.vscode
+.idea
+*.swp
+*.swo

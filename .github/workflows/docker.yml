@@ -1,0 +1,84 @@
+name: Docker Image
+
+# Build the image on every PR touching Docker/packaging bits (smoke-test only),
+# and publish to ghcr.io on release tag pushes (v*.*.*).
+on:
+  push:
+    tags:
+      - "v*.*.*"
+    branches:
+      - main
+      - dev
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - pyproject.toml
+      - src/**
+      - .github/workflows/docker.yml
+  pull_request:
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - pyproject.toml
+      - src/**
+      - .github/workflows/docker.yml
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@e15b46e7c7c9d6afc98da4ff0a45c4bd9436d8bd  # v3.4.0
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435  # v3.11.1
+
+      - name: Compute image tags
+        id: meta
+        uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804  # v5.7.0
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/hermia
+          tags: |
+            type=ref,event=pr
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+
+      # Login only when we intend to push (tag or protected-branch push).
+      - name: Log in to ghcr.io
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3.4.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build (and push on non-PR events)
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c1c  # v6.18.0
+        with:
+          context: .
+          file: Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          load: ${{ github.event_name == 'pull_request' }}
+
+      - name: Smoke-test image
+        # `docker run hermia --help` must exit 0 and print the CLI usage.
+        # Uses the first tag emitted by metadata-action.
+        run: |
+          set -euo pipefail
+          IMAGE="$(printf '%s' "${{ steps.meta.outputs.tags }}" | head -n1)"
+          echo "Smoke-testing $IMAGE"
+          docker run --rm "$IMAGE" --help | grep -q "hermia"
+          docker run --rm "$IMAGE" --version | grep -qE "hermia [0-9]+\.[0-9]+\.[0-9]+"
