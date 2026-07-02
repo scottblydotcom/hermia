@@ -46,16 +46,16 @@ jobs:
             JSON="$(curl -sf "https://pypi.org/pypi/hermia/${VERSION}/json" || true)"
             if [[ -n "$JSON" ]]; then
               RESULT="$(echo "$JSON" | python3 -c '
-import json, sys
-data = json.load(sys.stdin)
-for entry in data["urls"]:
-    if entry["packagetype"] == "sdist":
-        print(entry["url"])
-        print(entry["digests"]["sha256"])
-        break
-else:
-    sys.exit(1)
-')"
+          import json, sys
+          data = json.load(sys.stdin)
+          for entry in data["urls"]:
+              if entry["packagetype"] == "sdist":
+                  print(entry["url"])
+                  print(entry["digests"]["sha256"])
+                  break
+          else:
+              sys.exit(1)
+          ' || true)"
               if [[ -n "$RESULT" ]]; then
                 echo "url=$(echo "$RESULT" | sed -n 1p)" >> "$GITHUB_OUTPUT"
                 echo "sha256=$(echo "$RESULT" | sed -n 2p)" >> "$GITHUB_OUTPUT"
