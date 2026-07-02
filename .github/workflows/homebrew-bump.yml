@@ -1,0 +1,118 @@
+name: Bump Homebrew Formula
+
+# Runs after a successful PyPI publish (see publish.yml, same v*.*.* tag
+# trigger) and opens a PR against scottblydotcom/homebrew-tap updating the
+# hermia formula's url/sha256 to the just-published release.
+#
+# Requires a repo secret HOMEBREW_TAP_TOKEN: a fine-grained PAT scoped to
+# Contents: read/write on scottblydotcom/homebrew-tap only. The default
+# GITHUB_TOKEN cannot push to a different repository.
+#
+# Only bumps the main package resource (url + sha256). Transitive
+# dependency resources (textual, rich, etc.) are not re-pinned here — if
+# pyproject.toml's dependency versions changed, regenerate those manually
+# with `homebrew-pypi-poet` and update Formula/hermia.rb by hand.
+on:
+  workflow_run:
+    workflows: ["Publish to PyPI"]
+    types: [completed]
+
+jobs:
+  bump-formula:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Determine version from tag
+        id: version
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.workflow_run.head_branch }}"
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Unexpected tag format: $TAG" >&2
+            exit 1
+          fi
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch sdist url + sha256 from PyPI
+        id: pypi
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5; do
+            JSON="$(curl -sf "https://pypi.org/pypi/hermia/${VERSION}/json" || true)"
+            if [[ -n "$JSON" ]]; then
+              RESULT="$(echo "$JSON" | python3 -c '
+          import json, sys
+          data = json.load(sys.stdin)
+          for entry in data["urls"]:
+              if entry["packagetype"] == "sdist":
+                  print(entry["url"])
+                  print(entry["digests"]["sha256"])
+                  break
+          else:
+              sys.exit(1)
+          ' || true)"
+              if [[ -n "$RESULT" ]]; then
+                echo "url=$(echo "$RESULT" | sed -n 1p)" >> "$GITHUB_OUTPUT"
+                echo "sha256=$(echo "$RESULT" | sed -n 2p)" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+            fi
+            echo "sdist not available yet for ${VERSION}, retrying (attempt ${attempt})..."
+            sleep 20
+          done
+          echo "Gave up waiting for hermia ${VERSION} sdist on PyPI" >&2
+          exit 1
+
+      - name: Checkout homebrew-tap
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          repository: scottblydotcom/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          persist-credentials: true
+
+      - name: Update formula
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SDIST_URL: ${{ steps.pypi.outputs.url }}
+          SDIST_SHA256: ${{ steps.pypi.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          python3 - "$VERSION" "$SDIST_URL" "$SDIST_SHA256" <<'EOF'
+          import re
+          import sys
+
+          version, url, sha256 = sys.argv[1:4]
+          path = "Formula/hermia.rb"
+          text = open(path).read()
+
+          head, sep, rest = text.partition("\n  resource ")
+          head = re.sub(r'url ".*"\n', f'url "{url}"\n', head, count=1)
+          head = re.sub(r'sha256 ".*"\n', f'sha256 "{sha256}"\n', head, count=1)
+
+          open(path, "w").write(head + sep + rest)
+          EOF
+          git diff --stat
+
+      - name: Open PR
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name "hermia-release-bot"
+          git config user.email "actions@users.noreply.github.com"
+          BRANCH="bump-hermia-${VERSION}"
+          git checkout -b "$BRANCH"
+          git add Formula/hermia.rb
+          git commit -m "hermia ${VERSION}"
+          git push origin "$BRANCH"
+          gh pr create \
+            --title "hermia ${VERSION}" \
+            --body "Automated bump to hermia ${VERSION}, triggered by scottblydotcom/hermia's release workflow." \
+            --base main \
+            --head "$BRANCH"
