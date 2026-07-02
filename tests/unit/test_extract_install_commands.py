@@ -25,3 +25,23 @@ def test_extract_source_install_preserves_command_order():
             "pip install -e .",
         ]
     }
+
+
+def test_extract_all_five_methods_from_full_readme():
+    result = extract_install_commands(
+        readme_path=FIXTURES / "full_readme.md",
+        expected_methods=("pipx", "brew", "pip", "source", "docker"),
+    )
+
+    assert result["pipx"] == ["pipx install hermia"]
+    assert result["brew"] == ["brew install scottblydotcom/tap/hermia"]
+    assert result["pip"] == ["pip install hermia"]
+    assert result["source"] == [
+        "git clone https://github.com/scottblydotcom/hermia",
+        "cd hermia",
+        "pip install -e .",
+    ]
+    assert result["docker"][0] == "mkdir -p results && chmod 777 results"
+    assert result["docker"][1].startswith("docker run --rm --network host")
+    assert result["docker"][-1].strip() == "--fleet fleets/local.yaml"
+    assert len(result["docker"]) >= 2
