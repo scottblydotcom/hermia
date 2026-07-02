@@ -1,0 +1,58 @@
+name: Docs as tested
+
+on:
+  pull_request:
+    branches: [dev]
+  push:
+    branches: [dev]
+
+jobs:
+  pip:
+    name: pip (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.12"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Extract install commands
+        id: extract
+        run: |
+          set -euo pipefail
+          commands_json="$(python -m scripts.extract_install_commands --readme README.md --method pip)"
+          echo "commands=$commands_json" >> "$GITHUB_OUTPUT"
+          echo "$commands_json"
+
+      - name: Run install commands
+        working-directory: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          echo '${{ steps.extract.outputs.commands }}' \
+            | python -c "import json,sys; [print(c) for c in json.load(sys.stdin)]" \
+            | while IFS= read -r cmd; do
+                echo "+ $cmd"
+                eval "$cmd"
+              done
+
+      - name: Assert hermia --version succeeds
+        run: hermia --version
+
+      - name: Assert hermia --help contains usage
+        run: 'hermia --help | grep -q "usage: hermia"'
+
+      - name: Assert version matches PyPI's currently-published version
+        run: |
+          set -euo pipefail
+          published="$(python -c 'import urllib.request,json; print(json.loads(urllib.request.urlopen("https://pypi.org/pypi/hermia/json").read())["info"]["version"])')"
+          installed="$(hermia --version | awk '{print $NF}')"
+          echo "PyPI info.version=$published, installed hermia --version=$installed"
+          [ "$installed" = "$published" ]
