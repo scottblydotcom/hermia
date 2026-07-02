@@ -115,3 +115,59 @@ jobs:
           installed="$(hermia --version | awk '{print $NF}')"
           echo "PyPI info.version=$published, installed hermia --version=$installed"
           [ "$installed" = "$published" ]
+
+  source:
+    name: source (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Extract install commands (informational — asserted below)
+        id: extract
+        run: |
+          set -euo pipefail
+          commands_json="$(python -m scripts.extract_install_commands --readme README.md --method source)"
+          echo "$commands_json"
+          echo "commands=$commands_json" >> "$GITHUB_OUTPUT"
+
+      - name: Assert extracted commands still have the expected shape
+        env:
+          COMMANDS: ${{ steps.extract.outputs.commands }}
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          import json, os
+          commands = json.loads(os.environ["COMMANDS"])
+          assert len(commands) == 3, commands
+          assert commands[0].startswith("git clone"), commands[0]
+          assert commands[1] == "cd hermia", commands[1]
+          assert commands[2] == "pip install -e .", commands[2]
+          PY
+
+      - name: Run editable install of the current checkout
+        run: pip install -e .
+
+      - name: Assert hermia --version succeeds
+        run: hermia --version
+
+      - name: Assert hermia --help contains usage
+        run: 'hermia --help | grep -q "usage: hermia"'
+
+      - name: Assert version matches pyproject.toml
+        run: |
+          set -euo pipefail
+          declared="$(python -c 'import tomllib; print(tomllib.loads(open("pyproject.toml").read())["project"]["version"])')"
+          installed="$(hermia --version | awk '{print $NF}')"
+          echo "pyproject.toml version=$declared, installed hermia --version=$installed"
+          [ "$installed" = "$declared" ]
