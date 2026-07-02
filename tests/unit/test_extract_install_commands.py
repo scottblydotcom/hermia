@@ -1,6 +1,8 @@
 from pathlib import Path
 
-from scripts.extract_install_commands import extract_install_commands
+import pytest
+
+from scripts.extract_install_commands import ExtractionError, extract_install_commands
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "install_readmes"
 
@@ -45,3 +47,27 @@ def test_extract_all_five_methods_from_full_readme():
     assert result["docker"][1].startswith("docker run --rm --network host")
     assert result["docker"][-1].strip() == "--fleet fleets/local.yaml"
     assert len(result["docker"]) >= 2
+
+
+def test_missing_install_section_raises():
+    with pytest.raises(ExtractionError, match="no '## Install' section found"):
+        extract_install_commands(
+            readme_path=FIXTURES / "missing_install_section.md",
+            expected_methods=("pipx",),
+        )
+
+
+def test_missing_expected_method_heading_raises():
+    with pytest.raises(ExtractionError, match="expected method 'pipx'"):
+        extract_install_commands(
+            readme_path=FIXTURES / "missing_pipx_heading.md",
+            expected_methods=("pipx",),
+        )
+
+
+def test_expected_method_without_bash_code_block_raises():
+    with pytest.raises(ExtractionError, match="expected method 'pipx'"):
+        extract_install_commands(
+            readme_path=FIXTURES / "pipx_no_code_fence.md",
+            expected_methods=("pipx",),
+        )
