@@ -8,7 +8,10 @@ contain exactly one fenced ``bash`` code block. Any deviation raises
 
 from __future__ import annotations
 
+import argparse
+import json
 import re
+import sys
 from pathlib import Path
 
 
@@ -60,3 +63,31 @@ def extract_install_commands(
         result[method] = commands
 
     return result
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--readme", required=True, type=Path)
+    parser.add_argument(
+        "--method",
+        required=True,
+        choices=sorted(METHOD_HEADINGS.keys()),
+    )
+    args = parser.parse_args(argv)
+
+    try:
+        commands = extract_install_commands(
+            readme_path=args.readme,
+            expected_methods=(args.method,),
+        )
+    except ExtractionError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    json.dump(commands[args.method], sys.stdout)
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

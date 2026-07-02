@@ -1,7 +1,9 @@
+import json
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
-
 from scripts.extract_install_commands import ExtractionError, extract_install_commands
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "install_readmes"
@@ -71,3 +73,42 @@ def test_expected_method_without_bash_code_block_raises():
             readme_path=FIXTURES / "pipx_no_code_fence.md",
             expected_methods=("pipx",),
         )
+
+
+def test_cli_emits_json_for_one_method(tmp_path):
+    fixture = FIXTURES / "full_readme.md"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "scripts.extract_install_commands",
+            "--readme",
+            str(fixture),
+            "--method",
+            "pipx",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    payload = json.loads(result.stdout)
+    assert payload == ["pipx install hermia"]
+
+
+def test_cli_exits_nonzero_on_extraction_error():
+    fixture = FIXTURES / "missing_install_section.md"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "scripts.extract_install_commands",
+            "--readme",
+            str(fixture),
+            "--method",
+            "pipx",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "no '## Install' section found" in result.stderr
