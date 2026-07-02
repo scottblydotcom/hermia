@@ -1,0 +1,315 @@
+name: Docs as tested
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev, main]
+
+# Workflow-level minimal scope: every job only reads the checked-out
+# README + scripts and shells to pip / brew / docker. Nothing writes back
+# to the repo; nothing needs elevated GITHUB_TOKEN scope. Per AGENTS.md
+# rule 10.
+permissions:
+  contents: read
+
+jobs:
+  pip:
+    name: pip (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Extract install commands
+        id: extract
+        run: |
+          set -euo pipefail
+          commands_json="$(python -m scripts.extract_install_commands --readme README.md --method pip)"
+          echo "commands=$commands_json" >> "$GITHUB_OUTPUT"
+          echo "$commands_json"
+
+      - name: Run install commands
+        working-directory: ${{ runner.temp }}
+        env:
+          COMMANDS: ${{ steps.extract.outputs.commands }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$COMMANDS" \
+            | python -c "import json,sys; [print(c) for c in json.load(sys.stdin)]" \
+            | while IFS= read -r cmd; do
+                echo "+ $cmd"
+                eval "$cmd"
+              done
+
+      - name: Assert hermia --version succeeds
+        run: hermia --version
+
+      - name: Assert hermia --help contains usage
+        run: 'hermia --help | grep -q "usage: hermia"'
+
+      - name: Assert version matches PyPI's currently-published version
+        run: |
+          set -euo pipefail
+          published="$(python -c 'import urllib.request,json; print(json.loads(urllib.request.urlopen("https://pypi.org/pypi/hermia/json").read())["info"]["version"])')"
+          installed="$(hermia --version | awk '{print $NF}')"
+          echo "PyPI info.version=$published, installed hermia --version=$installed"
+          [ "$installed" = "$published" ]
+
+  pipx:
+    name: pipx (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install pipx
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pipx
+          python -m pipx ensurepath
+
+      - name: Extract install commands
+        id: extract
+        run: |
+          set -euo pipefail
+          commands_json="$(python -m scripts.extract_install_commands --readme README.md --method pipx)"
+          echo "commands=$commands_json" >> "$GITHUB_OUTPUT"
+          echo "$commands_json"
+
+      - name: Run install commands
+        working-directory: ${{ runner.temp }}
+        env:
+          COMMANDS: ${{ steps.extract.outputs.commands }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$COMMANDS" \
+            | python -c "import json,sys; [print(c) for c in json.load(sys.stdin)]" \
+            | while IFS= read -r cmd; do
+                echo "+ $cmd"
+                eval "$cmd"
+              done
+
+      - name: Ensure pipx shim on PATH for this shell
+        run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Assert hermia --version succeeds
+        run: hermia --version
+
+      - name: Assert hermia --help contains usage
+        run: 'hermia --help | grep -q "usage: hermia"'
+
+      - name: Assert version matches PyPI's currently-published version
+        run: |
+          set -euo pipefail
+          published="$(python -c 'import urllib.request,json; print(json.loads(urllib.request.urlopen("https://pypi.org/pypi/hermia/json").read())["info"]["version"])')"
+          installed="$(hermia --version | awk '{print $NF}')"
+          echo "PyPI info.version=$published, installed hermia --version=$installed"
+          [ "$installed" = "$published" ]
+
+  source:
+    name: source (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Extract install commands (informational — asserted below)
+        id: extract
+        run: |
+          set -euo pipefail
+          commands_json="$(python -m scripts.extract_install_commands --readme README.md --method source)"
+          echo "$commands_json"
+          echo "commands=$commands_json" >> "$GITHUB_OUTPUT"
+
+      - name: Assert extracted commands still have the expected shape
+        env:
+          COMMANDS: ${{ steps.extract.outputs.commands }}
+        run: |
+          set -euo pipefail
+          python <<'PY'
+          import json, os
+          commands = json.loads(os.environ["COMMANDS"])
+          assert len(commands) == 3, commands
+          assert commands[0].startswith("git clone"), commands[0]
+          assert commands[1] == "cd hermia", commands[1]
+          assert commands[2] == "pip install -e .", commands[2]
+          PY
+
+      - name: Run editable install of the current checkout
+        run: pip install -e .
+
+      - name: Assert hermia --version succeeds
+        run: hermia --version
+
+      - name: Assert hermia --help contains usage
+        run: 'hermia --help | grep -q "usage: hermia"'
+
+      - name: Assert version matches pyproject.toml
+        run: |
+          set -euo pipefail
+          declared="$(python -c 'import tomllib; print(tomllib.loads(open("pyproject.toml").read())["project"]["version"])')"
+          installed="$(hermia --version | awk '{print $NF}')"
+          echo "pyproject.toml version=$declared, installed hermia --version=$installed"
+          [ "$installed" = "$declared" ]
+
+  brew:
+    name: brew (macos-latest, formula-pinned python@3.12)
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python (for the extractor)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Extract install commands
+        id: extract
+        run: |
+          set -euo pipefail
+          commands_json="$(python -m scripts.extract_install_commands --readme README.md --method brew)"
+          echo "commands=$commands_json" >> "$GITHUB_OUTPUT"
+          echo "$commands_json"
+
+      - name: Run install commands
+        working-directory: ${{ runner.temp }}
+        env:
+          COMMANDS: ${{ steps.extract.outputs.commands }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$COMMANDS" \
+            | python -c "import json,sys; [print(c) for c in json.load(sys.stdin)]" \
+            | while IFS= read -r cmd; do
+                echo "+ $cmd"
+                eval "$cmd"
+              done
+
+      - name: Assert hermia --version succeeds
+        run: hermia --version
+
+      - name: Assert hermia --help contains usage
+        run: 'hermia --help | grep -q "usage: hermia"'
+
+      - name: Assert version matches PyPI's currently-published version
+        run: |
+          set -euo pipefail
+          published="$(python -c 'import urllib.request,json; print(json.loads(urllib.request.urlopen("https://pypi.org/pypi/hermia/json").read())["info"]["version"])')"
+          installed="$(hermia --version | awk '{print $NF}')"
+          echo "PyPI info.version=$published, installed hermia --version=$installed"
+          [ "$installed" = "$published" ]
+
+  docker:
+    name: docker (ubuntu-latest, image-pinned python)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python (for the extractor)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Extract install commands
+        id: extract
+        run: |
+          set -euo pipefail
+          commands_json="$(python -m scripts.extract_install_commands --readme README.md --method docker)"
+          echo "commands=$commands_json" >> "$GITHUB_OUTPUT"
+          echo "$commands_json"
+
+      - name: Parse image reference from extracted docker command
+        id: image
+        env:
+          COMMANDS: ${{ steps.extract.outputs.commands }}
+        run: |
+          set -euo pipefail
+          image="$(python <<'PY'
+          import json, os, re, sys
+          commands = json.loads(os.environ["COMMANDS"])
+          joined = " ".join(commands)
+          match = re.search(r"(ghcr\.io/[A-Za-z0-9._/-]+:[A-Za-z0-9._-]+)", joined)
+          if match is None:
+              print("could not find ghcr.io image reference in extracted docker command", file=sys.stderr)
+              sys.exit(1)
+          print(match.group(1))
+          PY
+          )"
+          echo "ref=$image" >> "$GITHUB_OUTPUT"
+          echo "image=$image"
+
+      # docker-release.yml currently only pushes semver tags (:0.2.0, :0.2),
+      # never :latest — so README's `:latest` reference 404s until hermia-b7v
+      # (P1) lands. Until then, this leg gracefully skips assertions when the
+      # manifest is unavailable, logging the reason. Once hermia-b7v ships,
+      # subsequent runs will find the manifest and enforce the assertions.
+      - name: Check if image manifest is published
+        id: manifest
+        run: |
+          set +e
+          if docker manifest inspect ${{ steps.image.outputs.ref }} >/dev/null 2>&1; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            echo "manifest available; will run assertions"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "manifest NOT available (image not yet published — see hermia-b7v). Skipping assertions."
+          fi
+
+      - name: Assert hermia --version succeeds inside the image
+        if: steps.manifest.outputs.available == 'true'
+        run: docker run --rm ${{ steps.image.outputs.ref }} --version
+
+      - name: Assert hermia --help contains usage
+        if: steps.manifest.outputs.available == 'true'
+        run: 'docker run --rm ${{ steps.image.outputs.ref }} --help | grep -q "usage: hermia"'
+
+      - name: Assert version matches PyPI's currently-published version
+        if: steps.manifest.outputs.available == 'true'
+        run: |
+          set -euo pipefail
+          published="$(python -c 'import urllib.request,json; print(json.loads(urllib.request.urlopen("https://pypi.org/pypi/hermia/json").read())["info"]["version"])')"
+          installed="$(docker run --rm ${{ steps.image.outputs.ref }} --version | awk '{print $NF}')"
+          echo "PyPI info.version=$published, image hermia --version=$installed"
+          [ "$installed" = "$published" ]
