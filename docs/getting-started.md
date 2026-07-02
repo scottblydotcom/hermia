@@ -55,7 +55,7 @@ pipx install hermia
 Or via Homebrew (macOS):
 
 ```bash
-brew install scottbly/tap/hermia
+brew install scottblydotcom/tap/hermia
 ```
 
 Or with pip:
