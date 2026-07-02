@@ -216,3 +216,57 @@ jobs:
           installed="$(hermia --version | awk '{print $NF}')"
           echo "PyPI info.version=$published, installed hermia --version=$installed"
           [ "$installed" = "$published" ]
+
+  docker:
+    name: docker (ubuntu-latest, image-pinned python)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python (for the extractor)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Extract install commands
+        id: extract
+        run: |
+          set -euo pipefail
+          commands_json="$(python -m scripts.extract_install_commands --readme README.md --method docker)"
+          echo "commands=$commands_json" >> "$GITHUB_OUTPUT"
+          echo "$commands_json"
+
+      - name: Parse image reference from extracted docker command
+        id: image
+        env:
+          COMMANDS: ${{ steps.extract.outputs.commands }}
+        run: |
+          set -euo pipefail
+          image="$(python <<'PY'
+          import json, os, re, sys
+          commands = json.loads(os.environ["COMMANDS"])
+          joined = " ".join(commands)
+          match = re.search(r"(ghcr\.io/[A-Za-z0-9._/-]+:[A-Za-z0-9._-]+)", joined)
+          if match is None:
+              print("could not find ghcr.io image reference in extracted docker command", file=sys.stderr)
+              sys.exit(1)
+          print(match.group(1))
+          PY
+          )"
+          echo "ref=$image" >> "$GITHUB_OUTPUT"
+          echo "image=$image"
+
+      - name: Assert hermia --version succeeds inside the image
+        run: docker run --rm ${{ steps.image.outputs.ref }} --version
+
+      - name: Assert hermia --help contains usage
+        run: 'docker run --rm ${{ steps.image.outputs.ref }} --help | grep -q "usage: hermia"'
+
+      - name: Assert version matches PyPI's currently-published version
+        run: |
+          set -euo pipefail
+          published="$(python -c 'import urllib.request,json; print(json.loads(urllib.request.urlopen("https://pypi.org/pypi/hermia/json").read())["info"]["version"])')"
+          installed="$(docker run --rm ${{ steps.image.outputs.ref }} --version | awk '{print $NF}')"
+          echo "PyPI info.version=$published, image hermia --version=$installed"
+          [ "$installed" = "$published" ]
