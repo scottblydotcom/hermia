@@ -32,6 +32,8 @@ def extract_install_commands(
     readme_path: Path,
     expected_methods: tuple[str, ...],
 ) -> dict[str, list[str]]:
+    if not readme_path.is_file():
+        raise ExtractionError(f"README file not found: {readme_path}")
     text = readme_path.read_text(encoding="utf-8")
 
     install_match = re.search(
@@ -59,7 +61,7 @@ def extract_install_commands(
                 f"could not find heading '{heading}' followed by a "
                 f"```bash code block"
             )
-        commands = [line for line in block.group(1).splitlines() if line.strip()]
+        commands = [line.strip() for line in block.group(1).splitlines() if line.strip()]
         result[method] = commands
 
     return result

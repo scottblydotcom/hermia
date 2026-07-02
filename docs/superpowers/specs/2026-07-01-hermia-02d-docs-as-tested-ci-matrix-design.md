@@ -113,7 +113,7 @@ The other four legs (`pip`, `pipx`, `brew`, `source`) do run their extracted com
 **New:**
 - `.github/workflows/docs-as-tested.yml`
 - `scripts/extract_install_commands.py`
-- `tests/test_extract_install_commands.py` (unit tests for the extractor — golden-file tests against a fixture README, plus failure-mode tests for missing methods, missing code fences, unexpected methods)
+- `tests/unit/test_extract_install_commands.py` (unit tests for the extractor — golden-file tests against a fixture README, plus failure-mode tests for missing methods, missing code fences, unexpected methods)
 
 **Modified:**
 - `README.md` — fix `scottbly/tap` → `scottblydotcom/tap` (line 145).

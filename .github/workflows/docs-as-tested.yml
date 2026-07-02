@@ -18,6 +18,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -34,9 +36,11 @@ jobs:
 
       - name: Run install commands
         working-directory: ${{ runner.temp }}
+        env:
+          COMMANDS: ${{ steps.extract.outputs.commands }}
         run: |
           set -euo pipefail
-          echo '${{ steps.extract.outputs.commands }}' \
+          printf '%s' "$COMMANDS" \
             | python -c "import json,sys; [print(c) for c in json.load(sys.stdin)]" \
             | while IFS= read -r cmd; do
                 echo "+ $cmd"
@@ -68,6 +72,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -90,9 +96,11 @@ jobs:
 
       - name: Run install commands
         working-directory: ${{ runner.temp }}
+        env:
+          COMMANDS: ${{ steps.extract.outputs.commands }}
         run: |
           set -euo pipefail
-          echo '${{ steps.extract.outputs.commands }}' \
+          printf '%s' "$COMMANDS" \
             | python -c "import json,sys; [print(c) for c in json.load(sys.stdin)]" \
             | while IFS= read -r cmd; do
                 echo "+ $cmd"
@@ -127,6 +135,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -178,6 +188,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Python (for the extractor)
         uses: actions/setup-python@v5
@@ -194,9 +206,11 @@ jobs:
 
       - name: Run install commands
         working-directory: ${{ runner.temp }}
+        env:
+          COMMANDS: ${{ steps.extract.outputs.commands }}
         run: |
           set -euo pipefail
-          echo '${{ steps.extract.outputs.commands }}' \
+          printf '%s' "$COMMANDS" \
             | python -c "import json,sys; [print(c) for c in json.load(sys.stdin)]" \
             | while IFS= read -r cmd; do
                 echo "+ $cmd"
@@ -223,6 +237,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Set up Python (for the extractor)
         uses: actions/setup-python@v5

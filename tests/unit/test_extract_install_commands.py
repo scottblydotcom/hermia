@@ -7,6 +7,7 @@ import pytest
 from scripts.extract_install_commands import ExtractionError, extract_install_commands
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "install_readmes"
+REPO_ROOT = Path(__file__).parent.parent.parent
 
 
 def test_extract_pipx_from_minimal_readme():
@@ -90,6 +91,7 @@ def test_cli_emits_json_for_one_method(tmp_path):
         check=True,
         capture_output=True,
         text=True,
+        cwd=REPO_ROOT,
     )
     payload = json.loads(result.stdout)
     assert payload == ["pipx install hermia"]
@@ -109,6 +111,7 @@ def test_cli_exits_nonzero_on_extraction_error():
         ],
         capture_output=True,
         text=True,
+        cwd=REPO_ROOT,
     )
     assert result.returncode != 0
     assert "no '## Install' section found" in result.stderr
