@@ -139,6 +139,12 @@ Recommended (via pipx):
 pipx install hermia
 ```
 
+Or via Homebrew (macOS):
+
+```bash
+brew install scottbly/tap/hermia
+```
+
 Or with pip:
 
 ```bash
