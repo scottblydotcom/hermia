@@ -2,9 +2,16 @@ name: Docs as tested
 
 on:
   pull_request:
-    branches: [dev]
+    branches: [dev, main]
   push:
-    branches: [dev]
+    branches: [dev, main]
+
+# Workflow-level minimal scope: every job only reads the checked-out
+# README + scripts and shells to pip / brew / docker. Nothing writes back
+# to the repo; nothing needs elevated GITHUB_TOKEN scope. Per AGENTS.md
+# rule 10.
+permissions:
+  contents: read
 
 jobs:
   pip:
