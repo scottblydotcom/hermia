@@ -49,7 +49,7 @@ feature/* or fix/* or chore/*
 
 ## Making Changes
 
-**New eval test cases** (`test-datasets/agentic-tasks.json` + `src/hermia/schemas.py`):
+**New eval test cases** (`src/hermia/test-datasets/agentic-tasks.json` + `src/hermia/schemas.py`):
 - Follow the existing test case structure — `id`, `dimension`, `description`, `system`, `prompt`
 - Add a corresponding schema checker in `schemas.py` using the `_keys_ok()` helper
 - Map the test to at least one framework reference (OWASP, ATLAS, MAESTRO, or NIST AI RMF)

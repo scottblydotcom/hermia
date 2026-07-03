@@ -217,9 +217,10 @@ See [docs/roadmap.md](docs/roadmap.md) for the full plan.
 
 **v0.2.0** — stable and tested. The core eval suite, fleet mode, TUI, audit trail, and
 findings analysis pipeline are all shipping. Cross-stack reproducibility evidence
-(Metal x CUDA x ROCm) is being captured in an n=3 dataset and will publish alongside the
-v0.2.0 release notes. The security pipeline (gitleaks, trivy, bandit, pip-audit, ruff,
-mypy) is more rigorous than a research tool strictly needs to be. That was intentional.
+(Metal × CUDA × ROCm) is being captured as an ongoing dataset, published on a rolling
+basis across the v0.2.x series rather than as a single launch snapshot. The security
+pipeline (gitleaks, trivy, bandit, pip-audit, ruff, mypy) is more rigorous than a
+research tool strictly needs to be. That was intentional.
 
 Available on [PyPI](https://pypi.org/project/hermia/): `pipx install hermia`
 

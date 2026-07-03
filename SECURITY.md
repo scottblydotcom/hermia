@@ -67,7 +67,7 @@ Out of scope:
 ## A Note on the Nature of This Tool
 
 Hermia runs adversarial prompts against language models by design. If you're reviewing
-the eval test datasets (`test-datasets/agentic-tasks.json`) and see what look like
+the eval test datasets (`src/hermia/test-datasets/agentic-tasks.json`) and see what look like
 prompt injection attempts or instructions to exfiltrate credentials — that's intentional.
 Those are the test cases. The tool is supposed to send them to models; it is not supposed
 to act on them itself.
