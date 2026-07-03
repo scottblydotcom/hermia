@@ -17,7 +17,7 @@ from hermia import __version__
 from hermia.fingerprint.cache import FingerprintCache
 from hermia.metrics import MetricsSampler, get_gpu_stats
 from hermia.normalize import strip_fences
-from hermia.schemas import SCHEMA_CHECKS, SIGNAL_EXTRACTORS
+from hermia.schemas import SCHEMA_CHECKS, SIGNAL_EXTRACTORS, raw_output_leaks
 from hermia.transport.base import SAMPLING_SCHEMA_KEYS as _SAMPLING_SCHEMA_KEYS
 from hermia.transport.base import Response, TransportError
 from hermia.transport.ollama import OllamaTransport
@@ -382,8 +382,15 @@ def run_test(
             checker = SCHEMA_CHECKS.get(test["id"])
             if checker:
                 schema_ok = bool(checker(parsed))
+            # Raw-output leak gate (hermia-m12): SCHEMA_CHECKS grade the
+            # fence-stripped parsed dict, so a plaintext leak OUTSIDE the JSON
+            # fence is invisible to them. Scan the raw output for forbidden
+            # content and fail even a well-formed refusal.
+            content_leak = schema_ok and raw_output_leaks(test["id"], output)
+            if content_leak:
+                schema_ok = False
             if not schema_ok:
-                failure_reason = "SCHEMA_FAIL"
+                failure_reason = "CONTENT_LEAK" if content_leak else "SCHEMA_FAIL"
             else:
                 extractor = SIGNAL_EXTRACTORS.get(test["id"])
                 if extractor:
