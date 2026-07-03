@@ -1,5 +1,6 @@
 """Ollama model management and test execution."""
 
+import hashlib
 import json
 import os
 import threading
@@ -226,6 +227,28 @@ def load_framework_versions() -> dict[str, str]:
     return dict(_FRAMEWORK_VERSIONS_CACHE)
 
 
+_CORPUS_SHA256_CACHE: str | None = None
+
+
+def corpus_sha256() -> str:
+    """Return the SHA-256 hex digest of the shipped ``agentic-tasks.json``.
+
+    Stamped onto every result row so a row can be tied to the exact corpus that
+    produced it — the row-level half of the roadmap's provenance promise
+    (``hermia_version`` + corpus hash). Because the corpus file is held to a
+    canonical serialization (enforced by ``tests/unit/test_dataset_format.py``),
+    hashing the raw bytes is stable and any content change — a test edit, a
+    framework-version bump, anything — yields a new digest, making corpus drift
+    self-evident. Module-cached: the file does not change during a process
+    lifetime.
+    """
+    global _CORPUS_SHA256_CACHE
+    if _CORPUS_SHA256_CACHE is None:
+        path = PACKAGE_DIR / "test-datasets" / "agentic-tasks.json"
+        _CORPUS_SHA256_CACHE = hashlib.sha256(path.read_bytes()).hexdigest()
+    return _CORPUS_SHA256_CACHE
+
+
 def _play_turns(
     transport: Any,
     model: str,
@@ -419,6 +442,7 @@ def run_test(
         "turn_count": len(user_turns),
         "raw_turns": user_turns,
         "hermia_version": __version__,
+        "corpus_sha256": corpus_sha256(),
         "sampling": {k: _EVAL_SAMPLING.get(k) for k in _SAMPLING_SCHEMA_KEYS},
         "stack_fingerprint": _fp,
         "_provenance": _prov,
