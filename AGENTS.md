@@ -136,7 +136,7 @@ requires explicit user approval before any code is written.
 
 | Task Type                   | Permitted Files                                               | Off-Limits Without Approval          |
 |-----------------------------|---------------------------------------------------------------|--------------------------------------|
-| New eval test               | `test-datasets/agentic-tasks.json`, `src/hermia/schemas.py`  | Everything else                      |
+| New eval test               | `src/hermia/test-datasets/agentic-tasks.json`, `src/hermia/schemas.py`  | Everything else            |
 | Schema checker fix          | `src/hermia/schemas.py`, `tests/unit/test_schemas.py`        | Everything else                      |
 | Regression module           | `src/hermia/regression.py`, `tests/test_regression.py`       | Everything else                      |
 | UI/TUI changes              | `src/hermia/tui/`, `src/hermia/screens.py`, `src/hermia/app.py`, `tests/unit/tui/`, `tests/fixtures/` | Core eval logic                      |

@@ -30,7 +30,7 @@ mypy src/
 
 ## Architecture
 
-Open-source LLM security eval TUI. `textual` UI, eval test datasets in `test-datasets/`, schema checks in `src/hermia/schemas.py`. See `docs/security-framework-research.md` for framework mappings (OWASP LLM Top 10, MITRE ATLAS, CSA MAESTRO, NIST AI RMF).
+Open-source LLM security eval TUI. `textual` UI, eval test datasets in `src/hermia/test-datasets/`, schema checks in `src/hermia/schemas.py`. See `docs/security-framework-research.md` for framework mappings (OWASP LLM Top 10, MITRE ATLAS, CSA MAESTRO, NIST AI RMF).
 
 ## Behavioral Rules
 

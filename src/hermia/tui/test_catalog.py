@@ -2,7 +2,7 @@
 
 Source of truth:
     - schemas.TEST_IDS               — canonical ordered list of test IDs
-    - test-datasets/agentic-tasks.json[agentic_test_cases][*].frameworks
+    - src/hermia/test-datasets/agentic-tasks.json[agentic_test_cases][*].frameworks
       → dict with keys: owasp_llm_top10, mitre_atlas, csa_maestro, nist_ai_rmf
       → non-empty list = test belongs to that framework
 

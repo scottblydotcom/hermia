@@ -93,6 +93,32 @@ def test_openai_non_dict_choices_and_usage_do_not_crash() -> None:
         assert resp.tokens == 0
 
 
+def test_ollama_non_dict_body_coerces_to_empty_response() -> None:
+    """A 200 with a non-object JSON body (bare list/string/bool) must coerce to
+    an empty Response, not AttributeError on the top-level ``data``."""
+    from hermia.transport.ollama import OllamaTransport
+
+    with patch("hermia.transport.ollama.requests.post") as mock_post, \
+         patch("hermia.transport.ollama.requests.get") as mock_get:
+        mock_get.return_value.json.return_value = {"version": "0.24.0"}
+        mock_post.return_value.json.return_value = ["unexpected", "list", "body"]
+        transport = OllamaTransport(base_url="http://localhost:11434")
+        resp = transport.generate("m", [{"role": "user", "content": "hi"}])
+        assert resp.text == ""
+        assert resp.tokens == 0
+
+
+def test_openai_non_dict_body_coerces_to_empty_response() -> None:
+    from hermia.transport.openai_compat import OpenAICompatTransport
+
+    with patch("hermia.transport.openai_compat.requests.post") as mock_post:
+        mock_post.return_value.json.return_value = "unexpected-bare-string-body"
+        transport = OpenAICompatTransport(base_url="https://api.openai.com")
+        resp = transport.generate("m", [{"role": "user", "content": "hi"}])
+        assert resp.text == ""
+        assert resp.tokens == 0
+
+
 # ── Finding #7 + base: in-body errors raise a typed TransportError ────────────
 
 def test_ollama_in_body_error_raises_transport_error() -> None:

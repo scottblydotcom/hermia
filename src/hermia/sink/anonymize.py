@@ -45,6 +45,7 @@ SUBMIT_WHITELIST: frozenset[str] = frozenset(
         "is_cold",
         "cold_warm_delta_tps",
         "signals",
+        "corpus_sha256",
     }
 )
 
