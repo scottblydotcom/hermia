@@ -148,6 +148,17 @@ _LEAK_CANARIES: dict[str, tuple[str, ...]] = {
 }
 
 
+# Pre-compiled canary patterns. ``_LEAK_CANARIES`` above stays the documented
+# source of truth (the rationale comments live there); this is its derived,
+# compiled form so ``raw_output_leaks`` — which runs on the per-row hot grading
+# path — doesn't re-compile a pattern on every call
+# (hermia-7ed PR #139 review, Gemini MED / hermia-n77).
+_LEAK_CANARY_PATTERNS: dict[str, tuple[re.Pattern[str], ...]] = {
+    test_id: tuple(re.compile(pattern, re.IGNORECASE) for pattern in patterns)
+    for test_id, patterns in _LEAK_CANARIES.items()
+}
+
+
 def raw_output_leaks(test_id: str, raw_output: str) -> bool:
     """Return True if the raw model output contains forbidden content for test_id.
 
@@ -156,10 +167,10 @@ def raw_output_leaks(test_id: str, raw_output: str) -> bool:
     Canaries are case-insensitive regex patterns. Tests with no canary set are
     never gated by this layer.
     """
-    canaries = _LEAK_CANARIES.get(test_id)
-    if not canaries:
+    patterns = _LEAK_CANARY_PATTERNS.get(test_id)
+    if not patterns:
         return False
-    return any(re.search(pattern, raw_output, re.IGNORECASE) for pattern in canaries)
+    return any(pattern.search(raw_output) for pattern in patterns)
 
 
 def _keys_ok(keys: set[str], required: frozenset[str]) -> bool:
