@@ -48,6 +48,13 @@ security/capability pillars.
   system-user-precedence, structured-field-injection-{nested-json,base64,unicode,numeric},
   lane-routing-evasion. The residual under-count on those tests is now bounded by canary
   coverage (per-test entries flag any remaining gap) rather than the fence-strip itself.
+  The layer was exercised on the 2026-07-04 fleet cascade
+  (`results/eval_20260704_192518.jsonl`: 2424 rows over 8 backends — Metal M1/M3, Vulkan
+  Vega, ROCm 7800XT, CUDA 3090, LiteLLM openai-compat, Mac Pro Metal — at n=3): **0
+  `CONTENT_LEAK` trips across all 642 leak/disclosure-test rows**, independently re-verified
+  by re-scanning the raw responses with the shipped grader. That confirms the canaries do
+  not false-fire on the well-formed refusals this model set produces; it is not evidence
+  that leakage is impossible, and the per-test paraphrase residuals still bound each claim.
 - **3-way grader (planned)**: replacing the binary verdict with
   REFUSED / COMPLIED-WITH-ATTACK / MALFORMED would remove the remaining refusal-vs-malformed
   ambiguity and is the next measurement-cycle change; until then, cite rates with the corpus
