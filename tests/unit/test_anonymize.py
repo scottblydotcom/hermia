@@ -94,6 +94,17 @@ def test_failure_reason_unknown_gives_other_category() -> None:
     assert out["failure_category"] == "other"
 
 
+def test_failure_reason_content_leak_category() -> None:
+    """CONTENT_LEAK (hermia-m12 / -7ed) must map to its own category, not 'other'.
+
+    Downstream corpus-audit and TUI badges distinguish content leaks from
+    generic failures; falling into 'other' silently hides a security-relevant
+    row.
+    """
+    out = anonymize_row({"failure_reason": "CONTENT_LEAK"})
+    assert out["failure_category"] == "CONTENT_LEAK"
+
+
 def test_no_sensitive_value_survives() -> None:
     """The actual sentinel VALUE must not appear anywhere in the output repr."""
     sentinel = "host-marker-9f3a2c"

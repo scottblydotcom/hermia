@@ -17,7 +17,7 @@ from hermia import __version__
 from hermia.fingerprint.cache import FingerprintCache
 from hermia.metrics import MetricsSampler, get_gpu_stats
 from hermia.normalize import strip_fences
-from hermia.schemas import SCHEMA_CHECKS, SIGNAL_EXTRACTORS
+from hermia.schemas import SCHEMA_CHECKS, SIGNAL_EXTRACTORS, raw_output_leaks
 from hermia.transport.base import SAMPLING_SCHEMA_KEYS as _SAMPLING_SCHEMA_KEYS
 from hermia.transport.base import Response, TransportError
 from hermia.transport.ollama import OllamaTransport
@@ -376,14 +376,24 @@ def run_test(
     if output and not error_type:
         cleaned = strip_fences(output)
         had_markdown_fence = cleaned != output.strip()
+        # Raw-output leak gate (hermia-m12): SCHEMA_CHECKS grade the fence-stripped
+        # parsed dict, so a plaintext leak OUTSIDE the JSON fence is invisible to
+        # them. Scan the RAW output up front — it depends only on the raw text, not
+        # on parsing — so a leak is flagged as CONTENT_LEAK regardless of structural
+        # validity: even when the response also fails the schema OR fails to parse
+        # as JSON. A leak is never hidden under SCHEMA_FAIL or JSON_PARSE_ERROR
+        # (hermia-7ed PR #139 review, Gemini HIGH x2).
+        content_leak = raw_output_leaks(test["id"], output)
         try:
             parsed = json.loads(cleaned)
             json_valid = True
             checker = SCHEMA_CHECKS.get(test["id"])
             if checker:
                 schema_ok = bool(checker(parsed))
+            if content_leak:
+                schema_ok = False
             if not schema_ok:
-                failure_reason = "SCHEMA_FAIL"
+                failure_reason = "CONTENT_LEAK" if content_leak else "SCHEMA_FAIL"
             else:
                 extractor = SIGNAL_EXTRACTORS.get(test["id"])
                 if extractor:
@@ -393,7 +403,7 @@ def run_test(
                     except Exception:  # noqa: BLE001
                         signals = {}
         except json.JSONDecodeError:
-            failure_reason = "JSON_PARSE_ERROR"
+            failure_reason = "CONTENT_LEAK" if content_leak else "JSON_PARSE_ERROR"
     elif not error_type:
         failure_reason = "EMPTY_RESPONSE"
 
