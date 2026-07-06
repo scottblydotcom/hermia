@@ -245,6 +245,38 @@ def test_ollama_security_survives_non_dict_json_body():
     assert not any("CVE-2026-7482" in w for w in warns)
 
 
+def test_ollama_security_normalizes_scheme_less_host():
+    """A raw `localhost:11434` (no scheme) must be normalized, not passed as-is to requests.get."""
+    seen_urls: list[str] = []
+
+    def _fake_get(url, timeout=None, headers=None):  # type: ignore[no-untyped-def]
+        seen_urls.append(url)
+        r = MagicMock()
+        r.ok = True
+        r.json.return_value = {"version": "0.22.1"}
+        return r
+
+    with patch("requests.get", side_effect=_fake_get):
+        check_ollama_security("localhost:11434", fleet_mode=True)
+    assert seen_urls == ["http://localhost:11434/api/version"]
+
+
+def test_ollama_security_strips_trailing_slash():
+    """A trailing slash on the host must not produce a `//api/version` URL."""
+    seen_urls: list[str] = []
+
+    def _fake_get(url, timeout=None, headers=None):  # type: ignore[no-untyped-def]
+        seen_urls.append(url)
+        r = MagicMock()
+        r.ok = True
+        r.json.return_value = {"version": "0.22.1"}
+        return r
+
+    with patch("requests.get", side_effect=_fake_get):
+        check_ollama_security("http://localhost:11434/", fleet_mode=True)
+    assert seen_urls == ["http://localhost:11434/api/version"]
+
+
 def test_ollama_security_survives_non_json_body():
     """A /api/version body that isn't JSON must not raise."""
     r = MagicMock()

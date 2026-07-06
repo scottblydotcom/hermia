@@ -77,6 +77,10 @@ def check_ollama_security(
     """
     import requests  # local import — optional network check, avoid startup overhead
     warnings: list[str] = []
+    # Normalize even though every current caller already does — defense
+    # in depth against a future caller passing a raw `localhost:11434`
+    # (requests raises MissingSchema) or a trailing slash (double-slash URL).
+    host = _normalize_host(host)
     try:
         resp = requests.get(
             f"{host}/api/version", timeout=3, headers=headers or {}

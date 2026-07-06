@@ -69,7 +69,16 @@ class HermiaApp(App[None]):
         for w in warnings:
             if stderr_safe:
                 print(w, file=sys.stderr)
-            self.call_from_thread(self.notify, w, severity="warning", timeout=15)
+            try:
+                self.call_from_thread(
+                    self.notify, w, severity="warning", timeout=15
+                )
+            except RuntimeError:
+                # App unmounted / event loop closed while the probe was
+                # still running (worst case: within the 3s /api/version
+                # window). Losing the toast on shutdown is fine — the
+                # stderr line above already captured it for logging.
+                return
 
     def on_unmount(self) -> None:
         self.bus.close()
