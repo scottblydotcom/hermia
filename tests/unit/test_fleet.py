@@ -842,7 +842,7 @@ def test_load_fleet_config_transport_openai_compat(tmp_path: Path) -> None:
     cfg.write_text(
         "fleet:\n"
         "  - name: litellm-gateway\n"
-        "    host: https://scottai.tailc7d860.ts.net:4000\n"
+        "    host: https://fleet.example:4000\n"
         "    transport: openai-compat\n"
     )
     entries = load_fleet_config(cfg)
