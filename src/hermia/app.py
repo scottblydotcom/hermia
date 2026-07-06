@@ -163,7 +163,12 @@ def main() -> None:
 
         sys.exit(0)
 
-    HermiaApp().run()
+    # Local TUI mode — engine-security probe runs on an off-thread worker
+    # after mount so the TUI's first paint isn't blocked on the 3s Ollama
+    # /api/version timeout when the host is unreachable. See
+    # HermiaApp._probe_engine_security.
+    from hermia.runner import get_ollama_host
+    HermiaApp(engine_security_host=get_ollama_host()).run()
 
 
 if __name__ == "__main__":
