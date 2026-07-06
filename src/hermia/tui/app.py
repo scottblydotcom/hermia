@@ -65,7 +65,14 @@ class HermiaApp(App[None]):
         # surfaces the warning interactively; redirected-fd invocations
         # (`hermia 2>log`) still capture it. sys.stderr can be None under
         # GUI wrappers / daemonized launchers.
-        stderr_safe = sys.stderr is not None and not sys.stderr.isatty()
+        # Custom stream shims (some test runners, GUI wrappers) may not
+        # implement isatty(); treat "no isatty" as safe to write (same
+        # semantics as a non-TTY file).
+        isatty = getattr(sys.stderr, "isatty", None)
+        stderr_safe = (
+            sys.stderr is not None
+            and (isatty is None or not isatty())
+        )
         for w in warnings:
             if stderr_safe:
                 print(w, file=sys.stderr)
