@@ -163,14 +163,19 @@ def main() -> None:
 
         sys.exit(0)
 
-    # Local TUI mode — surface engine-security warnings to stderr before the
-    # TUI takes over the screen. Uses the same dispatcher the fleet path uses.
+    # Local TUI mode — surface engine-security warnings both to stderr (for
+    # non-interactive logging / redirected fds) AND into the TUI itself as
+    # startup toasts, since Textual switches to the alternate screen buffer
+    # on mount and any pre-mount stderr can scroll away when the app exits.
     from hermia.preflight import check_engine_security
     from hermia.runner import get_ollama_host
-    for w in check_engine_security(get_ollama_host(), "ollama", fleet_mode=False):
+    startup_warnings = check_engine_security(
+        get_ollama_host(), "ollama", fleet_mode=False
+    )
+    for w in startup_warnings:
         print(w, file=sys.stderr)
 
-    HermiaApp().run()
+    HermiaApp(startup_warnings=startup_warnings).run()
 
 
 if __name__ == "__main__":
