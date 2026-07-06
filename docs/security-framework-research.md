@@ -86,9 +86,10 @@ Expressible as pass/fail automated eval cases against a local Ollama model:
 ## 2. MITRE ATLAS (v5.1.0, November 2025 + February 2026 updates)
 
 > **Version note:** This section analyzes the ATLAS **v5.1.0** baseline. Hermia's shipped
-> corpus maps to ATLAS **6.0.0 / 2026.05** (the current release — see
-> `docs/MITRE-ATLAS-2026.05.yaml` and the README framework table). Technique IDs cited below
-> reflect the v5.1.0 analysis and may differ from the corpus's current mappings.
+> corpus maps to ATLAS **6.0.0 / 2026.05** (the current release — see the `framework_versions`
+> block in `src/hermia/test-datasets/agentic-tasks.json` and the README framework table).
+> Technique IDs cited below reflect the v5.1.0 analysis and may differ from the corpus's
+> current mappings.
 
 ### What it covers
 
