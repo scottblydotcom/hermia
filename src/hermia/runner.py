@@ -238,9 +238,24 @@ def corpus_sha256() -> str:
     (``hermia_version`` + corpus hash). Because the corpus file is held to a
     canonical serialization (enforced by ``tests/unit/test_dataset_format.py``),
     hashing the raw bytes is stable and any content change — a test edit, a
-    framework-version bump, anything — yields a new digest, making corpus drift
-    self-evident. Module-cached: the file does not change during a process
-    lifetime.
+    framework-version bump, anything — yields a new digest.
+
+    Scope + honest limits (see hermia-5oe):
+
+    * **What this detects.** Accidental corpus drift, provided the reader has
+      an authoritative reference digest to compare against; hermia does not
+      publish a canonical one, so drift detection currently depends on
+      out-of-band coordination.
+    * **What this does NOT detect.** The digest covers only the corpus
+      *data* — not ``schemas.py`` or any other eval code. A run whose graders
+      have been silently rewritten still emits the same ``corpus_sha256`` as
+      a stock run. Nor does the digest give forgery resistance: it is an
+      unkeyed hash of a public file, so any actor can produce a row whose
+      hash matches the shipped corpus regardless of how (or whether) it was
+      graded.
+    * Row-signing / hashing the eval code is deferred to v0.3.
+
+    Module-cached: the file does not change during a process lifetime.
     """
     global _CORPUS_SHA256_CACHE
     if _CORPUS_SHA256_CACHE is None:
