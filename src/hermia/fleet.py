@@ -217,7 +217,9 @@ def _run_host_eval(
     # let a malformed /api/version response kill the host eval.
     from hermia.preflight import check_engine_security
     try:
-        sec_warnings = check_engine_security(host_url, transport_type, fleet_mode=True)
+        sec_warnings = check_engine_security(
+            host_url, transport_type, fleet_mode=True, headers=headers
+        )
     except Exception as exc:  # noqa: BLE001 — advisory-only, degrade quietly
         sec_warnings = [f"SEC ⚠ engine-security probe failed: {exc}"]
     if sec_warnings:

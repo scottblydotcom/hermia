@@ -254,7 +254,7 @@ def test_run_host_eval_emits_engine_security_warnings_via_stderr_fn(
                         lambda host=None, headers=None: [{"name": "m1"}], raising=False)
 
     # Force check_ollama_security to see a vulnerable version.
-    def fake_check(host, engine, fleet_mode=False):  # type: ignore[no-untyped-def]
+    def fake_check(host, engine, fleet_mode=False, headers=None):  # type: ignore[no-untyped-def]
         if engine == "ollama":
             return [f"SEC ⚠ CVE-2026-7482: Ollama 0.16.0 vulnerable (host={host})"]
         return []

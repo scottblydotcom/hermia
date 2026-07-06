@@ -212,3 +212,44 @@ def test_engine_security_ollama_forwards_fleet_mode():
             "http://remotehost:11434", "ollama", fleet_mode=True
         )
     assert not any("CVE-2026-5757" in w for w in warns)
+
+
+def test_engine_security_ollama_forwards_auth_headers():
+    """Bearer/auth headers must reach the /api/version probe on auth-gated hosts."""
+    captured: dict[str, dict[str, str] | None] = {}
+
+    def _fake_get(url, timeout=None, headers=None):  # type: ignore[no-untyped-def]
+        captured["headers"] = headers
+        r = MagicMock()
+        r.ok = True
+        r.json.return_value = {"version": "0.22.1"}
+        return r
+
+    with patch("requests.get", side_effect=_fake_get):
+        check_engine_security(
+            "http://litellm:4000",
+            "ollama",
+            fleet_mode=True,
+            headers={"Authorization": "Bearer token-xyz"},
+        )
+    assert captured["headers"] == {"Authorization": "Bearer token-xyz"}
+
+
+def test_ollama_security_survives_non_dict_json_body():
+    """A /api/version body that isn't a dict must not raise."""
+    r = MagicMock()
+    r.ok = True
+    r.json.return_value = ["not", "a", "dict"]
+    with patch("requests.get", return_value=r):
+        warns = check_ollama_security("http://x:11434", fleet_mode=True)
+    assert not any("CVE-2026-7482" in w for w in warns)
+
+
+def test_ollama_security_survives_non_json_body():
+    """A /api/version body that isn't JSON must not raise."""
+    r = MagicMock()
+    r.ok = True
+    r.json.side_effect = ValueError("not JSON")
+    with patch("requests.get", return_value=r):
+        warns = check_ollama_security("http://x:11434", fleet_mode=True)
+    assert not any("CVE-2026-7482" in w for w in warns)

@@ -64,21 +64,36 @@ _MIN_SECURE_VERSION_TUPLE: tuple[int, ...] = (
 )
 
 
-def check_ollama_security(host: str, fleet_mode: bool = False) -> list[str]:
-    """Query /api/version and return SEC warning strings. Never raises."""
+def check_ollama_security(
+    host: str,
+    fleet_mode: bool = False,
+    headers: dict[str, str] | None = None,
+) -> list[str]:
+    """Query /api/version and return SEC warning strings. Never raises.
+
+    ``headers`` forwards the fleet entry's auth (e.g. bearer token) so
+    ``/api/version`` reaches auth-gated hosts (LiteLLM proxies, etc)
+    instead of getting a silent 401/403 and skipping the CVE probe.
+    """
     import requests  # local import — optional network check, avoid startup overhead
     warnings: list[str] = []
     try:
-        resp = requests.get(f"{host}/api/version", timeout=3)
+        resp = requests.get(
+            f"{host}/api/version", timeout=3, headers=headers or {}
+        )
         if resp.ok:
-            ver = resp.json().get("version", "")
+            payload = resp.json()
+            # Defensive: /api/version could return a list, a bare string,
+            # or null on an unexpected server. Only a dict has .get.
+            ver = payload.get("version", "") if isinstance(payload, dict) else ""
             v_tuple = _parse_version(ver)
             if v_tuple is not None and v_tuple < _MIN_SECURE_VERSION_TUPLE:
                 warnings.append(
                     f"SEC ⚠ CVE-2026-7482 (CVSS 9.1): Ollama {ver} is vulnerable "
                     f"to heap memory disclosure — upgrade to {OLLAMA_MIN_SECURE_VERSION}+"
                 )
-    except requests.exceptions.RequestException:
+    except (requests.exceptions.RequestException, ValueError):
+        # ValueError catches JSONDecodeError on non-JSON bodies.
         pass
 
     if not fleet_mode:
@@ -90,7 +105,10 @@ def check_ollama_security(host: str, fleet_mode: bool = False) -> list[str]:
 
 
 def check_engine_security(
-    host: str, engine: str, fleet_mode: bool = False
+    host: str,
+    engine: str,
+    fleet_mode: bool = False,
+    headers: dict[str, str] | None = None,
 ) -> list[str]:
     """Engine-aware security posture check. Dispatch on transport type.
 
@@ -101,6 +119,9 @@ def check_engine_security(
     return the empty list; adding a new advisory means editing exactly
     one function, no call-site changes.
 
+    ``headers`` are forwarded to the underlying probe so auth-gated fleet
+    hosts (bearer tokens etc) don't get 401 and silently skip the check.
+
     Currently populated:
     * ``ollama`` → :func:`check_ollama_security` (CVE-2026-7482 heap
       disclosure, CVE-2026-5757 unauthenticated /api/create)
@@ -108,7 +129,7 @@ def check_engine_security(
       here when one lands.
     """
     if engine == "ollama":
-        return check_ollama_security(host, fleet_mode=fleet_mode)
+        return check_ollama_security(host, fleet_mode=fleet_mode, headers=headers)
     return []
 
 
