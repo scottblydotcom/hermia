@@ -1,12 +1,16 @@
 name: Security
 
 on:
+  push:
+    branches:
+      - main        # scan the default branch on every merge so the README Security badge reflects main
   pull_request:
     branches:
       - main        # full security gate before anything hits main
       - dev         # catch issues before promotion, not after
   schedule:
     - cron: "0 6 * * 1"  # weekly Monday 06:00 UTC — scans main regardless of activity
+  workflow_dispatch:  # allow manual re-runs (e.g. to refresh the badge after a promotion)
 
 jobs:
   gitleaks:
