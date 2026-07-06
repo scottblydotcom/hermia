@@ -243,7 +243,7 @@ def corpus_sha256() -> str:
     Scope + honest limits (see hermia-5oe):
 
     * **What this detects.** Accidental corpus drift, provided the reader has
-      an authoritative reference digest to compare against; hermia does not
+      an authoritative reference digest to compare against; Hermia does not
       publish a canonical one, so drift detection currently depends on
       out-of-band coordination.
     * **What this does NOT detect.** The digest covers only the corpus
