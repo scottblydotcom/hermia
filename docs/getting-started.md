@@ -209,5 +209,7 @@ make sure that's on your `PATH`. `pipx ensurepath` will fix it.
 it with `ollama serve`.
 
 **Tests timing out** — Larger / thinking-mode models (e.g. `qwen3:32b`,
-`deepseek-r1`) need more than the default 90-second per-test budget. Bump it
-with `--test-timeout 180` or set `test_timeout: 180` in the fleet YAML.
+`deepseek-r1`) need more than the default 90-second per-test budget. In the
+**TUI**, raise it by adding `test_timeout: 180` under the host entry in your
+fleet YAML, then re-run. In **headless fleet mode**, pass `--test-timeout 180`
+(the `--test-timeout` flag is only valid together with `--fleet`).
