@@ -7,10 +7,12 @@ on:
       - "fix/**"
       - "chore/**"
       - "dev"
+      - "main"        # run on the default branch so the README CI badge reflects main
   pull_request:
     branches:
       - dev
       - main
+  workflow_dispatch:  # allow manual re-runs (e.g. to refresh the badge after a promotion)
 
 jobs:
   lint-and-test:
