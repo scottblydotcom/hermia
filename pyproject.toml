@@ -65,6 +65,20 @@ hermia-submit = "hermia.submit:main"
 [tool.hatch.build.targets.wheel]
 packages = ["src/hermia"]
 
+[tool.hatch.build.targets.sdist]
+# Explicit allowlist — hatchling's default sdist grabs the whole tree.
+# Ship only what a source build needs: package sources (incl. corpus test-datasets),
+# metadata, README, LICENSE, CHANGELOG. Exclude dev-only material (tests, cmd/,
+# .beads/, .gitleaks*, .secrets.baseline, CLAUDE.md/AGENTS.md, fleets/, docs/superpowers/,
+# results/, scratchpad/, *.exe, session-notes/). Homebrew pins to this sdist.
+include = [
+    "/src/hermia",
+    "/pyproject.toml",
+    "/README.md",
+    "/LICENSE",
+    "/CHANGELOG.md",
+]
+
 [tool.ruff]
 src = ["src"]
 line-length = 100
