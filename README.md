@@ -15,7 +15,7 @@ their driver stack, their runtime version. Not yours.
 A ROCm update can flip a security test from PASS to FAIL. Hermia catches it — because it
 runs on your stack, not a cloud proxy.
 
-<video src="assets/demo.mp4" autoplay loop muted playsinline aria-label="Hermia demo: running structured behavioral evaluations across models including llama3.2 and qwen3:8b, comparing pass/fail results per test on a local Ollama fleet">Download the <a href="assets/demo.mp4">demo video</a>.</video>
+[![Hermia demo — running structured behavioral evals across models on a local Ollama fleet, with live pass/fail per test, system metrics, and an eval summary](assets/demo-poster.jpg)](assets/demo.mp4)
 
 ---
 
@@ -31,9 +31,11 @@ benchmarking measures actual model load time from a clean VRAM state, not cached
 Because "how fast is it really" is a different question than "how fast is it after it's
 already warm."
 
-**v0.2 scope:** deterministic structural eval against Ollama-compatible local endpoints,
-with deterministic multi-turn corpus cases for context-carry and boundary-persistence
-testing. LLM-as-judge intent scoring lands in v0.3.
+**v0.2 scope:** structural eval with deterministic orchestration (fixed sampling —
+`temperature=0`, `seed=42` — and fixed message construction) against Ollama-compatible
+local endpoints, with multi-turn corpus cases for context-carry and boundary-persistence
+testing. Reproducibility of the model's *output* still depends on the backend; that is what
+Hermia measures. LLM-as-judge intent scoring lands in v0.3.
 
 **Fleet mode** (`--fleet FILE`) runs headless multi-host eval from a YAML config — same
 test suite, multiple Ollama endpoints evaluated **concurrently** (default: up to 4 hosts
@@ -41,7 +43,8 @@ in parallel). Compare CUDA vs. Metal on the same model. See where your inference
 diverges. Entries that share the same host are evaluated sequentially so a single GPU
 node is never asked to hold two models simultaneously (VRAM-safe). Control parallelism
 with `--max-concurrency N`. Per-test timeout is configurable via `--test-timeout SECONDS`
-or per-host `test_timeout:` in the fleet YAML.
+or per-host `test_timeout:` in the fleet YAML. See
+[the fleet-YAML format](docs/usage.md#multi-host-fleet-mode---fleet) for the file schema.
 
 ---
 
@@ -82,10 +85,10 @@ built for your context.
 
 | Framework | What Hermia Maps To |
 |---|---|
-| **OWASP LLM Top 10 (2025)** | LLM01 prompt injection (direct + indirect), LLM06 excessive agency / scope escalation |
-| **MITRE ATLAS 6.0.0 (2026.05)** | AML.T0051 direct injection, AML.T0054 indirect injection, AML.T0099 tool data poisoning, AML.T0100 structured field injection |
+| **OWASP LLM Top 10 (2025)** | LLM01 prompt injection (direct + indirect), LLM02 sensitive information disclosure, LLM06 excessive agency / scope escalation, LLM07 system-prompt leakage |
+| **MITRE ATLAS 6.0.0 (2026.05)** | AML.T0051.000/.001 direct + indirect prompt injection, AML.T0056 extract system prompt, AML.T0057 LLM data leakage, AML.T0068 prompt obfuscation, AML.T0099 tool data poisoning |
 | **CSA MAESTRO** | L1 foundation model robustness, L3 agent framework routing and lane evasion |
-| **NIST AI RMF** | Measure function: ME 2.3 deployment-similar benchmarking, ME 2.4 production monitoring, ME 3.1 regression detection |
+| **NIST AI RMF** | Measure function: MEASURE 2.5 validity & reliability, MEASURE 2.7 security & resilience |
 
 ---
 
@@ -110,7 +113,10 @@ built for your context.
 - [Ollama](https://ollama.ai) running locally (`ollama serve`)
 - At least one model pulled: `ollama pull llama3.2` or any compatible model
 
-No cloud API keys required. No data leaves your machine.
+In the default local setup, no cloud API keys are required and no data leaves your machine.
+(Point a fleet host at a remote or cloud endpoint via the `openai-compat` transport and
+prompts are sent to that endpoint — and a key may be required. See
+[Run against a remote host](docs/usage.md#run-against-a-remote-ollama-host).)
 
 ---
 
@@ -199,15 +205,16 @@ See [docs/usage.md](docs/usage.md) for the full reference: result interpretation
 
 ## Roadmap
 
-**v0.2 — Fleet + TUI** (shipping): Headless fleet mode for multi-host eval from a YAML
+**v0.2 — Fleet + TUI** (a.k.a. Endpoint Bus; shipping): Headless fleet mode for multi-host eval from a YAML
 config; full-featured TUI for launch/configure/run/inspect; backend stack tagging by GPU
 arch, runtime version, and execution path (GPU vs spill). Configurable per-test timeout
 for thinking-mode models.
 
 **v0.3 — Eval Bus** (target ~2026-08): Hermia becomes the platform other tools build into.
 Probe adapters for Garak, PyRIT, and HarmBench pull their results into Hermia's
-hardware-correlated, framework-mapped view alongside Hermia's own probes. LLM-as-judge
-scoring; Sink interface for custom output destinations (Prometheus, webhook, S3).
+hardware-correlated, framework-mapped view alongside Hermia's own test cases. LLM-as-judge
+scoring; a **Sink** interface — a pluggable output destination (Prometheus, webhook, S3)
+that results can be written to.
 
 See [docs/roadmap.md](docs/roadmap.md) for the full plan.
 
@@ -215,7 +222,7 @@ See [docs/roadmap.md](docs/roadmap.md) for the full plan.
 
 ## Project Status
 
-**v0.2.0** — stable and tested. The core eval suite, fleet mode, TUI, audit trail, and
+**v0.2.0** — stable and tested. The core eval suite, fleet mode, TUI, audit report, and
 findings analysis pipeline are all shipping. Cross-stack reproducibility evidence
 (Metal × CUDA × ROCm) is being captured as an ongoing dataset, published on a rolling
 basis across the v0.2.x series rather than as a single launch snapshot. The security
@@ -246,9 +253,12 @@ The tool steals answers from the Oracle and tells you which one to trust.
 
 ## Security
 
-Hermia communicates with Ollama via `/api/tags`, `/api/generate`, and `/api/ps`.
-It never uploads model files and is not affected by model-upload CVEs
-(CVE-2026-7482, CVE-2026-5757).
+Hermia only reads from Ollama — `/api/tags`, `/api/generate`, `/api/ps`, and `/api/version`.
+It never calls the model-upload / `/api/create` endpoints, so it does not itself exercise the
+code paths behind the model-upload CVEs
+([CVE-2026-7482](https://nvd.nist.gov/vuln/detail/CVE-2026-7482),
+[CVE-2026-5757](https://nvd.nist.gov/vuln/detail/CVE-2026-5757)). Your Ollama server can still
+be vulnerable — keep it patched and restricted per the checklist below.
 
 **Protect your Ollama instance:**
 
@@ -257,7 +267,8 @@ It never uploads model files and is not affected by model-upload CVEs
   disclosure via crafted GGUF upload, nicknamed "Bleeding Llama")
 - CVE-2026-5757 (same attack class, no upstream patch as of May 2026) — restrict
   `/api/create` access at the network or firewall layer
-- Fleet deployments: use `hermia-fleet.yaml` `auth` blocks or a Tailscale overlay
+- Fleet deployments: use fleet-YAML `auth.bearer.key_env` blocks (see
+  [usage.md](docs/usage.md#run-against-a-remote-ollama-host)) or a Tailscale overlay
   to prevent unauthenticated access to remote Ollama endpoints
 
 Hermia surfaces known Ollama version vulnerabilities at run time in the preflight

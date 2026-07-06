@@ -1,0 +1,10 @@
+# fleets/local.yaml — minimal single-host example.
+# Used by `hermia --fleet fleets/local.yaml` and the Docker (Linux, --network host)
+# quickstart in the README. This is the headless fleet format: a top-level `fleet:`
+# list whose entries are keyed `host:` / `transport:`.
+fleet:
+  - name: local
+    host: http://localhost:11434
+    transport: ollama
+    models:
+      - llama3.2:latest

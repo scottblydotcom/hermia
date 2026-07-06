@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hermia"
-version = "0.1.3"
+version = "0.2.0"
 description = "Interactive LLM agentic evaluation TUI for local and cloud models"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -24,6 +24,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Security",
     "Topic :: Software Development :: Testing",

@@ -133,6 +133,10 @@ Hermia ships a Docker image at `ghcr.io/scottblydotcom/hermia:latest`. The
 container is oriented at **headless fleet mode** — the interactive TUI needs
 a real terminal and isn't the primary Docker use case.
 
+The repo ships ready-to-use example fleets — `fleets/local.yaml` (below) and
+`fleets/desktop.yaml` — so the commands here run as written from a clone. The YAML
+bodies are also shown inline so you can adapt them.
+
 ### Linux (bare Docker, host networking)
 
 ```bash
@@ -191,7 +195,7 @@ needed — put the remote URL directly in the fleet YAML.
 ### Version pinning
 
 For reproducible builds, pin the tag to a released version, e.g.
-`ghcr.io/scottblydotcom/hermia:0.1.3` — check
+`ghcr.io/scottblydotcom/hermia:0.2.0` — check
 [releases](https://github.com/scottblydotcom/hermia/releases) for the latest.
 
 ---
@@ -209,5 +213,7 @@ make sure that's on your `PATH`. `pipx ensurepath` will fix it.
 it with `ollama serve`.
 
 **Tests timing out** — Larger / thinking-mode models (e.g. `qwen3:32b`,
-`deepseek-r1`) need more than the default 90-second per-test budget. Bump it
-with `--test-timeout 180` or set `test_timeout: 180` in the fleet YAML.
+`deepseek-r1`) need more than the default 90-second per-test budget. In the
+**TUI**, raise it by adding `test_timeout: 180` under the host entry in your
+fleet YAML, then re-run. In **headless fleet mode**, pass `--test-timeout 180`
+(the `--test-timeout` flag is only valid together with `--fleet`).

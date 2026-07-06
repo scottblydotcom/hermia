@@ -18,7 +18,10 @@ regression detection, and Postgres export.
   ollama pull llama3.2
   ```
 
-No cloud API keys required. No data leaves your machine.
+In the default local setup, no cloud API keys are required and no data leaves your machine.
+(Point a fleet host at a remote or cloud endpoint via the `openai-compat` transport and
+prompts are sent to that endpoint — and a key may be required. See
+[Run against a remote host](#run-against-a-remote-ollama-host).)
 
 ---
 
@@ -47,6 +50,8 @@ usage: hermia [-h] [--version] [--repeat N] [--fleet FILE] [--verbose | --quiet]
               [--submit | --submit-dry-run]
 ```
 
+(Exact wrapping depends on your terminal width; run `hermia --help` for the current flag list.)
+
 ---
 
 ## Run a local eval
@@ -61,7 +66,7 @@ hermia
 
 Hermia opens the **LaunchScreen** with three entries (in this order):
 
-- **Quick local run** — pre-fills a fleet with `localhost:11434` (engine: ollama) and the
+- **Quick local run** — pre-fills a fleet pointed at `localhost:11434` over the `ollama` transport and the
   full default test set, then jumps to the FleetConfigScreen so you can confirm or edit.
 - **New fleet** — starts an empty FleetConfig.
 - **Load existing fleet** — scans `fleets/*.yaml` and lists saved configs; Enter loads one.
@@ -191,8 +196,8 @@ Additional fields populated when `--repeat N > 1`:
 | `pass_count` | Number of runs that passed |
 | `cold_warm_delta_tps` | Cold-run t/s minus mean warm-run t/s (on `run_index=1` rows) |
 
-A model with 100% consistency is behaviorally stable. A model with 60% consistency is
-reward-hacking — it passes sometimes and fails sometimes on the same input.
+A model with 100% consistency is behaviorally stable. A model at 60% consistency is
+behaviorally unstable on this input — it passes sometimes and fails sometimes.
 
 ---
 
@@ -241,15 +246,23 @@ fleet:
 Pass a YAML fleet config to evaluate multiple hosts in a single headless run:
 
 ```bash
-hermia --fleet hermia-fleet.yaml
+hermia --fleet fleets/my-fleet.yaml
 ```
+
+> **A note on hosts and the two YAML formats.** A **host** is one fleet entry, identified by
+> its `host:` URL string — two entries pointing at the same physical machine via different
+> URLs are distinct hosts to Hermia. The loader accepts two shapes: the **headless** format
+> used throughout these docs (a top-level `fleet:` list whose entries are keyed `host:` /
+> `transport:`, where transport is `ollama` or `openai-compat`) and the **TUI-saved** format
+> (a top-level `hosts:` list keyed `url:` / `engine:`). Both run with `--fleet`, but the keys
+> are not interchangeable within a shape.
 
 **Concurrent execution.** Fleet hosts are evaluated concurrently by default (up to 4
 in parallel). To change the cap:
 
 ```bash
-hermia --fleet hermia-fleet.yaml --max-concurrency 8   # more parallelism
-hermia --fleet hermia-fleet.yaml --max-concurrency 1   # fully sequential
+hermia --fleet fleets/my-fleet.yaml --max-concurrency 8   # more parallelism
+hermia --fleet fleets/my-fleet.yaml --max-concurrency 1   # fully sequential
 ```
 
 **VRAM-safe serialization.** Fleet entries that share the same host (normalized URL)
@@ -376,6 +389,17 @@ Push from a specific directory:
 hermia-push --results-dir /path/to/results
 ```
 
+### Statistical analysis (`hermia-analyze`)
+
+`hermia-analyze` runs statistical analysis (pass-rate aggregates, regression / outlier
+detection) directly over the `hermia_results` Postgres table. Like `hermia-push`, it needs the
+`[grafana]` extra (psycopg2) and a DSN:
+
+```bash
+hermia-analyze --dsn "$HERMIA_PG_DSN" --last 5   # analyze the last 5 runs
+hermia-analyze --dsn "$HERMIA_PG_DSN" --run-id <uuid>   # analyze a single run
+```
+
 ---
 
 ## Multi-turn test cases
@@ -475,7 +499,7 @@ The anonymizer unconditionally drops:
 Print the payload to stdout without sending anything:
 
 ```bash
-hermia --fleet hermia-fleet.yaml --submit-dry-run
+hermia --fleet fleets/my-fleet.yaml --submit-dry-run
 ```
 
 ### Live submission
@@ -484,14 +508,14 @@ Set the endpoint URL and opt in:
 
 ```bash
 export HERMIA_SUBMIT_URL="https://submit.hermia.dev/v1/results"
-hermia --fleet hermia-fleet.yaml --submit
+hermia --fleet fleets/my-fleet.yaml --submit
 ```
 
 The bearer token (if the endpoint requires one) comes from `HERMIA_SUBMIT_TOKEN`:
 
 ```bash
 export HERMIA_SUBMIT_TOKEN="..."
-hermia --fleet hermia-fleet.yaml --submit
+hermia --fleet fleets/my-fleet.yaml --submit
 ```
 
 Submission is best-effort: a non-2xx response or network failure logs a warning
@@ -502,8 +526,7 @@ and does not abort the run.
 ## What's next
 
 - **Grafana dashboards** — if you have Grafana running, point it at the `hermia_results`
-  table. The [Hermia Eval Leaderboard](https://github.com/scottblydotcom/hermia) dashboard
-  JSON is in `docs/`.
+  table. (A prebuilt Hermia dashboard JSON is planned for a future release.)
 - **Roadmap** — see [Roadmap](roadmap.md) for v0.2 (multi-endpoint, fleet config)
   and v0.3 (eval bus, Garak/PyRIT adapters).
 - **Contributing** — see [AGENTS.md](../AGENTS.md) for the behavioral rules and module
