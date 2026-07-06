@@ -55,8 +55,14 @@ class HermiaApp(App[None]):
         if host is None:
             return
         warnings = check_engine_security(host, "ollama", fleet_mode=False)
+        # Skip stderr on a live TTY — Textual owns the terminal in raw mode
+        # and a bare write would corrupt the rendered UI. The toast still
+        # surfaces the warning interactively; redirected-fd invocations
+        # (`hermia 2>log`) still capture it.
+        stderr_safe = not sys.stderr.isatty()
         for w in warnings:
-            print(w, file=sys.stderr)
+            if stderr_safe:
+                print(w, file=sys.stderr)
             self.call_from_thread(self.notify, w, severity="warning", timeout=15)
 
     def on_unmount(self) -> None:
