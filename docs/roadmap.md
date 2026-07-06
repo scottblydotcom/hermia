@@ -22,7 +22,7 @@ Three claims that nobody else can credibly make:
 
 1. **We don't sell anything.** The methodology is not also a sales channel for inference, training, or services.
 2. **We test the stack, not just the model.** Hardware telemetry, backend tagging, cross-backend divergence — model behavior depends on the inference stack underneath, and nobody else captures it.
-3. **Our scores are reproducible by anyone with the hardware.** Local-first, deterministic-where-possible, full corpus and rubric in the repo.
+3. **Our scores are reproducible by anyone with the same hardware and stack.** Local-first, deterministic-where-possible, full corpus and rubric in the repo. Reproducibility rests on running the same eval code against the same corpus at the same sampling settings; it is not enforced by cryptographic row-signing today, and corpus-hash stamping detects *drift* (given an authoritative reference), not *forgery* — see the row-level provenance notes in `src/hermia/runner.py` (`corpus_sha256`) for the honest bounds.
 
 ### The eval-bus thesis
 
