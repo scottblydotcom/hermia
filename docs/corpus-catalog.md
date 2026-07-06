@@ -17,8 +17,10 @@ pillar, never the security/capability pillars. Non-timeout errors (transport/API
 empty responses) are graded as failures and remain in the denominator.
 
 - **Pass rate (a test, a model, a dimension)** = `passes / graded`, where `graded` excludes
-  only timed-out trials. Computed in `analyze.py` as a Postgres aggregate:
-  `COUNT(*) FILTER (WHERE schema_compliant) / COUNT(*) FILTER (WHERE failure_reason IS NULL OR failure_reason NOT LIKE 'TIMEOUT%')`.
+  only timed-out trials. `analyze.py` computes it as a Postgres percentage with float
+  promotion and a zero-guard (bare integer `COUNT` division would truncate, and an
+  all-timeout cell would divide by zero):
+  `100.0 * COUNT(*) FILTER (WHERE schema_compliant) / NULLIF(COUNT(*) FILTER (WHERE failure_reason IS NULL OR failure_reason NOT LIKE 'TIMEOUT%'), 0)`.
 - **Dimension rollup** = the same ratio pooled across the tests sharing a `dimension`
   (security, reasoning, tool-use, …).
 - **Headline security %** = pass/graded pooled across the security-dimension tests. It is a
