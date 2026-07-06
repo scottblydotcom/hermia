@@ -75,7 +75,12 @@ class HermiaApp(App[None]):
         )
         for w in warnings:
             if stderr_safe:
-                print(w, file=sys.stderr)
+                try:
+                    print(w, file=sys.stderr)
+                except (OSError, ValueError):
+                    # stderr closed / detached under us; the toast still
+                    # surfaces the warning, so drop the log line silently.
+                    pass
             try:
                 self.call_from_thread(
                     self.notify, w, severity="warning", timeout=15
