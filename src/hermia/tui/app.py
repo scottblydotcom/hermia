@@ -54,12 +54,18 @@ class HermiaApp(App[None]):
         host = self._engine_security_host
         if host is None:
             return
-        warnings = check_engine_security(host, "ollama", fleet_mode=False)
+        # Advisory-only: never let a malformed /api/version response or
+        # unexpected transport error kill the worker and lose the toast.
+        try:
+            warnings = check_engine_security(host, "ollama", fleet_mode=False)
+        except Exception as exc:  # noqa: BLE001 — advisory-only, degrade quietly
+            warnings = [f"SEC ⚠ engine-security probe failed: {exc}"]
         # Skip stderr on a live TTY — Textual owns the terminal in raw mode
         # and a bare write would corrupt the rendered UI. The toast still
         # surfaces the warning interactively; redirected-fd invocations
-        # (`hermia 2>log`) still capture it.
-        stderr_safe = not sys.stderr.isatty()
+        # (`hermia 2>log`) still capture it. sys.stderr can be None under
+        # GUI wrappers / daemonized launchers.
+        stderr_safe = sys.stderr is not None and not sys.stderr.isatty()
         for w in warnings:
             if stderr_safe:
                 print(w, file=sys.stderr)

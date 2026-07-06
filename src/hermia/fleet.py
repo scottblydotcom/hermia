@@ -213,9 +213,13 @@ def _run_host_eval(
     # Engine-security posture — surface CVE / stale-server warnings before we
     # start driving traffic at the host. Fleet mode suppresses local-only
     # advisories (e.g. Ollama's unpatched /api/create) since a remote fleet
-    # host is not the operator's own loopback surface.
+    # host is not the operator's own loopback surface. Advisory-only: never
+    # let a malformed /api/version response kill the host eval.
     from hermia.preflight import check_engine_security
-    sec_warnings = check_engine_security(host_url, transport_type, fleet_mode=True)
+    try:
+        sec_warnings = check_engine_security(host_url, transport_type, fleet_mode=True)
+    except Exception as exc:  # noqa: BLE001 — advisory-only, degrade quietly
+        sec_warnings = [f"SEC ⚠ engine-security probe failed: {exc}"]
     if sec_warnings:
         with print_lock:
             for w in sec_warnings:
