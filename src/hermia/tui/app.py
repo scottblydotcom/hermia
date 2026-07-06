@@ -77,7 +77,7 @@ class HermiaApp(App[None]):
             if stderr_safe:
                 try:
                     print(w, file=sys.stderr)
-                except (OSError, ValueError):
+                except (OSError, ValueError, AttributeError):
                     # stderr closed / detached under us; the toast still
                     # surfaces the warning, so drop the log line silently.
                     pass
