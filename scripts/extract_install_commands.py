@@ -27,6 +27,15 @@ METHOD_HEADINGS = {
     "docker": "or via docker (headless fleet mode):",
 }
 
+# Defense-in-depth: any extracted command whose first token is not one of these
+# is rejected. Blocks a fork-PR that edits README's ## Install section from
+# smuggling `curl … | sh`, `wget …`, `bash -c …`, etc. into the docs-as-tested
+# CI legs that eval() these lines (pip / pipx / brew jobs).
+_ALLOWED_FIRST_TOKENS = frozenset({
+    "pip", "pipx", "brew", "docker", "git", "cd", "mkdir",
+    "python", "python3",
+})
+
 
 def extract_install_commands(
     readme_path: Path,
@@ -62,9 +71,32 @@ def extract_install_commands(
                 f"```bash code block"
             )
         commands = [line.strip() for line in block.group(1).splitlines() if line.strip()]
+        for cmd in commands:
+            _validate_command(readme_path, method, cmd)
         result[method] = commands
 
     return result
+
+
+def _validate_command(readme_path: Path, method: str, cmd: str) -> None:
+    """Reject anything whose first token isn't a known install verb.
+
+    Line-continuation fragments (leading ``-`` flag or ``ghcr.io/`` image ref
+    for the docker block) are permitted — they are not standalone verbs and
+    the workflow's docker leg does not ``eval`` them line-by-line.
+    """
+    stripped = cmd.lstrip()
+    if not stripped or stripped.startswith("#"):
+        return
+    first = stripped.split(None, 1)[0]
+    if first.startswith("-") or first.startswith("ghcr.io/"):
+        return
+    if first not in _ALLOWED_FIRST_TOKENS:
+        raise ExtractionError(
+            f"{readme_path}: method '{method}' contains disallowed command — "
+            f"first token '{first}' not in allowlist "
+            f"({', '.join(sorted(_ALLOWED_FIRST_TOKENS))}). Full line: {cmd!r}"
+        )
 
 
 def main(argv: list[str] | None = None) -> int:

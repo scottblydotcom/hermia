@@ -115,3 +115,30 @@ def test_cli_exits_nonzero_on_extraction_error():
     )
     assert result.returncode != 0
     assert "no '## Install' section found" in result.stderr
+
+
+def test_injected_curl_line_rejected_by_allowlist():
+    """A fork-PR that adds `curl … | sh` to a bash block must be rejected."""
+    with pytest.raises(ExtractionError, match=r"first token 'curl' not in allowlist"):
+        extract_install_commands(
+            readme_path=FIXTURES / "pipx_injected_curl.md",
+            expected_methods=("pipx",),
+        )
+
+
+def test_injected_wget_line_rejected_by_allowlist():
+    """Mid-block injection (wget between legit commands) is also rejected."""
+    with pytest.raises(ExtractionError, match=r"first token 'wget' not in allowlist"):
+        extract_install_commands(
+            readme_path=FIXTURES / "source_injected_wget.md",
+            expected_methods=("source",),
+        )
+
+
+def test_real_readme_extracts_cleanly_under_allowlist():
+    """Guard against over-tightening: the shipped README must still parse."""
+    result = extract_install_commands(
+        readme_path=REPO_ROOT / "README.md",
+        expected_methods=tuple(sorted({"pip", "pipx", "brew", "source", "docker"})),
+    )
+    assert "pip" in result and result["pip"] == ["pip install hermia"]
