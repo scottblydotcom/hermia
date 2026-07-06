@@ -1,6 +1,8 @@
 from unittest.mock import MagicMock, patch
 
-from hermia.transport.base import Transport
+import pytest
+
+from hermia.transport.base import Transport, TransportError
 from hermia.transport.openai_compat import OpenAICompatTransport
 
 
@@ -118,3 +120,217 @@ def test_base_url_trailing_slash_stripped():
             headers={},
             timeout=90
         )
+
+
+# ---------------------------------------------------------------------------
+# list_models() — model auto-discovery via GET /v1/models
+# ---------------------------------------------------------------------------
+
+
+def test_list_models_returns_ids():
+    with patch("hermia.transport.openai_compat.requests.get") as mock_get:
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "object": "list",
+            "data": [
+                {"id": "unsloth/Llama-3.1-8B-Instruct", "object": "model"},
+                {"id": "phi3:3.8b", "object": "model"},
+            ],
+        }
+        mock_get.return_value = mock_response
+
+        transport = OpenAICompatTransport(base_url="http://localhost:11435")
+        models = transport.list_models()
+
+        assert models == ["unsloth/Llama-3.1-8B-Instruct", "phi3:3.8b"]
+
+
+def test_list_models_gets_v1_models_url():
+    with patch("hermia.transport.openai_compat.requests.get") as mock_get:
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"data": [{"id": "m1"}]}
+        mock_get.return_value = mock_response
+
+        transport = OpenAICompatTransport(base_url="http://localhost:11435/v1")
+        transport.list_models()
+
+        url = mock_get.call_args[0][0]
+        assert url == "http://localhost:11435/v1/models"
+
+
+def test_list_models_forwards_headers():
+    with patch("hermia.transport.openai_compat.requests.get") as mock_get:
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"data": [{"id": "m1"}]}
+        mock_get.return_value = mock_response
+
+        transport = OpenAICompatTransport(
+            base_url="http://localhost:11435", headers={"Authorization": "Bearer token"}
+        )
+        transport.list_models()
+
+        assert mock_get.call_args[1]["headers"] == {"Authorization": "Bearer token"}
+
+
+def test_list_models_uses_short_timeout():
+    with patch("hermia.transport.openai_compat.requests.get") as mock_get:
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"data": [{"id": "m1"}]}
+        mock_get.return_value = mock_response
+
+        transport = OpenAICompatTransport(base_url="http://localhost:11435")
+        transport.list_models()
+
+        # Metadata call — must not inherit generate()'s 90s.
+        assert mock_get.call_args[1]["timeout"] == 15
+
+
+def test_list_models_skips_non_dict_and_idless_elements():
+    with patch("hermia.transport.openai_compat.requests.get") as mock_get:
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "data": ["not-a-dict", {"object": "model"}, {"id": 123}, {"id": "good"}],
+        }
+        mock_get.return_value = mock_response
+
+        transport = OpenAICompatTransport(base_url="http://localhost:11435")
+        assert transport.list_models() == ["good"]
+
+
+def test_list_models_non_json_body_returns_empty():
+    with patch("hermia.transport.openai_compat.requests.get") as mock_get:
+        mock_response = MagicMock()
+        mock_response.json.side_effect = ValueError("not json")
+        mock_get.return_value = mock_response
+
+        transport = OpenAICompatTransport(base_url="http://localhost:11435")
+        assert transport.list_models() == []
+
+
+def test_list_models_non_dict_body_returns_empty():
+    with patch("hermia.transport.openai_compat.requests.get") as mock_get:
+        mock_response = MagicMock()
+        mock_response.json.return_value = ["unexpected"]
+        mock_get.return_value = mock_response
+
+        transport = OpenAICompatTransport(base_url="http://localhost:11435")
+        assert transport.list_models() == []
+
+
+def test_list_models_missing_data_returns_empty():
+    with patch("hermia.transport.openai_compat.requests.get") as mock_get:
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"object": "list"}
+        mock_get.return_value = mock_response
+
+        transport = OpenAICompatTransport(base_url="http://localhost:11435")
+        assert transport.list_models() == []
+
+
+def test_list_models_raises_on_error_body():
+    with patch("hermia.transport.openai_compat.requests.get") as mock_get:
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"error": "model service unavailable"}
+        mock_get.return_value = mock_response
+
+        transport = OpenAICompatTransport(base_url="http://localhost:11435")
+        with pytest.raises(TransportError):
+            transport.list_models()
+
+
+def test_list_models_skips_empty_and_whitespace_ids():
+    with patch("hermia.transport.openai_compat.requests.get") as mock_get:
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "data": [
+                {"id": "good"},
+                {"id": ""},
+                {"id": "   "},
+                {"id": "also-good"},
+            ]
+        }
+        mock_get.return_value = mock_response
+
+        transport = OpenAICompatTransport(base_url="http://localhost:11435")
+        assert transport.list_models() == ["good", "also-good"]
+
+
+def test_list_models_strips_surrounding_whitespace_from_ids():
+    with patch("hermia.transport.openai_compat.requests.get") as mock_get:
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"data": [{"id": "  padded  "}]}
+        mock_get.return_value = mock_response
+
+        transport = OpenAICompatTransport(base_url="http://localhost:11435")
+        assert transport.list_models() == ["padded"]
+
+
+# ---------------------------------------------------------------------------
+# generate() — determinism / sampling opts forwarding
+# ---------------------------------------------------------------------------
+
+
+def test_generate_forwards_seed_and_top_p():
+    with patch("hermia.transport.openai_compat.requests.post") as mock_post:
+        mock_post.return_value.json.return_value = {
+            "choices": [{"message": {"content": "ok"}}],
+            "usage": {"completion_tokens": 1, "total_tokens": 2},
+        }
+        transport = OpenAICompatTransport(base_url="https://api.openai.com")
+        transport.generate(
+            "gpt-4o", [{"role": "user", "content": "hi"}],
+            temperature=0.0, seed=42, top_p=1.0,
+        )
+        payload = mock_post.call_args[1]["json"]
+        assert payload["temperature"] == 0.0
+        assert payload["seed"] == 42
+        assert payload["top_p"] == 1.0
+
+
+def test_generate_does_not_forward_top_k_or_repeat_penalty():
+    with patch("hermia.transport.openai_compat.requests.post") as mock_post:
+        mock_post.return_value.json.return_value = {
+            "choices": [{"message": {"content": "ok"}}],
+            "usage": {"completion_tokens": 1, "total_tokens": 2},
+        }
+        transport = OpenAICompatTransport(base_url="https://api.openai.com")
+        transport.generate(
+            "gpt-4o", [{"role": "user", "content": "hi"}],
+            top_k=40, repeat_penalty=1.1,
+        )
+        payload = mock_post.call_args[1]["json"]
+        assert "top_k" not in payload
+        assert "repeat_penalty" not in payload
+
+
+def test_generate_maps_num_predict_to_max_tokens():
+    with patch("hermia.transport.openai_compat.requests.post") as mock_post:
+        mock_post.return_value.json.return_value = {
+            "choices": [{"message": {"content": "ok"}}],
+            "usage": {"completion_tokens": 1, "total_tokens": 2},
+        }
+        transport = OpenAICompatTransport(base_url="https://api.openai.com")
+        transport.generate(
+            "gpt-4o", [{"role": "user", "content": "hi"}],
+            num_predict=256,
+        )
+        payload = mock_post.call_args[1]["json"]
+        assert payload["max_tokens"] == 256
+        assert "num_predict" not in payload
+
+
+def test_generate_omits_absent_openai_sampling_keys():
+    with patch("hermia.transport.openai_compat.requests.post") as mock_post:
+        mock_post.return_value.json.return_value = {
+            "choices": [{"message": {"content": "ok"}}],
+            "usage": {"completion_tokens": 1, "total_tokens": 2},
+        }
+        transport = OpenAICompatTransport(base_url="https://api.openai.com")
+        transport.generate(
+            "gpt-4o", [{"role": "user", "content": "hi"}],
+            temperature=0.0,
+        )
+        payload = mock_post.call_args[1]["json"]
+        assert "seed" not in payload
+        assert "top_p" not in payload
+        assert "max_tokens" not in payload

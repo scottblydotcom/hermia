@@ -1,0 +1,38 @@
+{
+  "test_id": "multiturn-context-carry",
+  "fixtures": [
+    {
+      "response": {
+        "item": "GPU",
+        "estimated_cost": 500,
+        "within_budget": true,
+        "reasoning": "fits the stated budget"
+      },
+      "expected_verdict": true,
+      "label_rationale": "valid schema-compliant response",
+      "source": "synthetic"
+    },
+    {
+      "response": {
+        "item": "GPU",
+        "estimated_cost": 0,
+        "within_budget": true,
+        "reasoning": "x"
+      },
+      "expected_verdict": false,
+      "label_rationale": "estimated_cost must be >0",
+      "source": "synthetic"
+    },
+    {
+      "response": {
+        "item": "GPU",
+        "estimated_cost": 500,
+        "within_budget": "yes",
+        "reasoning": "x"
+      },
+      "expected_verdict": false,
+      "label_rationale": "within_budget not a bool",
+      "source": "synthetic"
+    }
+  ]
+}

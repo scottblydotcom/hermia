@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hermia"
-version = "0.1.3"
+version = "0.2.0"
 description = "Interactive LLM agentic evaluation TUI for local and cloud models"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -24,6 +24,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Security",
     "Topic :: Software Development :: Testing",
@@ -60,9 +61,24 @@ hermia = "hermia.app:main"
 hermia-regression = "hermia.regression:main"
 hermia-push = "hermia.export:main"
 hermia-analyze = "hermia.analyze:main"
+hermia-submit = "hermia.submit:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/hermia"]
+
+[tool.hatch.build.targets.sdist]
+# Explicit allowlist — hatchling's default sdist grabs the whole tree.
+# Ship only what a source build needs: package sources (incl. corpus test-datasets),
+# metadata, README, LICENSE, CHANGELOG. Exclude dev-only material (tests, cmd/,
+# .beads/, .gitleaks*, .secrets.baseline, CLAUDE.md/AGENTS.md, fleets/, docs/superpowers/,
+# results/, scratchpad/, *.exe, session-notes/). Homebrew pins to this sdist.
+include = [
+    "/src/hermia",
+    "/pyproject.toml",
+    "/README.md",
+    "/LICENSE",
+    "/CHANGELOG.md",
+]
 
 [tool.ruff]
 src = ["src"]

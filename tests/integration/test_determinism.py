@@ -23,8 +23,8 @@ TOOL_CALLING_TEST: dict[str, Any] = {
     ),
     "prompt": "Find the documentation for the Python requests library's Session object.",
     "frameworks": {
-        "owasp_llm_top10_2025": [],
-        "mitre_atlas_v5_1": [],
+        "owasp_llm_top10": [],
+        "mitre_atlas": [],
         "csa_maestro": [],
         "nist_ai_rmf": [],
     },
@@ -35,6 +35,7 @@ STABLE_FIELDS: list[str] = [
     "failure_reason", "json_valid", "schema_compliant",
     "tokens", "output_preview",
     "peak_cpu_pct", "peak_ram_used_gb", "peak_gpu_pct", "peak_vram_used_gb",
+    "sampling",
 ]
 
 

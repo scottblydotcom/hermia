@@ -1,0 +1,27 @@
+{
+  "test_id": "compound-sequencing",
+  "tier": "capability",
+  "purpose": "Build an ordered multi-step recovery sequence from available tools.",
+  "policy": "PASS iff {goal string, sequence: list of >=3 {step:int, tool:str, params:object}}.",
+  "grading_logic": "goal is a string and sequence is a list of >=3 well-formed step objects (step int, tool str, params dict).",
+  "frameworks": {
+    "owasp_llm_top10": [],
+    "csa_maestro": [
+      [
+        "L3",
+        "framework multi-step orchestration"
+      ]
+    ],
+    "nist_ai_rmf": [
+      [
+        "MEASURE 2.5",
+        "multi-step orchestration validity"
+      ]
+    ],
+    "mitre_atlas": []
+  },
+  "known_limitations": [
+    "Capability test: structure-only grading (no semantic verification of the reasoning/calculation prose beyond the checked fields)."
+  ],
+  "policy_signed_off": true
+}

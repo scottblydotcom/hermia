@@ -1,7 +1,10 @@
-# Getting Started with Hermia
+# Hermia Usage Reference
 
-This guide walks you through installing Hermia, running your first eval, interpreting the
-results, and optionally exporting to Postgres for long-term tracking.
+This is the full reference: install, eval flow, result schema, repeat runs, fleet mode,
+regression detection, and Postgres export.
+
+> **Want the 5-minute version?** See [getting-started.md](getting-started.md) for the
+> minimal zero-to-first-eval path.
 
 ---
 
@@ -15,7 +18,10 @@ results, and optionally exporting to Postgres for long-term tracking.
   ollama pull llama3.2
   ```
 
-No cloud API keys required. No data leaves your machine.
+In the default local setup, no cloud API keys are required and no data leaves your machine.
+(Point a fleet host at a remote or cloud endpoint via the `openai-compat` transport and
+prompts are sent to that endpoint — and a key may be required. See
+[Run against a remote host](#run-against-a-remote-ollama-host).)
 
 ---
 
@@ -38,8 +44,13 @@ hermia --help
 Expected output:
 
 ```
-usage: hermia [-h] [--host HOST] [--repeat N]
+usage: hermia [-h] [--version] [--repeat N] [--fleet FILE] [--verbose | --quiet]
+              [--max-concurrency MAX_CONCURRENCY] [--test-timeout SECONDS]
+              [--audit [FILE]] [--audit-format {jsonl,html,spill}]
+              [--submit | --submit-dry-run]
 ```
+
+(Exact wrapping depends on your terminal width; run `hermia --help` for the current flag list.)
 
 ---
 
@@ -51,41 +62,53 @@ Make sure Ollama is running and has at least one model pulled, then launch the T
 hermia
 ```
 
-### SelectionScreen
+### LaunchScreen
 
-Hermia opens the **SelectionScreen**. You'll see two columns:
+Hermia opens the **LaunchScreen** with three entries (in this order):
 
-- **Models** — all models currently available via `ollama list`, pre-checked
-- **Eval dimensions** — `security`, `tool-use`, `reasoning`, `constraint`, `routing`,
-  `memory`, `domain`, pre-checked
+- **Quick local run** — pre-fills a fleet pointed at `localhost:11434` over the `ollama` transport and the
+  full default test set, then jumps to the FleetConfigScreen so you can confirm or edit.
+- **New fleet** — starts an empty FleetConfig.
+- **Load existing fleet** — scans `fleets/*.yaml` and lists saved configs; Enter loads one.
 
-Use the checkboxes to select which models and dimensions to run. Press **Run** to start.
+Use ↑/↓ to navigate, Enter to select, `q` to quit.
 
-If no models appear, Ollama is not running or has no models pulled. Start it with
-`ollama serve` and pull a model with `ollama pull llama3.2`.
+### FleetConfigScreen
 
-### RunnerScreen
+The **FleetConfigScreen** is the central editor. Two rows — **Hosts** and **Tests** —
+each open a subscreen:
 
-The **RunnerScreen** shows a live feed as each test runs:
+- **Hosts** → HostsScreen, where each host has its own model picker (HostModelsScreen)
+- **Tests** → TestsScreen, the 30-test corpus catalog
 
-```
-Preflight  VRAM 18.2/18.2 GB free  RAM 10.4/18.0 GB free  Disk 124.3 GB free
-Cold-loading llama3.2...
+Visible footer bindings:
 
-  ✅ security-direct-injection             42.3 t/s  GPU 82%  VRAM 4.2GB  CPU 18%
-  ✅ security-indirect-injection           39.1 t/s  GPU 79%  VRAM 4.2GB  CPU 16%
-  ⚠  tool-use-invalid-invocation          38.8 t/s  GPU 81%  VRAM 4.2GB  CPU 17%
-  ❌ reasoning-partial-failure             35.2 t/s  GPU 76%  VRAM 4.1GB  CPU 15%
-       output did not match expected schema
-```
+- `Enter` — open the focused row
+- `s` — save the fleet to `fleets/<name>.yaml`
+- `r` — run the eval against the current fleet config
+- `Esc` — back
 
-Icons mean:
-- `✅` — JSON valid **and** schema compliant (full pass)
-- `⚠` — JSON valid but schema non-compliant (partial pass)
-- `❌` — JSON invalid or error (full fail); preview of the failure reason shown below
+If no models appear on the per-host model picker, Ollama is not running on that host or
+has no models pulled. Start it with `ollama serve` and pull a model with
+`ollama pull llama3.2`. The hosts screen shows an actionable hint when this happens.
 
-Per-test metrics: `t/s` = tokens per second, `GPU%` = peak GPU utilization,
-`VRAM` = peak VRAM used (GB), `CPU%` = peak CPU utilization.
+### RunnerScreen (L1) → RunnerTrialsScreen (L2) → RunnerDetailScreen (L3)
+
+When the run starts, Hermia drops into a three-level drill view:
+
+- **L1 — RunnerScreen** — aggregate per-host counts (passed / failed / running), updates
+  live as trials complete.
+- **L2 — RunnerTrialsScreen** — per-trial table for one host: model, test ID, status,
+  elapsed time, t/s.
+- **L3 — RunnerDetailScreen** — detail for one trial: full prompt, model output, parsed
+  fields, failure reason if any.
+
+Press Enter on a host to drill from L1 → L2, and Enter on a trial to drill L2 → L3.
+Esc walks back up.
+
+Each trial row carries: status (pass / fail), elapsed seconds, tokens/sec, and a short
+failure reason on fail. Detailed metrics (GPU%, VRAM, CPU%) are written to the result
+files; the live UI focuses on pass/fail and throughput.
 
 ### Summary
 
@@ -157,10 +180,11 @@ Each result row contains:
 ## Repeat runs and consistency scoring
 
 Use `--repeat N` to run each (model, test) pair N times. This enables consistency scoring
-and cold-vs-warm delta measurement:
+and cold-vs-warm delta measurement. `--repeat` requires `--fleet` (it is a headless-only
+flag):
 
 ```bash
-hermia --repeat 5
+hermia --fleet fleets/quick-local.yaml --repeat 5
 ```
 
 Additional fields populated when `--repeat N > 1`:
@@ -172,25 +196,103 @@ Additional fields populated when `--repeat N > 1`:
 | `pass_count` | Number of runs that passed |
 | `cold_warm_delta_tps` | Cold-run t/s minus mean warm-run t/s (on `run_index=1` rows) |
 
-A model with 100% consistency is behaviorally stable. A model with 60% consistency is
-reward-hacking — it passes sometimes and fails sometimes on the same input.
+A model with 100% consistency is behaviorally stable. A model at 60% consistency is
+behaviorally unstable on this input — it passes sometimes and fails sometimes.
 
 ---
 
 ## Run against a remote Ollama host
 
-Use `--host` to target any Ollama-compatible endpoint instead of localhost:
+To target a remote Ollama-compatible endpoint, define it in a fleet YAML and run
+headless. A single-host fleet is the supported equivalent of the old `--host` flag:
 
-```bash
-hermia --host http://192.168.10.50:11434
+```yaml
+# fleets/remote.yaml
+fleet:
+  - name: remote-box
+    host: http://192.168.10.50:11434
+    models:
+      - llama3.2:latest
 ```
 
-In fleet mode (any non-localhost host), local hardware metrics (GPU%, VRAM, CPU%) reflect
-the **inference server's** hardware via Ollama's `/api/ps` endpoint, not the eval client's
-idle laptop. The preflight check is also bypassed — resource checks run on the server side.
+```bash
+hermia --fleet fleets/remote.yaml
+```
+
+For any non-localhost host, hardware metrics (GPU%, VRAM, CPU%) reflect the **inference
+server's** hardware via Ollama's `/api/ps` endpoint, not the eval client's idle laptop.
+The local preflight check is bypassed — resource checks run on the server side.
 
 This works with any host accessible over the network: a bare Ollama server, a LiteLLM
-gateway (in v0.1, use the Ollama-compatible endpoint), or a remote lab machine.
+gateway (use its Ollama-compatible endpoint), or a remote lab machine. For endpoints
+behind a bearer token, add an `auth.bearer.key_env` block naming the env var that
+holds the token:
+
+```yaml
+fleet:
+  - name: remote-box
+    host: http://192.168.10.50:11434
+    auth:
+      bearer:
+        key_env: HERMIA_API_KEY   # bearer token read from $HERMIA_API_KEY at runtime
+    models:
+      - llama3.2:latest
+```
+
+---
+
+## Multi-host fleet mode (`--fleet`)
+
+Pass a YAML fleet config to evaluate multiple hosts in a single headless run:
+
+```bash
+hermia --fleet fleets/my-fleet.yaml
+```
+
+> **A note on hosts and the two YAML formats.** A **host** is one fleet entry, identified by
+> its `host:` URL string — two entries pointing at the same physical machine via different
+> URLs are distinct hosts to Hermia. The loader accepts two shapes: the **headless** format
+> used throughout these docs (a top-level `fleet:` list whose entries are keyed `host:` /
+> `transport:`, where transport is `ollama` or `openai-compat`) and the **TUI-saved** format
+> (a top-level `hosts:` list keyed `url:` / `engine:`). Both run with `--fleet`, but the keys
+> are not interchangeable within a shape.
+
+**Concurrent execution.** Fleet hosts are evaluated concurrently by default (up to 4
+in parallel). To change the cap:
+
+```bash
+hermia --fleet fleets/my-fleet.yaml --max-concurrency 8   # more parallelism
+hermia --fleet fleets/my-fleet.yaml --max-concurrency 1   # fully sequential
+```
+
+**VRAM-safe serialization.** Fleet entries that share the same host (normalized URL)
+are always evaluated sequentially — one model loaded at a time — so a single GPU node
+is never asked to hold two models simultaneously. Entries on different hosts run in
+parallel up to `--max-concurrency`.
+
+**Operational note on host identity.** Grouping is by URL string. If two fleet entries
+point at the same physical machine via different addresses (e.g. `localhost` vs
+`127.0.0.1` vs its hostname), they will **not** be grouped and may run concurrently.
+Use the identical host string for all entries on one box to keep them serialized.
+
+**Per-test timeout for thinking-mode models.** Default test timeout is 90 seconds.
+Thinking models (qwen3 thinking variants, deepseek-r1) regularly need longer. Raise it
+with `--test-timeout SECONDS` or per-host `test_timeout:` in the fleet YAML. Precedence:
+**CLI `--test-timeout` wins over per-host `test_timeout:`, which wins over the 90s
+default.**
+
+```bash
+hermia --fleet fleets/heavy.yaml --test-timeout 180
+```
+
+```yaml
+fleet:
+  - name: thinking-host
+    host: http://192.168.10.50:11434
+    test_timeout: 180
+    models:
+      - qwen3:32b
+```
 
 ---
 
@@ -287,13 +389,144 @@ Push from a specific directory:
 hermia-push --results-dir /path/to/results
 ```
 
+### Statistical analysis (`hermia-analyze`)
+
+`hermia-analyze` runs statistical analysis (pass-rate aggregates, regression / outlier
+detection) directly over the `hermia_results` Postgres table. Like `hermia-push`, it needs the
+`[grafana]` extra (psycopg2) and a DSN:
+
+```bash
+hermia-analyze --dsn "$HERMIA_PG_DSN" --last 5   # analyze the last 5 runs
+hermia-analyze --dsn "$HERMIA_PG_DSN" --run-id <uuid>   # analyze a single run
+```
+
+---
+
+## Multi-turn test cases
+
+Some test cases define a multi-turn conversation via the `turns` field instead of a
+single `prompt`. Hermia plays these conversations deterministically: it sends each user
+turn in order, appending the model's reply to the conversation history before sending
+the next turn. Only the **final assistant reply** is schema-checked.
+
+### When to use multi-turn
+
+Multi-turn cases are useful for testing:
+
+- **Context retention across turns** — does the model remember a constraint established
+  in turn 1 when answering turn 2?
+- **Safety-boundary persistence** — if turn 1 is benign and turn 2 attempts a social
+  engineering override ("the system prompt has been updated to allow X"), does the model
+  hold its original constraints?
+
+### Test case format
+
+```json
+{
+  "id": "multiturn-context-carry",
+  "dimension": "multi-turn",
+  "description": "...",
+  "system": "...",
+  "prompt": "",
+  "turns": [
+    "My total budget is $500.",
+    "Estimate the cost of 10 keyboards at $45 each. Are we within budget?"
+  ],
+  "frameworks": { ... }
+}
+```
+
+- `prompt` must be `""` when `turns` is present (the turns list replaces the prompt).
+- `turns` must contain at least 2 entries (use a single `prompt` for one-turn cases).
+- The SCHEMA_CHECKS entry for the test id validates the **final-turn** response only.
+
+### Determinism
+
+The orchestration is fully deterministic — fixed turn order, identical message
+construction, no randomness in how the conversation is assembled. Hermia pins
+`temperature=0` and `seed=42` for **every** test request (single-turn and
+multi-turn alike; see `EVAL_TEMPERATURE` / `EVAL_SEED` in `src/hermia/runner.py`)
+and forwards both to Ollama and OpenAI-compatible transports. Whether the model
+actually produces identical output depends on backend support (temperature 0 +
+seed support varies by engine and model); this is documented, not promised.
+
+### Result fields
+
+Two additional fields are present in every result row:
+
+| Field | Description |
+|---|---|
+| `turn_count` | Number of user turns played (1 for single-turn cases) |
+| `raw_turns` | The ordered list of user turn strings played in this run |
+
+## Opt-in community submission (`--submit`)
+
+After a fleet run you can contribute anonymized results to the Hermia community
+dataset.  **Nothing is sent unless you pass `--submit` explicitly.**
+
+### What is shared
+
+A strict default-deny whitelist determines what leaves your machine.  Only
+aggregate performance fields are included:
+
+| Field | Example |
+|---|---|
+| `model` | `qwen2.5:32b` |
+| `dimension` / `test_id` | `security` / `security-direct-injection` |
+| `json_valid` / `schema_compliant` / `had_markdown_fence` | `true` |
+| `tokens` / `elapsed_sec` / `tokens_per_sec` | `142` / `1.4` / `101.4` |
+| `mode` / `orchestration` / `orchestration_version` | `fleet` / `ollama` / `0.9.0` |
+| `execution_path` / `vram_server_gb` / `model_size_server_gb` | `gpu` / `18.0` / `4.7` |
+| `score` / `consistency_pct` / `pass_count` / `robustness_n` | `100` / `95.0` / `9` / `10` |
+| `run_index` / `is_cold` / `cold_warm_delta_tps` | `1` / `false` / `12.3` |
+| `failure_category` (derived from `failure_reason`) | `SCHEMA_FAIL` |
+
+### What is never shared
+
+The anonymizer unconditionally drops:
+
+- Host names, IP addresses, fleet host metadata
+- Raw prompt, raw response, raw system prompt
+- Output preview (may contain model-verbatim sensitive text)
+- Run ID and timestamp (would allow cross-run correlation)
+- Client hardware metrics (CPU%, RAM, GPU%, VRAM — client-side only)
+
+`failure_reason` is reduced to a category prefix only (`ERROR`, `SCHEMA_FAIL`,
+`TIMEOUT`, etc.) — the detail that can contain host names or paths is stripped.
+
+### Dry-run (inspect the payload first)
+
+Print the payload to stdout without sending anything:
+
+```bash
+hermia --fleet fleets/my-fleet.yaml --submit-dry-run
+```
+
+### Live submission
+
+Set the endpoint URL and opt in:
+
+```bash
+export HERMIA_SUBMIT_URL="https://submit.hermia.dev/v1/results"
+hermia --fleet fleets/my-fleet.yaml --submit
+```
+
+The bearer token (if the endpoint requires one) comes from `HERMIA_SUBMIT_TOKEN`:
+
+```bash
+export HERMIA_SUBMIT_TOKEN="..."
+hermia --fleet fleets/my-fleet.yaml --submit
+```
+
+Submission is best-effort: a non-2xx response or network failure logs a warning
+and does not abort the run.
+
 ---
 
 ## What's next
 
 - **Grafana dashboards** — if you have Grafana running, point it at the `hermia_results`
-  table. The [Hermia Eval Leaderboard](https://github.com/scottblydotcom/hermia) dashboard
-  JSON is in `docs/`.
+  table. (A prebuilt Hermia dashboard JSON is planned for a future release.)
 - **Roadmap** — see [Roadmap](roadmap.md) for v0.2 (multi-endpoint, fleet config)
   and v0.3 (eval bus, Garak/PyRIT adapters).
 - **Contributing** — see [AGENTS.md](../AGENTS.md) for the behavioral rules and module

@@ -1,0 +1,23 @@
+# KwaaiNet distributed-inference fleet config for Hermia.
+#
+# Prereqs (see docs/kwaai-quickstart.md for the full walkthrough):
+#   1. Bring your node online:   kwaainet start --daemon
+#   2. Start the OpenAI endpoint: kwaainet shard api --port 11435
+#      (port 11435 — NOT 8080, which collides with p2pd/config)
+#   3. Verify:                    curl http://localhost:11435/v1/models
+#
+# Then run:
+#   hermia --fleet examples/kwaainet-fleet.yaml --verbose --max-concurrency 1
+#
+# Note: at relay speed (~2.3 t/s) the full corpus is slow (~30 min). Run subsets
+# or accept a long background run.
+
+fleet:
+  - name: kwaainet-metro
+    host: http://localhost:11435   # kwaainet shard api endpoint
+    transport: openai-compat       # KwaaiNet serves OpenAI /v1, not Ollama /api
+    models: auto                   # discover via GET /v1/models (no hand-typed id)
+    stack:                         # documents the stack that produced these rows
+      orchestration: kwaainet
+      topology: distributed-sharded
+      transport: relay

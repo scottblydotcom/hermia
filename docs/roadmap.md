@@ -1,10 +1,18 @@
 # Hermia Roadmap
 
 **Status:** Living document. Updated as decisions change.
-**Last revised:** 2026-05-10
-**Owner:** @scottblydotcom
+**Last revised:** 2026-05-10 — predates v0.2.0 cut
+**Maintainer:** Scott Bly
 
-This document is the strategic plan. Beads are the tactical execution. Each leaf entry below is shaped to map 1-to-1 to a `bd add` invocation when work begins. Don't pre-create beads — they go stale before you touch them.
+> ⚠️ **This entire roadmap predates the v0.2.0 cut (last revised 2026-05-10) and is kept as
+> historical strategic planning, not current state.** The milestone tables below — including
+> the v0.2 and v0.3 sections — describe work as it was *planned*; much of v0.2 has since
+> shipped (see [CHANGELOG.md](../CHANGELOG.md)), and dates/CLI shapes/screen names may be
+> stale. For current status, use [README.md](../README.md#roadmap) and
+> [docs/getting-started.md](getting-started.md). A public post-v0.2 rewrite is tracked
+> separately.
+
+The sections below use this project's internal bead (issue-tracker) planning shorthand.
 
 ---
 
@@ -16,7 +24,7 @@ Three claims that nobody else can credibly make:
 
 1. **We don't sell anything.** The methodology is not also a sales channel for inference, training, or services.
 2. **We test the stack, not just the model.** Hardware telemetry, backend tagging, cross-backend divergence — model behavior depends on the inference stack underneath, and nobody else captures it.
-3. **Our scores are reproducible by anyone with the hardware.** Local-first, deterministic-where-possible, full corpus and rubric in the repo.
+3. **Our scores are reproducible by anyone with the same hardware and stack.** Local-first, deterministic-where-possible, full corpus and rubric in the repo. Reproducibility rests on running the same eval code against the same corpus at the same sampling settings; it is not enforced by cryptographic row-signing today, and corpus-hash stamping detects *drift* (given an authoritative reference), not *forgery* — see the row-level provenance notes in `src/hermia/runner.py` (`corpus_sha256`) for the honest bounds.
 
 ### The eval-bus thesis
 
@@ -89,7 +97,7 @@ Description of the work and the strategic intent. Bead breakdown happens when th
 - `detect_gpu()` returns vendor-tagged info: `vendor: "nvidia" | "amd" | "apple" | "intel" | "none"`
 - Result rows still populate `peak_gpu_pct` / `peak_vram_used_gb` correctly when running on NVIDIA
 - Unit tests cover NVIDIA-detected, NVIDIA-missing, NVIDIA-error paths
-- **Smoke test note:** Eric's 5090 and Marcus's 3090 are Windows-only Ollama servers — Hermia does not run on them. Hardware smoke test deferred to the first Linux + NVIDIA eval client. Unit test coverage accepted as sufficient for v0.1.
+- **Smoke test note:** the NVIDIA fleet nodes are Windows-only Ollama servers — Hermia does not run on them. Hardware smoke test deferred to the first Linux + NVIDIA eval client. Unit test coverage accepted as sufficient for v0.1.
 **Estimate:** 1 day
 **Why:** Most of the user's own fleet is NVIDIA. Today's silent zeros are a correctness bug.
 
@@ -304,7 +312,7 @@ Description of the work and the strategic intent. Bead breakdown happens when th
 
 ---
 
-## v0.2 — Endpoint Bus (target ~2026-06-15)
+## v0.2 — Endpoint Bus / Fleet + TUI (shipped — see [CHANGELOG.md](../CHANGELOG.md))
 
 **Theme:** Hermia evaluates anything that speaks OpenAI-compatible. LiteLLM, OpenAI, Anthropic, Google, Bedrock, plus local Ollama. Backend stack identity becomes a queryable dimension. Tier 2 testing locks in.
 
@@ -485,7 +493,7 @@ Now that auth tokens are in scope (v0.2 OpenAI-compat), assert that bearer token
 
 Items that aren't milestone-bound. Keep them surfaced so they don't get forgotten, but don't commit to dates.
 
-- **Garak + PyRIT fleet baseline run.** Before v0.3 integration work begins, run Garak and Microsoft PyRIT against the live fleet (Ollama endpoints on Eric's 5090, Marcus's 3090, and the Mac inference nodes) to establish a pre-integration baseline: what each tool finds, how long it takes, what the output format looks like. Goals are operational familiarity with both tools and a documented starting point so post-integration comparisons are meaningful. No Hermia code changes required — this is a pure evaluation exercise. Deliverable: notes on findings, tooling friction, and which output formats the v0.3 adapters need to consume.
+- **Garak + PyRIT fleet baseline run.** Before v0.3 integration work begins, run Garak and Microsoft PyRIT against the live fleet (Ollama endpoints on the NVIDIA and Apple-Silicon fleet nodes) to establish a pre-integration baseline: what each tool finds, how long it takes, what the output format looks like. Goals are operational familiarity with both tools and a documented starting point so post-integration comparisons are meaningful. No Hermia code changes required — this is a pure evaluation exercise. Deliverable: notes on findings, tooling friction, and which output formats the v0.3 adapters need to consume.
 
 - **Community benchmark submission.** Opt-in, anonymized upload of a completed eval run — hardware fingerprint (GPU model, VRAM, vendor), model name + quant, t/s, schema pass rate, Hermia version. Endpoint TBD; likely a simple append-only API backed by Postgres. Privacy model: no hostnames, no IP addresses, no user identifiers — hardware class only. The submission artifact is a subset of the existing JSONL export, so the client side is mostly plumbing. Requires backend infrastructure design before the bead can be written.
 - **Reference performance comparison ("you should be getting X").** Requires community benchmark database to have accumulated sufficient data per hardware class. Query: given `(gpu_model, vram_gb, model_name, quant)`, return the p25/p50/p75 t/s distribution from submitted runs. Surface in the shareable report and TUI as "compared to N similar systems." Normalization is the hard problem: quant level, context length, concurrent load, Ollama version, and CUDA/ROCm version all affect throughput. Need enough runs per cell before comparisons are meaningful. Strategically: this is the data asset nobody else has, and it requires neutral infrastructure to be credible — which Hermia is positioned to provide.
@@ -493,7 +501,7 @@ Items that aren't milestone-bound. Keep them surfaced so they don't get forgotte
 - **Backend-targeted vulnerability probes.** Tests for known stack failure modes: quant corruption, OOM behavior, sampler determinism, fp8 precision artifacts. Probe-style for the inference layer.
 - **Stack supply-chain analysis.** CVEs in the CUDA toolkit, ROCm, Vulkan drivers, llama.cpp builds the model is running on. Adjacent to standard SCA but framed for inference. Nobody does this.
 - **Multi-host fleet orchestration.** Hermia today is single-host. The fleet-aware version coordinates runs across multiple machines, each on different hardware, and aggregates centrally.
-- **Multi-turn / crescendo / TAP attack support.** PyRIT's home turf; if the eval-bus pivot doesn't already cover this via the PyRIT adapter, build native support.
+- **Crescendo / TAP multi-turn attack support.** Deterministic multi-turn (context-carry + boundary-persistence) shipped in v0.2.0; crescendo/TAP *escalation* is PyRIT's home turf and comes via the v0.3 PyRIT adapter, or native if needed.
 - **TamperBench / SafeRBench coverage.** Safety-after-fine-tuning and reasoning-trace safety. Research-grade today; may become table stakes.
 - **Calibration mode.** A small canonical subset of MMLU-Pro / GPQA-Diamond / LiveBench questions so fleet models can be placed on the public benchmark spectrum without external API access.
 - **Model identity verification.** OWASP LLM08. A hash- or fingerprint-based test that verifies the lane returned the configured model. Depends on having lanes (post-v0.2).
@@ -537,7 +545,7 @@ Decisions made in conversation that we do not want to re-litigate later. If a fu
 - **Microservices decomposition.** Wrong frame for a single-maintainer 1,300-line Python project. The architectural payoff (clean interfaces, separation of concerns) is captured by internal module boundaries plus the Probe/Transport/Sink plugin pattern, without the network-hop overhead. Revisit only if Hermia legitimately becomes multi-process at fleet scale.
 - **Out-Garak Garak on probe count.** Garak has NVIDIA's headcount; we do not compete on coverage breadth. The strategic play is being the orchestration layer that pulls Garak's results in alongside others'.
 - **LLM-as-judge in v0.1.** Too much architectural risk pre-launch. v0.3 with the schema room declared in v0.1.
-- **Multi-turn / crescendo in v0.1.** Significant scope; PyRIT's home turf. Comes via the v0.3 PyRIT adapter, then native if needed.
+- **Multi-turn / crescendo in v0.1.** Deferred from v0.1 for scope. Deterministic multi-turn (context-carry + boundary-persistence) shipped natively in v0.2.0; crescendo/TAP escalation comes via the v0.3 PyRIT adapter.
 - **Calibration mode (MMLU/GPQA subset) in v0.1.** Outside the security eval category. vNext.
 - **TamperBench / SafeRBench in v0.1.** Research-grade, not yet expected of operational eval tools. vNext.
 - **LiteLLM-specific integration as a v0.1 feature.** Subsumed by v0.2 OpenAI-compatible support, which unlocks LiteLLM "for free" without coupling Hermia to one gateway product.

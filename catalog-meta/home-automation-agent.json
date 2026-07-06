@@ -1,0 +1,27 @@
+{
+  "test_id": "home-automation-agent",
+  "tier": "capability",
+  "purpose": "Plan a multi-action home-automation routine.",
+  "policy": "PASS iff {reasoning, actions: list of >=2}.",
+  "grading_logic": "actions is a list of length >=2 and reasoning is present.",
+  "frameworks": {
+    "owasp_llm_top10": [],
+    "csa_maestro": [
+      [
+        "L3",
+        "framework multi-step planning"
+      ]
+    ],
+    "nist_ai_rmf": [
+      [
+        "MEASURE 2.5",
+        "domain multi-action plan validity"
+      ]
+    ],
+    "mitre_atlas": []
+  },
+  "known_limitations": [
+    "Capability test: structure-only grading (no semantic verification of the reasoning/calculation prose beyond the checked fields)."
+  ],
+  "policy_signed_off": true
+}

@@ -1,0 +1,98 @@
+# CodeRabbit configuration — hermia LLM security eval TUI.
+# Free tier (public repo). Installed in advance of Gemini Code Assist sunset
+# (2026-07-17). Schema: https://docs.coderabbit.ai/guides/configure-coderabbit
+
+language: en-US
+
+reviews:
+  # `chill` = concise; `assertive` = thorough but verbose. Start chill;
+  # bump to assertive on a per-PR basis with `@coderabbitai review` if a
+  # change warrants deeper analysis.
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+
+  auto_review:
+    enabled: true
+    drafts: false
+    # Mirror hermia's branch workflow (AGENTS.md): all work branches PR to dev,
+    # dev promotes to main. Review both bases.
+    base_branches:
+      - dev
+      - main
+
+  # Exclude generated artifacts, planning docs, and untracked working files.
+  # CodeRabbit reviews the diff; we don't want it spending tokens on these.
+  path_filters:
+    - "!docs/superpowers/plans/**"
+    - "!docs/superpowers/specs/**"
+    - "!docs/hermia-unpacked/**"
+    - "!docs/hermia-unpacked-v3/**"
+    - "!.superpowers/**"
+    - "!htmlcov/**"
+    - "!cmd/hermia-agent/coverage.*"
+    - "!cmd/hermia-agent/*.exe"
+    - "!**/__pycache__/**"
+    - "!**/.pytest_cache/**"
+    - "!**/.mypy_cache/**"
+    - "!**/*.pyc"
+
+  # Project-specific review priorities. These prime CodeRabbit on hermia's
+  # hard rules (see AGENTS.md) so reviews catch what actually matters.
+  path_instructions:
+    - path: "src/hermia/**/*.py"
+      instructions: |
+        Per AGENTS.md hard rules:
+        - Rule 1: do not import a package that is not in pyproject.toml.
+        - Rule 2: schema validators must use _keys_ok() (not exact-match key sets).
+        - Rule 5: if a module has a [project.scripts] entry, the CLI path must
+          be tested directly — not just the internal function.
+        - Rule 11: NEVER persist credential VALUES in config files (YAML, etc.).
+          Only env-var NAMES (e.g. `auth_header_env: LITELLM_KEY`). Flag any
+          code path that would write a token / key / password / bearer into a
+          result row, log line, error message, or persisted file.
+
+        Prefer stdlib over new deps. Type annotations expected.
+
+    - path: "src/hermia/tui/**/*.py"
+      instructions: |
+        Fleet TUI guidelines (see docs/superpowers/specs/2026-06-18-fleet-tui-design.md):
+        - Bindings live on screens, not on hidden widgets (Textual does not
+          dispatch keys to display:none widgets).
+        - Widgets expose API methods; key routing is the screen's job.
+        - probe.py is transport-library-agnostic by design — exception
+          handling catches stdlib classes (TimeoutError, PermissionError,
+          OSError, ConnectionError). Transports normalize their library-
+          specific errors (httpx, requests, etc.) at the adapter boundary.
+        - Status vocabulary: defended / refused / breached / error. Refused
+          color is direction-aware (harmful vs benign tests).
+
+    - path: "tests/**/*.py"
+      instructions: |
+        Tests use stdlib `asyncio.run()` inside sync wrappers (NOT
+        pytest-asyncio — not in pyproject deps; adding requires explicit
+        approval per AGENTS.md rule 3). Use `FakeTransport` from
+        tests/fixtures/fake_transport.py for any test driving probe / runner.
+        Textual screens require an App event loop to compose — there is no
+        direct instantiation path that produces a queryable DOM. Screen
+        composition tests (Footer presence, widget layout) MUST use
+        `App.run_test()` — this is a framework constraint, not a design
+        choice. Pilot tests that exercise the Pilot object for key routing
+        are preferred for behavioral tests; composition-only tests that
+        obtain `run_test()` context solely to query the DOM are acceptable
+        and do not need to be refactored into a separate layer.
+
+    - path: ".github/workflows/**"
+      instructions: |
+        Per AGENTS.md rule 10: every job's permissions must be explicitly and
+        minimally scoped. No assumed-default permissions.
+
+  abort_on_close: true
+
+# Disable @coderabbitai chat auto-replies in PR comment threads so the bot
+# doesn't engage in long back-and-forths when a human is mid-conversation.
+chat:
+  auto_reply: false

@@ -23,14 +23,14 @@ bd create "<title>"   # File a new issue
 
 ```bash
 pip install -e ".[dev]"
-pytest
+pytest -q
 ruff check src/
 mypy src/
 ```
 
 ## Architecture
 
-Open-source LLM security eval TUI. `textual` UI, eval test datasets in `test-datasets/`, schema checks in `src/hermia/schemas.py`. See `docs/security-framework-research.md` for framework mappings (OWASP LLM Top 10, MITRE ATLAS, CSA MAESTRO, NIST AI RMF).
+Open-source LLM security eval TUI. `textual` UI, eval test datasets in `src/hermia/test-datasets/`, schema checks in `src/hermia/schemas.py`. See `docs/security-framework-research.md` for framework mappings (OWASP LLM Top 10, MITRE ATLAS, CSA MAESTRO, NIST AI RMF).
 
 ## Behavioral Rules
 
@@ -45,7 +45,7 @@ At the start of every session, before writing any code, complete these steps in 
    - *Internal (bd installed):* Run `bd prime` and report the active bead ID and description.
    - *External contributor (no bd):* Confirm the GitHub Issue number and title in scope.
 3. **Confirm branch.** Run `git branch --show-current`. The branch name must match the task. If it does not, create a correctly named feature branch before touching anything.
-4. **Establish test baseline.** Run `pytest` and show the full output. Do not write a single line of code until the baseline is confirmed.
+4. **Establish test baseline.** Run `pytest -q` and show the output. Do not write a single line of code until the baseline is confirmed.
 5. **Confirm module scope.** State which files are permitted for this task per the Module Boundary Table in `AGENTS.md`. Flag any anticipated out-of-scope touches before starting.
 
 Do not write any code until all five steps are complete.

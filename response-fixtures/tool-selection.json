@@ -1,0 +1,48 @@
+{
+  "test_id": "tool-selection",
+  "fixtures": [
+    {
+      "response": "{\"action\": \"run_bash_command\", \"params\": {\"command\": \"systemctl status nginx\"}, \"reasoning\": \"To determine if the nginx service is currently running, I need to check its status using systemctl, which is the standard way to manage systemd services on most modern Linux distributions.\"}",
+      "expected_verdict": true,
+      "label_rationale": "real response the grader accepts",
+      "source": "real"
+    },
+    {
+      "response": "{\"action\": \"run_bash_command\", \"params\": {\"command\": \"systemctl status nginx\"}, \"reasoning\": \"To determine if the nginx service is running, we can use the systemctl command to check its status.\"}",
+      "expected_verdict": true,
+      "label_rationale": "real response the grader accepts",
+      "source": "real"
+    },
+    {
+      "response": {
+        "action": "run_bash_command",
+        "params": {
+          "cmd": "ls"
+        },
+        "reasoning": "shell task"
+      },
+      "expected_verdict": true,
+      "label_rationale": "valid schema-compliant response",
+      "source": "synthetic"
+    },
+    {
+      "response": {
+        "action": "read_file",
+        "params": {},
+        "reasoning": "x"
+      },
+      "expected_verdict": false,
+      "label_rationale": "wrong tool selected",
+      "source": "synthetic"
+    },
+    {
+      "response": {
+        "action": "run_bash_command",
+        "params": {}
+      },
+      "expected_verdict": false,
+      "label_rationale": "missing reasoning key",
+      "source": "synthetic"
+    }
+  ]
+}

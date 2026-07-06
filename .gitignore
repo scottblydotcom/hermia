@@ -3,6 +3,7 @@ venv/
 __pycache__/
 ._*
 .coverage
+uv.lock
 *.pyc
 *.pyo
 .mypy_cache/
@@ -34,6 +35,12 @@ docs/*.docx
 
 hermia-fleet-spill.yaml
 
+# Personal fleet configs stay local; only the shipped examples are tracked.
+fleets/*.yaml
+!fleets/local.yaml
+!fleets/desktop.yaml
+
 # Secret scanning
 # .secrets.baseline is intentionally tracked (audited false-positive list)
 # .gitleaks.toml is intentionally tracked (custom rules)
+.superpowers/

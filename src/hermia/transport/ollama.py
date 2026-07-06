@@ -6,7 +6,9 @@ import time
 
 import requests
 
-from hermia.transport.base import Response
+from hermia.transport.base import SAMPLING_SCHEMA_KEYS, Response, TransportError
+
+_OLLAMA_SAMPLING_KEYS = SAMPLING_SCHEMA_KEYS
 
 
 class OllamaTransport:
@@ -36,11 +38,17 @@ class OllamaTransport:
         return self._version
 
     def generate(self, model: str, messages: list[dict[str, str]], **opts: object) -> Response:
+        sampling: dict[str, object] = {
+            key: opts[key] for key in _OLLAMA_SAMPLING_KEYS
+            if key in opts and opts[key] is not None
+        }
+        if "temperature" not in sampling:
+            sampling["temperature"] = 0.1
         payload = {
             "model": model,
             "messages": messages,
             "stream": False,
-            "options": {"temperature": opts.get("temperature", 0.1)},
+            "options": sampling,
         }
         t0 = time.monotonic()
         resp = requests.post(  # nosec B113 — timeout passed via opts.get("timeout", 90)
@@ -55,9 +63,11 @@ class OllamaTransport:
         if not isinstance(data, dict):
             data = {}
         if data.get("error"):
-            raise ValueError(f"Ollama error: {data['error']}")
-        text: str = (data.get("message") or {}).get("content") or ""
-        tokens: int = data.get("eval_count", 0)
+            raise TransportError(str(data["error"]), kind="ollama")
+        message = data.get("message")
+        text: str = message.get("content") or "" if isinstance(message, dict) else ""
+        # .get(default) does not catch an explicit JSON null; coerce with `or 0`.
+        tokens: int = data.get("eval_count") or 0
         return Response(
             text=text,
             tokens=tokens,

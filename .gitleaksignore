@@ -1,0 +1,48 @@
+# .gitleaksignore — known historical internal-info-disclosure findings.
+# These are private-network details (Tailscale/RFC1918 IPs, internal hostnames/
+# SSH aliases, /home paths, env-var-templated DSNs) in old commits — NOT live
+# credentials. History is intentionally not rewritten (see docs/GIT_GOVERNANCE.md).
+# The gitleaks rules remain active so any NEW occurrence is still blocked.
+# Regenerate if history changes: gitleaks detect --report-path then extract Fingerprint.
+052ae3aa2cef26f08f57e595c015f4d1a5294276:docs/GIT_GOVERNANCE.md:internal-path-home-scott:58
+052ae3aa2cef26f08f57e595c015f4d1a5294276:docs/GIT_GOVERNANCE.md:internal-path-home-scott:68
+2e48fde6ebc314c0b1054e043e3f710badbd0796:analysis/hermia-3lu-tui-mode-display.md:internal-ssh-alias:16
+2e48fde6ebc314c0b1054e043e3f710badbd0796:analysis/hermia-pg4-spec.md:tailscale-ip-bare:268
+2e48fde6ebc314c0b1054e043e3f710badbd0796:analysis/hermia-pg4-spec.md:tailscale-ip-bare:270
+2e48fde6ebc314c0b1054e043e3f710badbd0796:analysis/hermia-pg4-spec.md:tailscale-ip-bare:287
+2e48fde6ebc314c0b1054e043e3f710badbd0796:analysis/hermia-pg4-spec.md:tailscale-ip-bare:330
+2e48fde6ebc314c0b1054e043e3f710badbd0796:analysis/hermia-pg4-spec.md:tailscale-ip-bare:372
+2e48fde6ebc314c0b1054e043e3f710badbd0796:analysis/hermia-pg4-spec.md:tailscale-ip-bare:388
+2e48fde6ebc314c0b1054e043e3f710badbd0796:analysis/hermia-pg4-spec.md:tailscale-ip-bare:405
+2e48fde6ebc314c0b1054e043e3f710badbd0796:analysis/hermia-pg4-spec.md:tailscale-ip-bare:472
+2e48fde6ebc314c0b1054e043e3f710badbd0796:analysis/hermia-pg4-spec.md:tailscale-ip-bare:473
+2e48fde6ebc314c0b1054e043e3f710badbd0796:analysis/hermia-pg4-spec.md:tailscale-ip:268
+2e48fde6ebc314c0b1054e043e3f710badbd0796:analysis/hermia-pg4-spec.md:tailscale-ip:270
+2e48fde6ebc314c0b1054e043e3f710badbd0796:analysis/hermia-pg4-spec.md:tailscale-ip:372
+2e48fde6ebc314c0b1054e043e3f710badbd0796:analysis/hermia-pg4-spec.md:tailscale-ip:388
+2e48fde6ebc314c0b1054e043e3f710badbd0796:analysis/hermia-pg4-spec.md:tailscale-ip:405
+2e48fde6ebc314c0b1054e043e3f710badbd0796:analysis/hermia-pg4-spec.md:tailscale-ip:473
+41434c2daeca2333b7ae1a278d209a2c68d0a8a9:analysis/hermia-qc-spec.md:internal-ssh-alias:189
+41cf492bbd52f27f098e4434e7788c574c7deae3:docs/GIT_GOVERNANCE.md:internal-path-home-scott:58
+41cf492bbd52f27f098e4434e7788c574c7deae3:docs/GIT_GOVERNANCE.md:internal-path-home-scott:68
+4c53126c8612943c3250f7c11d9f548d560bd1df:docs/roadmap.md:tailscale-hostname:292
+4c53126c8612943c3250f7c11d9f548d560bd1df:docs/roadmap.md:tailscale-ip-bare:290
+4c53126c8612943c3250f7c11d9f548d560bd1df:docs/roadmap.md:tailscale-ip:290
+b384f59fbc74b258a7161acc1c32078a0c0e0e3d:analysis/hermia-g8r-spec.md:internal-ssh-alias:19
+b384f59fbc74b258a7161acc1c32078a0c0e0e3d:analysis/hermia-g8r-spec.md:internal-ssh-alias:96
+b384f59fbc74b258a7161acc1c32078a0c0e0e3d:analysis/hermia-g8r-spec.md:tailscale-hostname:24
+b384f59fbc74b258a7161acc1c32078a0c0e0e3d:analysis/hermia-qc-spec.md:internal-ssh-alias:189
+b384f59fbc74b258a7161acc1c32078a0c0e0e3d:docs/roadmap.md:tailscale-hostname:327
+b384f59fbc74b258a7161acc1c32078a0c0e0e3d:docs/roadmap.md:tailscale-ip-bare:325
+b384f59fbc74b258a7161acc1c32078a0c0e0e3d:docs/roadmap.md:tailscale-ip:325
+f3ca213b771c078b1761351046d7f4199a8ff260:scripts/collect_and_push.sh:internal-ssh-alias:11
+f3ca213b771c078b1761351046d7f4199a8ff260:scripts/collect_and_push.sh:internal-ssh-alias:12
+f3ca213b771c078b1761351046d7f4199a8ff260:scripts/collect_and_push.sh:postgres-dsn:25
+f3ca213b771c078b1761351046d7f4199a8ff260:scripts/collect_and_push.sh:rfc1918-172-16:25
+f3ca213b771c078b1761351046d7f4199a8ff260:scripts/collect_and_push.sh:rfc1918-172-16:3
+f3ca213b771c078b1761351046d7f4199a8ff260:scripts/collect_and_push.sh:tailscale-hostname:28
+f3ca213b771c078b1761351046d7f4199a8ff260:scripts/run_analyze.sh:postgres-dsn:7
+f3ca213b771c078b1761351046d7f4199a8ff260:scripts/run_analyze.sh:rfc1918-172-16:7
+f62725644a7ab38c153c77df0ab8ff3a855fe4d8:analysis/hermia-g8r-spec.md:internal-ssh-alias:19
+f62725644a7ab38c153c77df0ab8ff3a855fe4d8:analysis/hermia-g8r-spec.md:internal-ssh-alias:96
+f62725644a7ab38c153c77df0ab8ff3a855fe4d8:analysis/hermia-g8r-spec.md:tailscale-hostname:24

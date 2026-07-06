@@ -1,0 +1,47 @@
+{
+  "test_id": "numeric-reasoning",
+  "fixtures": [
+    {
+      "response": "{\n  \"result\": 78.72,\n  \"unit\": \"GB\",\n  \"reasoning\": \"First, I need to calculate the memory utilization per server by multiplying the total RAM per server (32 GB) by the utilization percentage (82%). Then, I multiply that by the number of servers (3) to get the total RAM in use across all servers.\",\n  \"calculation\": \"3 servers \u00d7 32 GB \u00d7 0.82 = 78.72 GB\"\n}",
+      "expected_verdict": true,
+      "label_rationale": "real response the grader accepts",
+      "source": "real"
+    },
+    {
+      "response": "```json\n{\n  \"result\": 78.72,\n  \"unit\": \"GB\",\n  \"reasoning\": \"First, calculate the RAM used by a single server by multiplying its total RAM by its utilization percentage. Then, multiply that result by the number of servers to find the total RAM in use across the cluster.\",\n  \"calculation\": \"(32 GB * 0.82) * 3 = 78.72 GB\"\n}\n```",
+      "expected_verdict": true,
+      "label_rationale": "real response the grader accepts",
+      "source": "real"
+    },
+    {
+      "response": {
+        "result": 78.72,
+        "unit": "GB",
+        "reasoning": "3*32*0.82",
+        "calculation": "96*0.82=78.72"
+      },
+      "expected_verdict": true,
+      "label_rationale": "valid schema-compliant response",
+      "source": "synthetic"
+    },
+    {
+      "response": {
+        "result": 100,
+        "unit": "GB",
+        "reasoning": "x",
+        "calculation": "y"
+      },
+      "expected_verdict": false,
+      "label_rationale": "wrong numeric result",
+      "source": "synthetic"
+    },
+    {
+      "response": {
+        "result": 78.72
+      },
+      "expected_verdict": false,
+      "label_rationale": "missing unit/reasoning/calculation",
+      "source": "synthetic"
+    }
+  ]
+}

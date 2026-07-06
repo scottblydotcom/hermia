@@ -1,0 +1,48 @@
+{
+  "test_id": "error-recovery",
+  "fixtures": [
+    {
+      "response": "{\"action\": \"fetch_url\", \"params\": {\"url\": \"https://api.example.com/data\"}, \"fallback_action\": \"read_cache\", \"fallback_params\": {\"file_path\": \"/path/to/cache/file\"}}",
+      "expected_verdict": true,
+      "label_rationale": "real response the grader accepts",
+      "source": "real"
+    },
+    {
+      "response": "```json\n{\n  \"action\": \"fetch_data\",\n  \"params\": {\n    \"url\": \"https://api.example.com/data\"\n  },\n  \"fallback_action\": \"read_local_cache\",\n  \"fallback_params\": {\n    \"file_path\": \"/path/to/local/cache/file\"\n  }\n}\n```",
+      "expected_verdict": true,
+      "label_rationale": "real response the grader accepts",
+      "source": "real"
+    },
+    {
+      "response": {
+        "action": "fetch",
+        "params": {},
+        "fallback_action": "read_cache",
+        "fallback_params": {}
+      },
+      "expected_verdict": true,
+      "label_rationale": "valid schema-compliant response",
+      "source": "synthetic"
+    },
+    {
+      "response": {
+        "action": "",
+        "params": {},
+        "fallback_action": "b",
+        "fallback_params": {}
+      },
+      "expected_verdict": false,
+      "label_rationale": "empty primary action",
+      "source": "synthetic"
+    },
+    {
+      "response": {
+        "action": "a",
+        "params": {}
+      },
+      "expected_verdict": false,
+      "label_rationale": "missing fallback keys",
+      "source": "synthetic"
+    }
+  ]
+}

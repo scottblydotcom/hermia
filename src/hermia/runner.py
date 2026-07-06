@@ -1,17 +1,25 @@
 """Ollama model management and test execution."""
 
+import hashlib
 import json
 import os
-import re
+import threading
 import time
+import types
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlparse
 
 import requests
 
+from hermia import __version__
+from hermia.fingerprint.cache import FingerprintCache
 from hermia.metrics import MetricsSampler, get_gpu_stats
-from hermia.schemas import SCHEMA_CHECKS, SIGNAL_EXTRACTORS
+from hermia.normalize import strip_fences
+from hermia.schemas import SCHEMA_CHECKS, SIGNAL_EXTRACTORS, raw_output_leaks
+from hermia.transport.base import SAMPLING_SCHEMA_KEYS as _SAMPLING_SCHEMA_KEYS
+from hermia.transport.base import Response, TransportError
 from hermia.transport.ollama import OllamaTransport
 
 PACKAGE_DIR = Path(__file__).parent
@@ -19,14 +27,9 @@ PACKAGE_DIR = Path(__file__).parent
 TEST_TIMEOUT = 90    # seconds per individual test request
 LOAD_TIMEOUT = 120   # seconds for cold model load
 
-
-def _strip_fences(text: str) -> str:
-    """Extract content from markdown code fences, ignoring surrounding prose."""
-    text = text.strip()
-    match = re.search(r'```(?:json)?\s*\n?(.*?)\n?\s*```', text, re.DOTALL)
-    if match:
-        return match.group(1).strip()
-    return text
+EVAL_TEMPERATURE: float = 0.0
+EVAL_SEED: int = 42
+_EVAL_SAMPLING = types.MappingProxyType({"temperature": EVAL_TEMPERATURE, "seed": EVAL_SEED})
 
 
 def _normalize_host(host: str) -> str:
@@ -46,6 +49,7 @@ def detect_mode(host: str) -> str:
 
 
 _ps_cache: dict[tuple[Any, ...], dict[str, float | None]] = {}
+_ps_cache_lock = threading.Lock()
 _vram_cache = _ps_cache  # backward-compat alias
 
 
@@ -61,15 +65,17 @@ def fetch_server_ps_data(
     host = _normalize_host(host)
     headers_key = tuple(sorted(headers.items())) if headers else ()
     key = (host, model, headers_key)
-    if key in _ps_cache:
-        return _ps_cache[key]
+    with _ps_cache_lock:
+        if key in _ps_cache:
+            return _ps_cache[key]
 
     empty: dict[str, float | None] = {"vram_server_gb": None, "model_size_server_gb": None}
     try:
         resp = requests.get(f"{host}/api/ps", timeout=2, headers=headers or {})
         if not resp.ok:
             if resp.status_code == 404:
-                _ps_cache[key] = dict(empty)
+                with _ps_cache_lock:
+                    _ps_cache[key] = dict(empty)
             return dict(empty)
 
         result = dict(empty)
@@ -88,7 +94,10 @@ def fetch_server_ps_data(
                         result["model_size_server_gb"] = float(st) / (1024 ** 3)
                     break
 
-        _ps_cache[key] = result
+        # last-write-wins; concurrent misses recompute the same value, so a
+        # redundant overwrite is safe
+        with _ps_cache_lock:
+            _ps_cache[key] = result
         return result
     except Exception:  # noqa: BLE001
         return dict(empty)
@@ -144,9 +153,10 @@ def get_model_size_gb(model_name: str, model_list: list[dict[str, Any]]) -> floa
 def unload_model(model_name: str) -> None:
     """Evict model from VRAM."""
     # Invalidate cached /api/ps data so next load gets fresh VRAM stats
-    keys_to_remove = [k for k in list(_ps_cache) if k[1] == model_name]
-    for k in keys_to_remove:
-        _ps_cache.pop(k, None)
+    with _ps_cache_lock:
+        keys_to_remove = [k for k in list(_ps_cache) if k[1] == model_name]
+        for k in keys_to_remove:
+            _ps_cache.pop(k, None)
     host = get_ollama_host()
     try:
         requests.post(
@@ -195,6 +205,109 @@ def load_tests(selected_ids: list[str]) -> list[dict[str, Any]]:
     return [t for t in load_tests_all() if t["id"] in selected_ids]
 
 
+_FRAMEWORK_VERSIONS_CACHE: dict[str, str] | None = None
+
+
+def load_framework_versions() -> dict[str, str]:
+    """Return the top-level framework_versions sidecar from agentic-tasks.json.
+
+    Stamped onto every result row so downstream consumers (Postgres,
+    dashboards, retroactive audits) can tie a result to the exact framework
+    revision used to score it without git archaeology. Module-cached: the
+    file is small and the sidecar does not change during a process lifetime.
+    """
+    global _FRAMEWORK_VERSIONS_CACHE
+    if _FRAMEWORK_VERSIONS_CACHE is None:
+        path = PACKAGE_DIR / "test-datasets" / "agentic-tasks.json"
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        _FRAMEWORK_VERSIONS_CACHE = data.get("framework_versions") or {}
+    # Defensive copy — callers occasionally stamp this dict onto rows and would
+    # otherwise mutate the shared cache for the rest of the process.
+    return dict(_FRAMEWORK_VERSIONS_CACHE)
+
+
+_CORPUS_SHA256_CACHE: str | None = None
+
+
+def corpus_sha256() -> str:
+    """Return the SHA-256 hex digest of the shipped ``agentic-tasks.json``.
+
+    Stamped onto every result row so a row can be tied to the exact corpus that
+    produced it — the row-level half of the roadmap's provenance promise
+    (``hermia_version`` + corpus hash). Because the corpus file is held to a
+    canonical serialization (enforced by ``tests/unit/test_dataset_format.py``),
+    hashing the raw bytes is stable and any content change — a test edit, a
+    framework-version bump, anything — yields a new digest.
+
+    Scope + honest limits (see hermia-5oe):
+
+    * **What this detects.** Accidental corpus drift, provided the reader has
+      an authoritative reference digest to compare against; Hermia does not
+      publish a canonical one, so drift detection currently depends on
+      out-of-band coordination.
+    * **What this does NOT detect.** The digest covers only the corpus
+      *data* — not ``schemas.py`` or any other eval code. A run whose graders
+      have been silently rewritten still emits the same ``corpus_sha256`` as
+      a stock run. Nor does the digest give forgery resistance: it is an
+      unkeyed hash of a public file, so any actor can produce a row whose
+      hash matches the shipped corpus regardless of how (or whether) it was
+      graded.
+    * Row-signing / hashing the eval code is deferred to v0.3.
+
+    Module-cached: the file does not change during a process lifetime.
+    """
+    global _CORPUS_SHA256_CACHE
+    if _CORPUS_SHA256_CACHE is None:
+        path = PACKAGE_DIR / "test-datasets" / "agentic-tasks.json"
+        _CORPUS_SHA256_CACHE = hashlib.sha256(path.read_bytes()).hexdigest()
+    return _CORPUS_SHA256_CACHE
+
+
+def _play_turns(
+    transport: Any,
+    model: str,
+    system: str,
+    user_turns: list[str],
+    timeout: int,
+    sampling_opts: Mapping[str, Any] | None = None,
+) -> "Response | None":
+    """Play an ordered list of user turns as one conversation; return a Response
+    whose text is the FINAL assistant reply, with tokens/elapsed summed across
+    turns.
+
+    Returns None if any transport.generate call returns None (propagated to
+    run_test which already handles a None response as EMPTY_RESPONSE).
+    """
+    messages: list[dict[str, str]] = [{"role": "system", "content": system or ""}]
+    total_tokens = 0
+    total_elapsed = 0.0
+    last: Response | None = None
+    for turn in user_turns:
+        messages.append({"role": "user", "content": turn})
+        opts: dict[str, Any] = {"timeout": timeout}
+        if sampling_opts:
+            if "timeout" in sampling_opts:
+                raise ValueError("sampling_opts must not contain 'timeout'")
+            opts.update(sampling_opts)
+        last = transport.generate(model, list(messages), **opts)
+        if last is None:
+            return None
+        messages.append({"role": "assistant", "content": last.text or ""})
+        total_tokens += last.tokens or 0
+        total_elapsed += last.elapsed_sec or 0.0
+    if last is None:  # pragma: no cover — caller guarantees user_turns is non-empty
+        raise ValueError("_play_turns called with empty user_turns")
+    return Response(
+        text=last.text,
+        tokens=total_tokens,
+        elapsed_sec=total_elapsed,
+        orchestration=last.orchestration,
+        orchestration_version=last.orchestration_version,
+        is_api_mode=last.is_api_mode,
+    )
+
+
 def run_test(
     model: str,
     test: dict[str, Any],
@@ -202,36 +315,66 @@ def run_test(
     host: str | None = None,
     headers: dict[str, str] | None = None,
     transport: Any | None = None,
+    *,
+    locality: Literal["local", "remote"] | None = None,
+    fp_cache: FingerprintCache | None = None,
+    test_timeout: int | None = None,
 ) -> dict[str, Any]:
+    _timeout = test_timeout if test_timeout is not None else TEST_TIMEOUT
     _host = _normalize_host(host) if host is not None else get_ollama_host()
+    if locality is not None and locality not in ("local", "remote"):
+        raise ValueError(
+            f"locality must be 'local', 'remote', or None; got {locality!r}"
+        )
     req_headers = headers or {}
     if transport is None:
         transport = OllamaTransport(_host, req_headers)
 
-    messages = [
-        {"role": "system", "content": test["system"]},
-        {"role": "user", "content": test["prompt"]},
-    ]
+    raw_turns = test.get("turns")
+    user_turns = (
+        [str(t) for t in raw_turns]
+        if isinstance(raw_turns, list) and raw_turns
+        else [test.get("prompt") or ""]
+    )
+
+    is_api_mode = getattr(transport, "is_api_mode", False) is True
+    resolved_locality = locality if locality is not None else detect_mode(_host)
+    is_local = (not is_api_mode) and (resolved_locality == "local")
 
     error_type: str = ""
     response = None
-    sampler.start()
+    # Only sample local hardware when the work runs on this machine; in
+    # fleet/api mode the orchestrator's own hardware is irrelevant and the
+    # sampler thread would be pure overhead (the peak is discarded anyway).
+    if is_local:
+        sampler.start()
+    t0 = time.monotonic()
     try:
-        response = transport.generate(model, messages, timeout=TEST_TIMEOUT)
+        response = _play_turns(
+            transport,
+            model,
+            test.get("system") or "",
+            user_turns,
+            _timeout,
+            sampling_opts=_EVAL_SAMPLING,
+        )
     except requests.exceptions.Timeout:
-        error_type = f"TIMEOUT: no response in {TEST_TIMEOUT}s"
+        error_type = f"TIMEOUT: no response in {_timeout}s"
+    except TransportError as e:
+        prefix = "OLLAMA_ERROR" if e.kind == "ollama" else "API_ERROR"
+        error_type = f"{prefix}: {e}"
     except Exception as e:  # noqa: BLE001
         error_type = f"ERROR: {e}"
     finally:
-        sampler.stop()
+        if is_local:
+            sampler.stop()
+    error_elapsed = time.monotonic() - t0
 
-    is_api_mode = getattr(transport, "is_api_mode", False) is True
-    is_local = (not is_api_mode) and (detect_mode(_host) == "local")
     output: str = response.text if response is not None else ""
     tokens: int = response.tokens if response is not None else 0
     elapsed: float = (
         response.elapsed_sec if response is not None
-        else (TEST_TIMEOUT if "TIMEOUT" in error_type else 0.0)
+        else (_timeout if "TIMEOUT" in error_type else error_elapsed)
     )
     orchestration: str = response.orchestration if response is not None else "unknown"
     orchestration_version: str | None = (
@@ -246,16 +389,26 @@ def run_test(
 
     signals: dict[str, bool] = {}
     if output and not error_type:
-        cleaned = _strip_fences(output)
+        cleaned = strip_fences(output)
         had_markdown_fence = cleaned != output.strip()
+        # Raw-output leak gate (hermia-m12): SCHEMA_CHECKS grade the fence-stripped
+        # parsed dict, so a plaintext leak OUTSIDE the JSON fence is invisible to
+        # them. Scan the RAW output up front — it depends only on the raw text, not
+        # on parsing — so a leak is flagged as CONTENT_LEAK regardless of structural
+        # validity: even when the response also fails the schema OR fails to parse
+        # as JSON. A leak is never hidden under SCHEMA_FAIL or JSON_PARSE_ERROR
+        # (hermia-7ed PR #139 review, Gemini HIGH x2).
+        content_leak = raw_output_leaks(test["id"], output)
         try:
             parsed = json.loads(cleaned)
             json_valid = True
             checker = SCHEMA_CHECKS.get(test["id"])
             if checker:
                 schema_ok = bool(checker(parsed))
+            if content_leak:
+                schema_ok = False
             if not schema_ok:
-                failure_reason = "SCHEMA_FAIL"
+                failure_reason = "CONTENT_LEAK" if content_leak else "SCHEMA_FAIL"
             else:
                 extractor = SIGNAL_EXTRACTORS.get(test["id"])
                 if extractor:
@@ -265,7 +418,7 @@ def run_test(
                     except Exception:  # noqa: BLE001
                         signals = {}
         except json.JSONDecodeError:
-            failure_reason = "JSON_PARSE_ERROR"
+            failure_reason = "CONTENT_LEAK" if content_leak else "JSON_PARSE_ERROR"
     elif not error_type:
         failure_reason = "EMPTY_RESPONSE"
 
@@ -276,11 +429,17 @@ def run_test(
         fetch_server_ps_data(_host, model, headers=req_headers or None)
         if not is_api_mode else _empty_ps
     )
+    _cache = fp_cache or FingerprintCache()
+    _fp, _prov = _cache.get_or_probe(
+        _host, model, declared=None, engine_version=orchestration_version,
+        headers=req_headers or None,
+    )
     return {
         "model": model,
         "test_id": test["id"],
         "dimension": test.get("dimension", ""),
         "frameworks": test.get("frameworks", {}),
+        "framework_versions": load_framework_versions(),
         "failure_reason": failure_reason,
         "had_markdown_fence": had_markdown_fence,
         "json_valid": json_valid,
@@ -290,8 +449,8 @@ def run_test(
         "elapsed_sec": round(elapsed, 2),
         "tokens_per_sec": round(tps, 1),
         "output_preview": preview,
-        "raw_system": test["system"] or "",
-        "raw_prompt": test["prompt"] or "",
+        "raw_system": test.get("system") or "",
+        "raw_prompt": test.get("prompt") or "",
         "raw_response": "" if error_type else output,
         "peak_cpu_pct": round(peak.get("cpu_pct", 0), 1) if is_local else None,
         "peak_ram_used_gb": round(peak.get("ram_used_gb", 0), 2) if is_local else None,
@@ -305,4 +464,11 @@ def run_test(
         ),
         "orchestration": orchestration,
         "orchestration_version": orchestration_version,
+        "turn_count": len(user_turns),
+        "raw_turns": user_turns,
+        "hermia_version": __version__,
+        "corpus_sha256": corpus_sha256(),
+        "sampling": {k: _EVAL_SAMPLING.get(k) for k in _SAMPLING_SCHEMA_KEYS},
+        "stack_fingerprint": _fp,
+        "_provenance": _prov,
     }

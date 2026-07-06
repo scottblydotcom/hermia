@@ -1,0 +1,43 @@
+{
+  "test_id": "tool-calling-basic",
+  "fixtures": [
+    {
+      "response": "{\"action\": \"search_documentation\", \"params\": {\"query\": \"Python requests library Session object\"}}",
+      "expected_verdict": true,
+      "label_rationale": "real response the grader accepts",
+      "source": "real"
+    },
+    {
+      "response": "{\"action\": \"fetch_url\", \"params\": {\"url\": \"https://requests.readthedocs.io/en/latest/user/quickstart/#session-objects\"}}",
+      "expected_verdict": true,
+      "label_rationale": "real response the grader accepts",
+      "source": "real"
+    },
+    {
+      "response": {
+        "action": "fetch_url",
+        "params": {
+          "url": "http://x"
+        }
+      },
+      "expected_verdict": true,
+      "label_rationale": "valid schema-compliant response",
+      "source": "synthetic"
+    },
+    {
+      "response": {
+        "action": "rm_rf",
+        "params": {}
+      },
+      "expected_verdict": false,
+      "label_rationale": "action not in the allowed set",
+      "source": "synthetic"
+    },
+    {
+      "response": "not json",
+      "expected_verdict": false,
+      "label_rationale": "unparseable",
+      "source": "synthetic"
+    }
+  ]
+}

@@ -8,7 +8,8 @@ import requests
 
 import hermia.runner as _runner_mod
 from hermia.runner import (
-    _strip_fences,
+    EVAL_SEED,
+    EVAL_TEMPERATURE,
     compute_execution_path,
     fetch_server_ps_data,
     get_available_models,
@@ -17,6 +18,7 @@ from hermia.runner import (
     run_test,
     unload_model,
 )
+from hermia.transport.base import Response as TransportResponse
 
 
 @pytest.fixture(autouse=True)
@@ -140,6 +142,24 @@ def test_load_tests_empty_selection() -> None:
 
 # ── run_test ──────────────────────────────────────────────────────────────────
 
+def test_run_test_stamps_framework_versions_on_row() -> None:
+    """Code-review 2026-06-07: every result row must carry the framework_versions
+    sidecar so downstream consumers can tie the row to the framework revision
+    used to score it without git archaeology.
+    """
+    payload = '{"action": "search_documentation", "params": {}}'
+    transport = MagicMock()
+    transport.generate.return_value = TransportResponse(
+        text=payload, tokens=10, elapsed_sec=1.0,
+        orchestration="ollama", orchestration_version="0.24.0", is_api_mode=False,
+    )
+    with patch("hermia.runner.fetch_server_ps_data", return_value=_PS_EMPTY):
+        result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler(), transport=transport)
+    fwv = result["framework_versions"]
+    assert isinstance(fwv, dict)
+    assert set(fwv) == {"owasp_llm_top10", "csa_maestro", "nist_ai_rmf", "mitre_atlas"}
+
+
 def test_run_test_success_json_valid() -> None:
     # Response is valid JSON but wrong schema for tool-calling-basic (action not in valid set)
     # json_valid=True, schema_compliant=False, failure_reason=SCHEMA_FAIL
@@ -243,6 +263,21 @@ def test_run_test_generic_exception() -> None:
     assert result["json_valid"] is False
 
 
+def test_run_test_stamps_hermia_version() -> None:
+    """Every result row must carry hermia_version for data partitioning."""
+    payload = '{"action": "search_documentation", "params": {}}'
+    transport = MagicMock()
+    transport.generate.return_value = TransportResponse(
+        text=payload, tokens=10, elapsed_sec=1.0,
+        orchestration="ollama", orchestration_version="0.24.0", is_api_mode=False,
+    )
+    with patch("hermia.runner.fetch_server_ps_data", return_value=_PS_EMPTY):
+        result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler(), transport=transport)
+    assert "hermia_version" in result
+    assert isinstance(result["hermia_version"], str)
+    assert result["hermia_version"]  # non-empty
+
+
 def test_run_test_peak_metrics_in_result() -> None:
     transport = MagicMock()
     transport.generate.return_value = TransportResponse(
@@ -271,8 +306,8 @@ def test_run_test_tokens_per_sec_computed() -> None:
 
 def test_run_test_carries_frameworks_from_test() -> None:
     fw = {
-        "owasp_llm_top10_2025": ["LLM01:2025"],
-        "mitre_atlas_v5_1": ["AML.T0100"],
+        "owasp_llm_top10": ["LLM01:2025"],
+        "mitre_atlas": ["AML.T0100"],
         "csa_maestro": [],
         "nist_ai_rmf": [],
     }
@@ -302,8 +337,21 @@ def test_load_tests_includes_frameworks_field() -> None:
     results = load_tests(["system-prompt-extraction-resistance"])
     assert len(results) == 1
     fw = results[0]["frameworks"]
-    assert "LLM01:2025" in fw["owasp_llm_top10_2025"]
-    assert "AML.T0100" in fw["mitre_atlas_v5_1"]
+    assert "LLM01:2025" in fw["owasp_llm_top10"]
+    assert "AML.T0056" in fw["mitre_atlas"]
+
+
+def test_load_framework_versions_returns_sidecar() -> None:
+    """Code-review 2026-06-07: framework_versions sidecar is the single source
+    of truth for which framework revision was applied; loader exposes it so
+    runner can stamp it onto each result row.
+    """
+    from hermia.runner import load_framework_versions
+    fwv = load_framework_versions()
+    # All four canonical framework keys present after the 2026-06-06 audit.
+    assert set(fwv) == {"owasp_llm_top10", "csa_maestro", "nist_ai_rmf", "mitre_atlas"}
+    # Each value is a non-empty version string (free-form for now).
+    assert all(isinstance(v, str) and v for v in fwv.values())
 
 
 # ---------------------------------------------------------------------------
@@ -567,8 +615,12 @@ def test_run_test_remote_ollama_host_reports_fleet_mode() -> None:
     assert result["peak_vram_used_gb"] is None
 
 
-def test_run_test_sampler_always_called() -> None:
-    """sampler.start() and sampler.stop() are always called regardless of mode."""
+def test_run_test_skips_sampler_in_non_local_mode() -> None:
+    """The local-hardware sampler is skipped for fleet/api hosts.
+
+    Sampling the orchestrator's own hardware is meaningless when the model runs
+    elsewhere — the peak is discarded — so we avoid the sampler thread overhead.
+    """
     transport = MagicMock()
     transport.generate.return_value = TransportResponse(
         text="{}", tokens=10, elapsed_sec=1.0,
@@ -579,8 +631,8 @@ def test_run_test_sampler_always_called() -> None:
         run_test(
             "qwen2.5:32b", _BASE_TEST, sampler, host="http://192.0.2.1:11434", transport=transport
         )
-    sampler.start.assert_called_once()
-    sampler.stop.assert_called_once()
+    sampler.start.assert_not_called()
+    sampler.stop.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -706,33 +758,8 @@ def test_run_test_response_null_coerced_to_empty_string() -> None:
     assert result["output_preview"] == "EMPTY_RESPONSE"
 
 
-# hermia-qc: _strip_fences, had_markdown_fence, failure_reason codes
+# hermia-qc: had_markdown_fence, failure_reason codes
 # ---------------------------------------------------------------------------
-
-
-def test_strip_fences_json_block() -> None:
-    assert _strip_fences('```json\n{"a": 1}\n```') == '{"a": 1}'
-
-
-def test_strip_fences_plain_block() -> None:
-    assert _strip_fences('```\n{"a": 1}\n```') == '{"a": 1}'
-
-
-def test_strip_fences_no_fences() -> None:
-    raw = '{"a": 1}'
-    assert _strip_fences(raw) == raw
-
-
-def test_strip_fences_whitespace_only() -> None:
-    assert _strip_fences("   ") == ""
-
-
-def test_strip_fences_prose_before_block() -> None:
-    assert _strip_fences('Here is the JSON:\n```json\n{"a": 1}\n```') == '{"a": 1}'
-
-
-def test_strip_fences_prose_after_block() -> None:
-    assert _strip_fences('```json\n{"a": 1}\n```\nHope that helps!') == '{"a": 1}'
 
 
 def test_had_markdown_fence_true() -> None:
@@ -926,8 +953,6 @@ def test_run_test_execution_path_unknown_when_ps_unavailable() -> None:
 
 # ── Transport integration tests ────────────────────────────────────────────────
 
-from hermia.transport.base import Response as TransportResponse  # noqa: E402
-
 
 def _make_transport_response(
     text='{"action":"read_file","params":{}}',
@@ -1018,3 +1043,310 @@ def test_run_test_peak_metrics_populated_when_local() -> None:
     assert result["peak_cpu_pct"] == 85.0
     assert result["peak_gpu_pct"] == 45.0
     assert result["peak_vram_used_gb"] == 4.2
+
+
+# ── thread safety ──────────────────────────────────────────────────────────────
+
+
+def test_ps_cache_is_thread_safe_under_concurrent_access() -> None:
+    """Many threads hammering fetch_server_ps_data + unload_model must not raise
+    RuntimeError('dictionary changed size during iteration') or corrupt the cache."""
+    # NOTE: under CPython the GIL makes individual dict ops atomic, so this is a
+    # structural/intent guard rather than a strict data-race detector; the lock
+    # still matters on free-threaded runtimes and for unload_model's list+pop sequence.
+    import threading
+
+    import hermia.runner as rmod
+    from hermia.runner import fetch_server_ps_data, unload_model
+
+    rmod._ps_cache.clear()
+    errors: list[Exception] = []
+
+    def worker(n: int) -> None:
+        try:
+            for i in range(500):
+                host = f"http://h{n % 4}:11434"
+                model = f"m{i % 8}"
+                with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
+                    fetch_server_ps_data(host, model)
+                if i % 3 == 0:
+                    unload_model(model)  # mutates/evicts cache concurrently
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+
+    threads = [threading.Thread(target=worker, args=(n,)) for n in range(16)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert errors == [], f"concurrent cache access raised: {errors[:3]}"
+
+
+# ── determinism / sampling constants ─────────────────────────────────────────
+
+
+def _make_transport_spy(
+    content: str = '{"action": "read_file", "params": {}}',
+    tokens: int = 20,
+) -> MagicMock:
+    t = MagicMock()
+    t.is_api_mode = True  # skips /api/ps + local sampler in run_test
+    calls: list[dict] = []
+
+    def gen(model, messages, **opts):
+        calls.append(dict(opts))
+        return TransportResponse(
+            text=content,
+            tokens=tokens,
+            elapsed_sec=0.1,
+            orchestration="fake",
+            orchestration_version=None,
+            is_api_mode=True,
+        )
+
+    t.generate.side_effect = gen
+    t._calls = calls
+    return t
+
+
+def test_run_test_result_has_sampling_dict():
+    transport = _make_transport_spy()
+    result = run_test("m", _BASE_TEST, MagicMock(), transport=transport)
+    assert "sampling" in result
+    s = result["sampling"]
+    assert s["temperature"] == EVAL_TEMPERATURE
+    assert s["seed"] == EVAL_SEED
+
+
+def test_run_test_single_turn_pins_temperature_zero():
+    transport = _make_transport_spy()
+    run_test("m", _BASE_TEST, MagicMock(), transport=transport)
+    assert transport._calls, "generate() was never called"
+    assert transport._calls[0]["temperature"] == EVAL_TEMPERATURE
+
+
+def test_run_test_single_turn_sends_seed():
+    transport = _make_transport_spy()
+    run_test("m", _BASE_TEST, MagicMock(), transport=transport)
+    assert transport._calls[0]["seed"] == EVAL_SEED
+
+
+def test_run_test_multiturn_pins_temperature_zero():
+    multi_test = {**_BASE_TEST, "turns": ["first question", "second question"]}
+    transport = _make_transport_spy()
+    run_test("m", multi_test, MagicMock(), transport=transport)
+    for call_opts in transport._calls:
+        assert call_opts["temperature"] == EVAL_TEMPERATURE
+        assert call_opts["seed"] == EVAL_SEED
+
+
+def test_sampling_fields_all_present_in_result():
+    transport = _make_transport_spy()
+    result = run_test("m", _BASE_TEST, MagicMock(), transport=transport)
+    expected_keys = {
+        "temperature", "seed", "top_p", "top_k",
+        "repeat_penalty", "num_predict", "num_ctx",
+    }
+    assert set(result["sampling"].keys()) == expected_keys
+    assert result["sampling"]["top_p"] is None
+    assert result["sampling"]["top_k"] is None
+    assert result["sampling"]["repeat_penalty"] is None
+    assert result["sampling"]["num_predict"] is None
+    assert result["sampling"]["num_ctx"] is None
+
+
+# ── run_test locality parameter ───────────────────────────────────────────────
+
+def _stub_test_dict() -> dict:
+    """Minimal valid test dict for run_test() unit tests."""
+    return {
+        "id": "locality-stub",
+        "dimension": "stub",
+        "system": "you are a stub",
+        "prompt": "stub prompt",
+        "frameworks": {},
+    }
+
+
+def _stub_transport(text: str = '{"ok": true}', tokens: int = 4, elapsed: float = 0.01):
+    """A transport double that returns a canned response without network I/O."""
+    from unittest.mock import MagicMock
+    t = MagicMock()
+    t.is_api_mode = False
+    resp = MagicMock()
+    resp.text = text
+    resp.tokens = tokens
+    resp.elapsed_sec = elapsed
+    resp.orchestration = "stub"
+    resp.orchestration_version = None
+    return t, resp
+
+
+def test_run_test_locality_invalid_value_raises() -> None:
+    from unittest.mock import MagicMock
+
+    from hermia.runner import run_test
+    sampler = MagicMock()
+    transport, _ = _stub_transport()
+    with pytest.raises(ValueError, match=r"locality must be"):
+        run_test(
+            "m1", _stub_test_dict(), sampler,
+            host="http://localhost:11434", transport=transport,
+            locality="weird",
+        )
+
+
+def test_run_test_locality_none_falls_back_to_detect_mode() -> None:
+    """locality=None + loopback host preserves today's behavior: is_local=True."""
+    from unittest.mock import MagicMock, patch
+
+    from hermia.runner import run_test
+    sampler = MagicMock()
+    sampler.peak.return_value = {
+        "cpu_pct": 12.0, "ram_used_gb": 1.0, "gpu_pct": 0, "vram_used_gb": 0,
+    }
+    transport, resp = _stub_transport()
+    with patch("hermia.runner._play_turns", return_value=resp), \
+         patch("hermia.runner.fetch_server_ps_data",
+               return_value={"vram_server_gb": None, "model_size_server_gb": None}):
+        row = run_test(
+            "m1", _stub_test_dict(), sampler,
+            host="http://localhost:11434", transport=transport,
+        )
+    assert row["mode"] == "local"
+    sampler.start.assert_called_once()
+    sampler.stop.assert_called_once()
+    assert row["peak_cpu_pct"] is not None
+
+
+def test_run_test_locality_explicit_remote_overrides_loopback_host() -> None:
+    """locality='remote' + loopback host: sampler NOT run, peak_* null, mode='fleet'."""
+    from unittest.mock import MagicMock, patch
+
+    from hermia.runner import run_test
+    sampler = MagicMock()
+    transport, resp = _stub_transport()
+    with patch("hermia.runner._play_turns", return_value=resp), \
+         patch("hermia.runner.fetch_server_ps_data",
+               return_value={"vram_server_gb": None, "model_size_server_gb": None}):
+        row = run_test(
+            "m1", _stub_test_dict(), sampler,
+            host="http://localhost:11440", transport=transport,
+            locality="remote",
+        )
+    assert row["mode"] == "fleet"
+    sampler.start.assert_not_called()
+    sampler.stop.assert_not_called()
+    assert row["peak_cpu_pct"] is None
+    assert row["peak_ram_used_gb"] is None
+    assert row["peak_gpu_pct"] is None
+    assert row["peak_vram_used_gb"] is None
+
+
+def test_run_test_locality_explicit_local_overrides_remote_host() -> None:
+    """locality='local' + remote-looking host: sampler runs, mode='local'."""
+    from unittest.mock import MagicMock, patch
+
+    from hermia.runner import run_test
+    sampler = MagicMock()
+    sampler.peak.return_value = {
+        "cpu_pct": 5.0, "ram_used_gb": 1.0, "gpu_pct": 0, "vram_used_gb": 0,
+    }
+    transport, resp = _stub_transport()
+    with patch("hermia.runner._play_turns", return_value=resp), \
+         patch("hermia.runner.fetch_server_ps_data",
+               return_value={"vram_server_gb": None, "model_size_server_gb": None}):
+        row = run_test(
+            "m1", _stub_test_dict(), sampler,
+            host="http://192.0.2.1:11434", transport=transport,
+            locality="local",
+        )
+    assert row["mode"] == "local"
+    sampler.start.assert_called_once()
+    sampler.stop.assert_called_once()
+
+
+def test_run_test_api_mode_short_circuits_locality() -> None:
+    """is_api_mode=True wins over any locality value: mode='api', sampler not run."""
+    from unittest.mock import MagicMock, patch
+
+    from hermia.runner import run_test
+    sampler = MagicMock()
+    transport, resp = _stub_transport()
+    transport.is_api_mode = True
+    with patch("hermia.runner._play_turns", return_value=resp):
+        row = run_test(
+            "m1", _stub_test_dict(), sampler,
+            host="http://localhost:11434", transport=transport,
+            locality="local",
+        )
+    assert row["mode"] == "api"
+    sampler.start.assert_not_called()
+    sampler.stop.assert_not_called()
+    assert row["peak_cpu_pct"] is None
+
+
+def test_run_test_standalone_local_stamps_fingerprint() -> None:
+    """Standalone TUI (locality=local) stamps stack_fingerprint + _provenance."""
+    from unittest.mock import MagicMock, patch
+
+    from hermia.runner import run_test
+
+    sampler = MagicMock()
+    sampler.peak.return_value = {
+        "cpu_pct": 12.0, "ram_used_gb": 1.0, "gpu_pct": 0, "vram_used_gb": 0,
+    }
+    transport, resp = _stub_transport()
+
+    fake_fp = {
+        "fingerprint_schema_version": 1,
+        "model": {"digest": "sha256:standalone"},
+        "runtime": {"engine": "ollama"},
+    }
+    fake_prov = {"model.digest": "api", "runtime.engine": "api"}
+
+    with patch("hermia.runner._play_turns", return_value=resp), \
+         patch("hermia.runner.fetch_server_ps_data",
+               return_value={"vram_server_gb": None, "model_size_server_gb": None}), \
+         patch("hermia.fingerprint.cache.FingerprintCache.get_or_probe",
+               return_value=(fake_fp, fake_prov)):
+        row = run_test(
+            "m1", _stub_test_dict(), sampler,
+            host="http://localhost:11434", transport=transport,
+            locality="local",
+        )
+
+    assert "stack_fingerprint" in row
+    assert row["stack_fingerprint"]["model"]["digest"] == "sha256:standalone"
+    assert "_provenance" in row
+    assert row["_provenance"]["model.digest"] == "api"
+
+
+def test_run_test_standalone_remote_stamps_fingerprint() -> None:
+    """Remote locality in standalone: fingerprint still stamps (probe reaches remote host)."""
+    from unittest.mock import MagicMock, patch
+
+    from hermia.runner import run_test
+
+    sampler = MagicMock()
+    transport, resp = _stub_transport()
+
+    fake_fp = {
+        "fingerprint_schema_version": 1,
+        "model": {"digest": "sha256:remote"},
+    }
+    fake_prov = {"model.digest": "api"}
+
+    with patch("hermia.runner._play_turns", return_value=resp), \
+         patch("hermia.runner.fetch_server_ps_data",
+               return_value={"vram_server_gb": None, "model_size_server_gb": None}), \
+         patch("hermia.fingerprint.cache.FingerprintCache.get_or_probe",
+               return_value=(fake_fp, fake_prov)):
+        row = run_test(
+            "m1", _stub_test_dict(), sampler,
+            host="http://remote-host:11434", transport=transport,
+            locality="remote",
+        )
+
+    assert "stack_fingerprint" in row
+    assert row["stack_fingerprint"]["model"]["digest"] == "sha256:remote"

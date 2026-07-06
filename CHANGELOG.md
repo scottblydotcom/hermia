@@ -11,6 +11,97 @@ See [docs/roadmap.md](docs/roadmap.md) for the full plan.
 
 ---
 
+## [0.2.0] — target 2026-07 (Fleet + TUI)
+
+The "Endpoint Bus" release. Hermia grows from a single-host application into a
+platform: headless fleet mode for multi-host eval from a YAML config, a
+full-featured TUI for launch/configure/run/inspect, a pluggable Transport layer
+that evaluates anything OpenAI-compatible, and an audited 30-test corpus with a
+published methodology catalog and framework matrix.
+
+### Added
+- **Fleet mode** (`--fleet FILE`) — headless multi-host eval from a YAML config;
+  the same suite runs across multiple endpoints in parallel, powered by a new
+  concurrent runner (Workstream C, #93).
+- **Fleet TUI** — host discovery and model selection; live multi-host run view
+  across runner (L1), per-trial (L2), and detail (L3) screens; breadcrumb
+  navigation; first-run and probe-failure empty-state guidance (#122–#129).
+- **Transport abstraction** — pluggable Ollama and OpenAI-compatible transports;
+  evaluate LiteLLM, OpenAI, Anthropic, Google, Bedrock, or local Ollama through
+  one interface (Workstream A, #87), with `models: auto` endpoint
+  auto-discovery (#112).
+- **Community dataset submission** — `hermia-submit` CLI for opt-in anonymized upload to
+  the community dataset, gated behind a value-level anonymizer (Workstream D,
+  #95, #111).
+- **Deterministic multi-turn evaluation** (Workstream E, #96).
+- **Backend stack tagging** — GPU architecture, runtime version, and execution
+  path (GPU vs spill) stamped on every result row.
+- **Configurable per-test timeout** — CLI flag and per-host YAML key, for
+  thinking-mode models (#126).
+- **Corpus methodology catalog** — `docs/corpus-catalog.md`: per-test purpose,
+  exact prompts, grading logic, four-framework control-ID mappings with
+  rationale, and known limitations for all 30 tests, assembled from a
+  machine-checked single source (`catalog-meta/`) with a CI-enforced security
+  policy sign-off gate (Track 5, #99/#101/#103/#105).
+- **GUARDS framework** — six-dimension standard for LLM guardrail construction,
+  published (#104).
+- **Packaging** — Docker image + ghcr.io publish workflow (#130), Homebrew tap
+  with release-time formula bump (#136), and a docs-as-tested CI matrix that runs
+  the README's install commands literally across 5 methods × OS × Python (#137).
+
+### Changed
+- Corpus normalized to GUARDS 6/6 across all 30 tests, with adversarial framing
+  added to the multi-step-reasoning and numeric-correctness tests (#105).
+- Extracted the aggregate scorer into `scoring.py` (`compute_scores` +
+  `backfill_aggregates`).
+- README and usage docs brought to v0.2 reality; added a 5-minute
+  getting-started path (#128).
+
+### Fixed
+- Corpus grader corrections surfaced by the Track 5 audit: the
+  `indirect-injection-tool-output` binary grader no longer false-passes on
+  structure alone (content validation added); `instruction-override-resistance`
+  now scores a refusal as a security pass and aligns its prompt to the oracle
+  (#127); status-field semantics clarified (#102).
+- Anonymizer now performs value-level sanitization of the `frameworks` field,
+  stripping identifying strings smuggled inside custom-dataset framework values
+  (#107).
+- TUI: fleet YAML compatibility and a probe-subscription race (#125),
+  trial-hang timeout, and Rich markup escaping (#124).
+
+### Security
+- Inner-branch negative-example tests for the security schema checkers, ensuring
+  each grader rejects its documented failure cases, not just accepts its passes
+  (#108).
+- The scanning pipeline (gitleaks, trufflehog, trivy, bandit, pip-audit, ruff,
+  mypy, guarddog) runs on every push and pull request.
+
+### Known limitations
+- Cross-stack reproducibility evidence (Metal × CUDA × ROCm) is being captured as
+  an ongoing dataset published across the v0.2.x series, not as a single launch
+  snapshot.
+- Documented residual grader limitations (e.g. a ~1.1% false-positive band on
+  `instruction-override-resistance` for out-of-fence leaks) are catalogued in
+  `docs/corpus-catalog.md`.
+- Dependencies are declared with **minimum-version floors** (`>=`) in
+  `pyproject.toml`; no fully-pinned lockfile ships in v0.2.x. A resolver picking
+  a newer transitive version can in principle change behavior. A committed
+  lockfile is planned for v0.3.
+- Row-level provenance today is corpus-hash stamping only (an unkeyed SHA-256
+  of `agentic-tasks.json`). It detects accidental data drift given an
+  authoritative reference; it is **not** cryptographic row-signing and does
+  **not** cover the grading code in `schemas.py`. Row-signing and hashing the
+  eval code are planned for v0.3. See `src/hermia/runner.py` (`corpus_sha256`).
+- Multi-turn (and single-turn) output determinism is backend-dependent, not guaranteed:
+  Hermia pins `temperature=0` and `seed=42`, but whether a backend reproduces byte-identical
+  output varies by runtime / GPU stack — this cross-stack variance is what Hermia measures.
+- The `indirect-injection-tool-output` pass rate is a ~44–72% semantic band, not a point
+  estimate (the describe/flag/adopt boundary is semantic — see `docs/corpus-catalog.md`).
+- Most corpus cells are single-run point estimates with no per-cell variance, pending ≥3
+  runs/cell.
+
+---
+
 ## [0.1.0] — target 2026-05-23
 
 First stable eval suite. Core TUI, multi-vendor GPU metrics, robustness scoring,
