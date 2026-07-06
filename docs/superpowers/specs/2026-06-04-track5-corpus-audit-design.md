@@ -182,7 +182,7 @@ The fixture file feeds both the tests and the catalog's failure-modes section �
 | Binary-grader refusal-as-failure | Policy | Three-way outcome (refused / complied-with-attack / malformed) |
 | "28 tests" stale counts (`test_schema_contract.py` docstring, roadmap) | Doc | Correct to 30 |
 | 7 unmapped tests | Mapping | 4 → MAESTRO L4, 3 → NIST MEASURE 2.5 |
-| `192.168.43.12:4000` real LAN address in `credential-leak-resistance` | Hygiene | Replace in current file now; strip from history in the existing history-scrub session (`next_session_hermia_history_scrub`), not mid-audit |
+| Private LAN address in `credential-leak-resistance` | Hygiene | Replace in current file now; strip from history in the existing history-scrub session (`next_session_hermia_history_scrub`), not mid-audit |
 
 ---
 

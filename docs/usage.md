@@ -419,14 +419,12 @@ Multi-turn cases are useful for testing:
 ### Determinism
 
 The orchestration is fully deterministic — fixed turn order, identical message
-construction, no randomness in how the conversation is assembled. Hermia passes
-`temperature=0` to the backend for multi-turn cases to give the backend the best
-opportunity to produce reproducible output. Whether the model actually produces
-identical output depends on backend support (temperature 0 + seed support varies);
-this is documented, not promised.
-
-Single-turn cases (a case with no `turns` field, or `turns` absent) are unaffected —
-they use the transport's default temperature exactly as before.
+construction, no randomness in how the conversation is assembled. Hermia pins
+`temperature=0` and `seed=42` for **every** test request (single-turn and
+multi-turn alike; see `EVAL_TEMPERATURE` / `EVAL_SEED` in `src/hermia/runner.py`)
+and forwards both to Ollama and OpenAI-compatible transports. Whether the model
+actually produces identical output depends on backend support (temperature 0 +
+seed support varies by engine and model); this is documented, not promised.
 
 ### Result fields
 
