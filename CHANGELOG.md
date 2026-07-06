@@ -30,8 +30,8 @@ published methodology catalog and framework matrix.
   evaluate LiteLLM, OpenAI, Anthropic, Google, Bedrock, or local Ollama through
   one interface (Workstream A, #87), with `models: auto` endpoint
   auto-discovery (#112).
-- **Sink interface + opt-in anonymized submission** — `hermia-submit` CLI for the
-  community dataset, gated behind a value-level anonymizer (Workstream D,
+- **Community dataset submission** — `hermia-submit` CLI for opt-in anonymized upload to
+  the community dataset, gated behind a value-level anonymizer (Workstream D,
   #95, #111).
 - **Deterministic multi-turn evaluation** (Workstream E, #96).
 - **Backend stack tagging** — GPU architecture, runtime version, and execution
@@ -92,6 +92,13 @@ published methodology catalog and framework matrix.
   authoritative reference; it is **not** cryptographic row-signing and does
   **not** cover the grading code in `schemas.py`. Row-signing and hashing the
   eval code are planned for v0.3. See `src/hermia/runner.py` (`corpus_sha256`).
+- Multi-turn (and single-turn) output determinism is backend-dependent, not guaranteed:
+  Hermia pins `temperature=0` and `seed=42`, but whether a backend reproduces byte-identical
+  output varies by runtime / GPU stack — this cross-stack variance is what Hermia measures.
+- The `indirect-injection-tool-output` pass rate is a ~44–72% semantic band, not a point
+  estimate (the describe/flag/adopt boundary is semantic — see `docs/corpus-catalog.md`).
+- Most corpus cells are single-run point estimates with no per-cell variance, pending ≥3
+  runs/cell.
 
 ---
 

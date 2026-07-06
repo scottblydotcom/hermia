@@ -85,6 +85,11 @@ Expressible as pass/fail automated eval cases against a local Ollama model:
 
 ## 2. MITRE ATLAS (v5.1.0, November 2025 + February 2026 updates)
 
+> **Version note:** This section analyzes the ATLAS **v5.1.0** baseline. Hermia's shipped
+> corpus maps to ATLAS **6.0.0 / 2026.05** (the current release — see
+> `docs/MITRE-ATLAS-2026.05.yaml` and the README framework table). Technique IDs cited below
+> reflect the v5.1.0 analysis and may differ from the corpus's current mappings.
+
 ### What it covers
 
 MITRE ATLAS (Adversarial Threat Landscape for Artificial-Intelligence Systems) is an adversary knowledge base modeled after ATT&CK, focused on attacks against AI and ML systems. As of v5.1.0 (November 2025): 16 tactics, 84 techniques, 32 mitigations, 42 case studies. The February 2026 update added agentic-specific techniques including "Publish Poisoned AI Agent Tool" and "Escape to Host." A Zenity Labs collaboration contributed 14 agent-focused techniques covering credential harvesting, tool data poisoning, and agent clickbait. An internal February 2026 case study documented real-world agentic attack techniques including direct/indirect prompt injection and tool invocation abuse.
