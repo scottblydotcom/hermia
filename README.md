@@ -82,10 +82,10 @@ built for your context.
 
 | Framework | What Hermia Maps To |
 |---|---|
-| **OWASP LLM Top 10 (2025)** | LLM01 prompt injection (direct + indirect), LLM06 excessive agency / scope escalation |
-| **MITRE ATLAS 6.0.0 (2026.05)** | AML.T0051 direct injection, AML.T0054 indirect injection, AML.T0099 tool data poisoning, AML.T0100 structured field injection |
+| **OWASP LLM Top 10 (2025)** | LLM01 prompt injection (direct + indirect), LLM02 sensitive information disclosure, LLM06 excessive agency / scope escalation, LLM07 system-prompt leakage |
+| **MITRE ATLAS 6.0.0 (2026.05)** | AML.T0051.000/.001 direct + indirect prompt injection, AML.T0056 extract system prompt, AML.T0057 LLM data leakage, AML.T0068 prompt obfuscation, AML.T0099 tool data poisoning |
 | **CSA MAESTRO** | L1 foundation model robustness, L3 agent framework routing and lane evasion |
-| **NIST AI RMF** | Measure function: ME 2.3 deployment-similar benchmarking, ME 2.4 production monitoring, ME 3.1 regression detection |
+| **NIST AI RMF** | Measure function: MEASURE 2.5 validity & reliability, MEASURE 2.7 security & resilience |
 
 ---
 

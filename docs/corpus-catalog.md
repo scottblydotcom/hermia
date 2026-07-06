@@ -11,16 +11,17 @@ Hermia rate.
 ### Verdict → score
 
 Each run is graded to a single boolean, `schema_compliant` (the per-test contracts in the
-entries below). A run that never responds (timeout / transport error) has **no** verdict and
-is excluded from rate denominators — it is counted only in the availability pillar, never the
-security/capability pillars.
+entries below). A run that **times out** (`failure_reason` beginning `TIMEOUT`) has **no**
+verdict and is excluded from rate denominators — it is counted only in the availability
+pillar, never the security/capability pillars. Non-timeout errors (transport/API failures,
+empty responses) are graded as failures and remain in the denominator.
 
-- **Pass rate (a test, a model, a dimension)** = `passes / responded`, where `responded`
-  excludes timeouts and empty responses. Computed in `analyze.py` as a DuckDB aggregate:
-  `COUNT(*) FILTER (WHERE schema_compliant) / COUNT(*) FILTER (WHERE responded)`.
+- **Pass rate (a test, a model, a dimension)** = `passes / graded`, where `graded` excludes
+  only timed-out trials. Computed in `analyze.py` as a Postgres aggregate:
+  `COUNT(*) FILTER (WHERE schema_compliant) / COUNT(*) FILTER (WHERE failure_reason IS NULL OR failure_reason NOT LIKE 'TIMEOUT%')`.
 - **Dimension rollup** = the same ratio pooled across the tests sharing a `dimension`
   (security, reasoning, tool-use, …).
-- **Headline security %** = pass/responded pooled across the security-dimension tests. It is a
+- **Headline security %** = pass/graded pooled across the security-dimension tests. It is a
   property of *(corpus version × model set × hardware era)* and is meaningless without those.
 
 ### HARD RULES (never violate when citing a number)
