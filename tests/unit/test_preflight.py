@@ -5,7 +5,12 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from hermia.preflight import OLLAMA_MIN_SECURE_VERSION, check_ollama_security, run_preflight
+from hermia.preflight import (
+    OLLAMA_MIN_SECURE_VERSION,
+    check_engine_security,
+    check_ollama_security,
+    run_preflight,
+)
 
 MODEL_LIST = [
     {"name": "llama3:8b", "size": int(4.7 * 1024**3)},
@@ -169,3 +174,114 @@ def test_preflight_report_security_warnings_populated(tmp_path: Path):
         report = run_preflight(["llama3:8b"], MODEL_LIST, tmp_path, fleet_mode=False)
     assert any("CVE-2026-7482" in w for w in report.security_warnings)
     assert any("CVE-2026-5757" in w for w in report.security_warnings)
+
+
+# ---------------------------------------------------------------------------
+# check_engine_security dispatcher (hermia-3zp)
+# ---------------------------------------------------------------------------
+
+def test_engine_security_ollama_routes_to_ollama_check():
+    with _mock_version("0.16.0"):
+        warns = check_engine_security(
+            "http://localhost:11434", "ollama", fleet_mode=False
+        )
+    assert any("CVE-2026-7482" in w for w in warns)
+
+
+def test_engine_security_openai_compat_is_empty_extension_point():
+    with _mock_version("0.16.0"):
+        warns = check_engine_security(
+            "http://gateway:4000", "openai-compat", fleet_mode=True
+        )
+    assert warns == []
+
+
+def test_engine_security_unknown_engine_is_empty_extension_point():
+    """A future 'vllm' engine with no advisory returns [] until an advisory lands."""
+    with _mock_version("0.16.0"):
+        warns = check_engine_security(
+            "http://vllm:8000", "vllm", fleet_mode=False
+        )
+    assert warns == []
+
+
+def test_engine_security_ollama_forwards_fleet_mode():
+    """fleet_mode=True must suppress the local-only CVE-2026-5757 advisory."""
+    with _mock_version("0.22.1"):
+        warns = check_engine_security(
+            "http://remotehost:11434", "ollama", fleet_mode=True
+        )
+    assert not any("CVE-2026-5757" in w for w in warns)
+
+
+def test_engine_security_ollama_forwards_auth_headers():
+    """Bearer/auth headers must reach the /api/version probe on auth-gated hosts."""
+    captured: dict[str, dict[str, str] | None] = {}
+
+    def _fake_get(url, timeout=None, headers=None):  # type: ignore[no-untyped-def]
+        captured["headers"] = headers
+        r = MagicMock()
+        r.ok = True
+        r.json.return_value = {"version": "0.22.1"}
+        return r
+
+    with patch("requests.get", side_effect=_fake_get):
+        check_engine_security(
+            "http://litellm:4000",
+            "ollama",
+            fleet_mode=True,
+            headers={"Authorization": "Bearer token-xyz"},
+        )
+    assert captured["headers"] == {"Authorization": "Bearer token-xyz"}
+
+
+def test_ollama_security_survives_non_dict_json_body():
+    """A /api/version body that isn't a dict must not raise."""
+    r = MagicMock()
+    r.ok = True
+    r.json.return_value = ["not", "a", "dict"]
+    with patch("requests.get", return_value=r):
+        warns = check_ollama_security("http://x:11434", fleet_mode=True)
+    assert not any("CVE-2026-7482" in w for w in warns)
+
+
+def test_ollama_security_normalizes_scheme_less_host():
+    """A raw `localhost:11434` (no scheme) must be normalized, not passed as-is to requests.get."""
+    seen_urls: list[str] = []
+
+    def _fake_get(url, timeout=None, headers=None):  # type: ignore[no-untyped-def]
+        seen_urls.append(url)
+        r = MagicMock()
+        r.ok = True
+        r.json.return_value = {"version": "0.22.1"}
+        return r
+
+    with patch("requests.get", side_effect=_fake_get):
+        check_ollama_security("localhost:11434", fleet_mode=True)
+    assert seen_urls == ["http://localhost:11434/api/version"]
+
+
+def test_ollama_security_strips_trailing_slash():
+    """A trailing slash on the host must not produce a `//api/version` URL."""
+    seen_urls: list[str] = []
+
+    def _fake_get(url, timeout=None, headers=None):  # type: ignore[no-untyped-def]
+        seen_urls.append(url)
+        r = MagicMock()
+        r.ok = True
+        r.json.return_value = {"version": "0.22.1"}
+        return r
+
+    with patch("requests.get", side_effect=_fake_get):
+        check_ollama_security("http://localhost:11434/", fleet_mode=True)
+    assert seen_urls == ["http://localhost:11434/api/version"]
+
+
+def test_ollama_security_survives_non_json_body():
+    """A /api/version body that isn't JSON must not raise."""
+    r = MagicMock()
+    r.ok = True
+    r.json.side_effect = ValueError("not JSON")
+    with patch("requests.get", return_value=r):
+        warns = check_ollama_security("http://x:11434", fleet_mode=True)
+    assert not any("CVE-2026-7482" in w for w in warns)
