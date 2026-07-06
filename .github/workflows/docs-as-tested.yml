@@ -16,6 +16,9 @@ permissions:
 jobs:
   pip:
     name: pip (${{ matrix.os }}, py${{ matrix.python-version }})
+    # Fork-PR gate: eval()s README-extracted commands. Skip fork PRs entirely —
+    # push events (from the maintainer branch) and same-repo PRs only.
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -70,6 +73,7 @@ jobs:
 
   pipx:
     name: pipx (${{ matrix.os }}, py${{ matrix.python-version }})
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -133,6 +137,7 @@ jobs:
 
   source:
     name: source (${{ matrix.os }}, py${{ matrix.python-version }})
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -191,6 +196,7 @@ jobs:
 
   brew:
     name: brew (macos-latest, formula-pinned python@3.12)
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -240,6 +246,7 @@ jobs:
 
   docker:
     name: docker (ubuntu-latest, image-pinned python)
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
