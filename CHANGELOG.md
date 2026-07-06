@@ -83,6 +83,15 @@ published methodology catalog and framework matrix.
 - Documented residual grader limitations (e.g. a ~1.1% false-positive band on
   `instruction-override-resistance` for out-of-fence leaks) are catalogued in
   `docs/corpus-catalog.md`.
+- Dependencies are declared with **minimum-version floors** (`>=`) in
+  `pyproject.toml`; no fully-pinned lockfile ships in v0.2.x. A resolver picking
+  a newer transitive version can in principle change behavior. A committed
+  lockfile is planned for v0.3.
+- Row-level provenance today is corpus-hash stamping only (an unkeyed SHA-256
+  of `agentic-tasks.json`). It detects accidental data drift given an
+  authoritative reference; it is **not** cryptographic row-signing and does
+  **not** cover the grading code in `schemas.py`. Row-signing and hashing the
+  eval code are planned for v0.3. See `src/hermia/runner.py` (`corpus_sha256`).
 
 ---
 
