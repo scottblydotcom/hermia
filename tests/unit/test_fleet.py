@@ -238,6 +238,40 @@ def test_run_host_eval_writes_expected_rows(
     assert [r["test_id"] for r in rows] == ["t1"]
 
 
+def test_run_host_eval_emits_engine_security_warnings_via_stderr_fn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """hermia-3zp — CVE warning for a stale Ollama server must surface per-host on stderr."""
+    import hermia.fleet as fleet
+    from hermia.results import open_run
+
+    def fake_run_test(model, test, sampler, host=None, headers=None, transport=None, **kw):  # type: ignore[no-untyped-def]
+        return {"model": model, "test_id": test["id"], "failure_reason": "",
+                "elapsed_sec": 0.1, "tokens_per_sec": 1.0}
+    monkeypatch.setattr("hermia.runner.run_test", fake_run_test, raising=False)
+    monkeypatch.setattr("hermia.runner.load_tests_all", lambda: [{"id": "t1"}], raising=False)
+    monkeypatch.setattr("hermia.runner.get_available_models",
+                        lambda host=None, headers=None: [{"name": "m1"}], raising=False)
+
+    # Force check_ollama_security to see a vulnerable version.
+    def fake_check(host, engine, fleet_mode=False):  # type: ignore[no-untyped-def]
+        if engine == "ollama":
+            return [f"SEC ⚠ CVE-2026-7482: Ollama 0.16.0 vulnerable (host={host})"]
+        return []
+    monkeypatch.setattr("hermia.preflight.check_engine_security", fake_check, raising=False)
+
+    stderr_lines: list[str] = []
+    jsonl, csv = open_run(tmp_path)
+    entry = {"name": "node1", "host": "http://h1:11434"}
+    fleet._run_host_eval(
+        entry, repeat=1, run_id="rid", jsonl_path=jsonl, csv_path=csv,
+        print_lock=__import__("threading").Lock(),
+        print_fn=lambda s: None, stderr_fn=stderr_lines.append, verbosity=-1,
+    )
+    assert any("CVE-2026-7482" in line for line in stderr_lines), stderr_lines
+    assert any("node1:" in line for line in stderr_lines), stderr_lines
+
+
 # ---------------------------------------------------------------------------
 # --fleet flag in main() skips TUI
 # ---------------------------------------------------------------------------

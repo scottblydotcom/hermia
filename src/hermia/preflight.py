@@ -89,6 +89,29 @@ def check_ollama_security(host: str, fleet_mode: bool = False) -> list[str]:
     return warnings
 
 
+def check_engine_security(
+    host: str, engine: str, fleet_mode: bool = False
+) -> list[str]:
+    """Engine-aware security posture check. Dispatch on transport type.
+
+    Extension point for the pluggable transport layer: each engine's
+    check emits SEC ⚠ warning strings for issues that are *engine*-specific
+    (a CVE against the inference server itself, an unauthenticated admin
+    endpoint, a stale version). Engines with no known open advisories
+    return the empty list; adding a new advisory means editing exactly
+    one function, no call-site changes.
+
+    Currently populated:
+    * ``ollama`` → :func:`check_ollama_security` (CVE-2026-7482 heap
+      disclosure, CVE-2026-5757 unauthenticated /api/create)
+    * ``openai-compat`` / ``vllm`` → ``[]`` today; wire an advisory
+      here when one lands.
+    """
+    if engine == "ollama":
+        return check_ollama_security(host, fleet_mode=fleet_mode)
+    return []
+
+
 @dataclass
 class PreflightReport:
     vram_total_gb: float

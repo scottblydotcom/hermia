@@ -163,6 +163,13 @@ def main() -> None:
 
         sys.exit(0)
 
+    # Local TUI mode — surface engine-security warnings to stderr before the
+    # TUI takes over the screen. Uses the same dispatcher the fleet path uses.
+    from hermia.preflight import check_engine_security
+    from hermia.runner import get_ollama_host
+    for w in check_engine_security(get_ollama_host(), "ollama", fleet_mode=False):
+        print(w, file=sys.stderr)
+
     HermiaApp().run()
 
 

@@ -5,7 +5,12 @@ from unittest.mock import MagicMock, patch
 
 import requests
 
-from hermia.preflight import OLLAMA_MIN_SECURE_VERSION, check_ollama_security, run_preflight
+from hermia.preflight import (
+    OLLAMA_MIN_SECURE_VERSION,
+    check_engine_security,
+    check_ollama_security,
+    run_preflight,
+)
 
 MODEL_LIST = [
     {"name": "llama3:8b", "size": int(4.7 * 1024**3)},
@@ -169,3 +174,41 @@ def test_preflight_report_security_warnings_populated(tmp_path: Path):
         report = run_preflight(["llama3:8b"], MODEL_LIST, tmp_path, fleet_mode=False)
     assert any("CVE-2026-7482" in w for w in report.security_warnings)
     assert any("CVE-2026-5757" in w for w in report.security_warnings)
+
+
+# ---------------------------------------------------------------------------
+# check_engine_security dispatcher (hermia-3zp)
+# ---------------------------------------------------------------------------
+
+def test_engine_security_ollama_routes_to_ollama_check():
+    with _mock_version("0.16.0"):
+        warns = check_engine_security(
+            "http://localhost:11434", "ollama", fleet_mode=False
+        )
+    assert any("CVE-2026-7482" in w for w in warns)
+
+
+def test_engine_security_openai_compat_is_empty_extension_point():
+    with _mock_version("0.16.0"):
+        warns = check_engine_security(
+            "http://gateway:4000", "openai-compat", fleet_mode=True
+        )
+    assert warns == []
+
+
+def test_engine_security_unknown_engine_is_empty_extension_point():
+    """A future 'vllm' engine with no advisory returns [] until an advisory lands."""
+    with _mock_version("0.16.0"):
+        warns = check_engine_security(
+            "http://vllm:8000", "vllm", fleet_mode=False
+        )
+    assert warns == []
+
+
+def test_engine_security_ollama_forwards_fleet_mode():
+    """fleet_mode=True must suppress the local-only CVE-2026-5757 advisory."""
+    with _mock_version("0.22.1"):
+        warns = check_engine_security(
+            "http://remotehost:11434", "ollama", fleet_mode=True
+        )
+    assert not any("CVE-2026-5757" in w for w in warns)
