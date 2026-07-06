@@ -1,0 +1,10 @@
+# fleets/desktop.yaml — Docker Desktop (macOS / Windows) example.
+# Docker Desktop doesn't support `--network host` cleanly, so reach the host's
+# Ollama via host.docker.internal (add `--add-host host.docker.internal:host-gateway`
+# to the `docker run` command). Same headless format as fleets/local.yaml.
+fleet:
+  - name: docker-desktop
+    host: http://host.docker.internal:11434
+    transport: ollama
+    models:
+      - llama3.2:latest
