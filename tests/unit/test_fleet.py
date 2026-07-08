@@ -1036,6 +1036,111 @@ def test_load_fleet_config_stack_optional(tmp_path: Path) -> None:
     assert "stack" not in entries[0]
 
 
+def test_load_fleet_config_rejects_unrecognized_auth_key(tmp_path: Path) -> None:
+    """auth: {bearer: {...}, extra_key: foo} must raise, naming 'extra_key'."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: node3\n"
+        "    host: http://host1:11434\n"
+        "    auth:\n"
+        "      bearer:\n"
+        "        key_env: TEST_TOKEN\n"
+        "      extra_key: foo\n"
+    )
+    with pytest.raises(ValueError, match="extra_key"):
+        load_fleet_config(cfg)
+
+
+def test_load_fleet_config_rejects_unrecognized_bearer_key(tmp_path: Path) -> None:
+    """auth.bearer: {key_env: ..., extra: foo} must raise, naming 'extra'."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: node3\n"
+        "    host: http://host1:11434\n"
+        "    auth:\n"
+        "      bearer:\n"
+        "        key_env: TEST_TOKEN\n"
+        "        extra: foo\n"
+    )
+    with pytest.raises(ValueError, match="extra"):
+        load_fleet_config(cfg)
+
+
+def test_load_fleet_config_rejects_typo_key_env(tmp_path: Path) -> None:
+    """A typo'd 'key_env_typo' must raise rather than silently no-op auth."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: node3\n"
+        "    host: http://host1:11434\n"
+        "    auth:\n"
+        "      bearer:\n"
+        "        key_env_typo: TEST_TOKEN\n"
+    )
+    with pytest.raises(ValueError, match="key_env_typo"):
+        load_fleet_config(cfg)
+
+
+def test_load_fleet_config_rejects_unrecognized_stack_key(tmp_path: Path) -> None:
+    """stack: {gpu_arch: ..., extra_field: foo} must raise, naming 'extra_field'."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: node3\n"
+        "    host: http://host1:11434\n"
+        "    stack:\n"
+        "      gpu_arch: sm_89\n"
+        "      extra_field: foo\n"
+    )
+    with pytest.raises(ValueError, match="extra_field"):
+        load_fleet_config(cfg)
+
+
+def test_load_fleet_config_valid_nested_auth_and_stack(tmp_path: Path) -> None:
+    """A fully valid entry with auth.bearer.key_env and stack fields parses cleanly
+    and preserves the nested values."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: node3\n"
+        "    host: http://host1:11434\n"
+        "    auth:\n"
+        "      bearer:\n"
+        "        key_env: TEST_TOKEN\n"
+        "    stack:\n"
+        "      gpu_arch: sm_89\n"
+        "      runtime_version: v1.2.3\n"
+    )
+    entries = load_fleet_config(cfg)
+    entry = entries[0]
+    assert entry["auth"]["bearer"]["key_env"] == "TEST_TOKEN"
+    assert entry["stack"]["gpu_arch"] == "sm_89"
+    assert entry["stack"]["runtime_version"] == "v1.2.3"
+
+
+def test_build_auth_headers_still_works_after_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """_build_auth_headers keeps working on entries that pass the new nested
+    validation."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: node3\n"
+        "    host: http://host1:11434\n"
+        "    auth:\n"
+        "      bearer:\n"
+        "        key_env: TEST_TOKEN\n"
+    )
+    entries = load_fleet_config(cfg)
+    entry = entries[0]
+    monkeypatch.setenv("TEST_TOKEN", "fake_token_123")
+    headers = _build_auth_headers(entry)
+    assert headers == {"Authorization": "Bearer fake_token_123"}
+
+
 @pytest.mark.parametrize(
     "bad_key",
     ["engine", "url"],

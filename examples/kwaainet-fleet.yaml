@@ -17,7 +17,6 @@ fleet:
     host: http://localhost:11435   # kwaainet shard api endpoint
     transport: openai-compat       # KwaaiNet serves OpenAI /v1, not Ollama /api
     models: auto                   # discover via GET /v1/models (no hand-typed id)
-    stack:                         # documents the stack that produced these rows
-      orchestration: kwaainet
-      topology: distributed-sharded
-      transport: relay
+    # Stack: KwaaiNet-orchestrated, distributed-sharded, relay transport.
+    # Not captured under `stack:` — that block's schema is gpu_arch/runtime_version
+    # only (see docs/usage.md); it doesn't have fields for orchestration/topology.
