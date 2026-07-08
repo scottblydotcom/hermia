@@ -9,6 +9,10 @@ import requests
 from hermia.transport.base import Response, TransportError
 
 _OPENAI_SAMPLING_KEYS = ("temperature", "seed", "top_p")
+# Public (no underscore): imported cross-module by tui/runner_backend.py to
+# derive its own timeout budget, so these are an intentional shared contract.
+RETRY_BACKOFF_SEC = (0.5, 2.0)
+MAX_5XX_RETRIES = len(RETRY_BACKOFF_SEC)
 
 
 class OpenAICompatTransport:
@@ -66,14 +70,29 @@ class OpenAICompatTransport:
             payload["temperature"] = 0.1
         if "num_predict" in opts and opts["num_predict"] is not None:
             payload["max_tokens"] = opts["num_predict"]
-        t0 = time.monotonic()
-        resp = requests.post(  # nosec B113 — timeout passed via opts.get("timeout", 90)
-            f"{self._base_url}/v1/chat/completions",
-            json=payload,
-            headers=self._headers,
-            timeout=float(opts.get("timeout", 90)),  # type: ignore[arg-type]
-        )
-        resp.raise_for_status()
+        retries = 0
+        while True:
+            # t0 resets each attempt so elapsed_sec (used for tokens/sec downstream)
+            # reflects only the successful request's duration, not failed-attempt
+            # + backoff time from any prior 5xx retries.
+            t0 = time.monotonic()
+            resp = requests.post(  # nosec B113 — timeout passed via opts.get("timeout", 90)
+                f"{self._base_url}/v1/chat/completions",
+                json=payload,
+                headers=self._headers,
+                timeout=float(opts.get("timeout", 90)),  # type: ignore[arg-type]
+            )
+            if isinstance(resp.status_code, int) and resp.status_code >= 500:
+                if retries >= MAX_5XX_RETRIES:
+                    raise TransportError(
+                        f"after {MAX_5XX_RETRIES + 1} attempts: HTTP {resp.status_code}",
+                        kind="openai-compat-retry-exhausted",
+                    )
+                time.sleep(RETRY_BACKOFF_SEC[retries])
+                retries += 1
+                continue
+            resp.raise_for_status()
+            break
         elapsed = time.monotonic() - t0
         data = resp.json()
         if not isinstance(data, dict):
@@ -96,4 +115,5 @@ class OpenAICompatTransport:
             orchestration="openai-compat",
             orchestration_version=None,
             is_api_mode=True,
+            retries=retries,
         )

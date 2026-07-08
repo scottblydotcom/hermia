@@ -17,10 +17,31 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from hermia.runner import TEST_TIMEOUT
+from hermia.transport.openai_compat import MAX_5XX_RETRIES, RETRY_BACKOFF_SEC
 from hermia.tui.bus import SessionBus
 from hermia.tui.state import FleetConfig, Host, ModelChoice
 
-TRIAL_WALL_TIMEOUT: float = 120.0
+# Must cover the openai-compat transport's worst case: every attempt (including
+# retries) can take up to TEST_TIMEOUT, plus backoff sleep between them. A
+# static budget here silently drifts out of sync with the transport's retry
+# behavior — derive it instead of hardcoding a number that requires everyone to
+# remember to update it when the retry/backoff constants change.
+TRIAL_WALL_TIMEOUT: float = (
+    TEST_TIMEOUT * (MAX_5XX_RETRIES + 1) + sum(RETRY_BACKOFF_SEC) + 30.0
+)
+
+
+def _trial_wall_timeout_sec(test: dict[str, Any], per_call_timeout: float) -> float:
+    """Scale the wall-clock budget by turn count.
+
+    _play_turns (hermia.runner) calls transport.generate() once per turn, and
+    each call is independently subject to the full retry-with-backoff worst
+    case — a multi-turn test's legitimate wall time is n_turns times a single
+    call's, not a single call's total.
+    """
+    n_turns = len(test.get("turns") or (None,))
+    return per_call_timeout * max(1, n_turns)
 
 
 def verdict_from_result(result: dict[str, Any]) -> str:
@@ -162,11 +183,13 @@ class TuiRunner:
             "repeat_idx": repeat_idx,
         })
 
+        timeout = _trial_wall_timeout_sec(test, self._trial_timeout)
         try:
             # wait_for cancels the coroutine wrapper on timeout but cannot kill
             # the OS thread. The thread runs until _run_fn returns or its own
-            # socket timeout fires (~90 s via the transport layer), so zombie
-            # threads are bounded to at most 1-2 per host lane at any moment.
+            # socket timeout fires via the transport layer (up to TEST_TIMEOUT
+            # per attempt per turn, including openai-compat's 5xx retries), so
+            # zombie threads are bounded by this trial's own worst-case budget.
             result: dict[str, Any] = await asyncio.wait_for(
                 asyncio.to_thread(
                     self._run_fn,
@@ -176,14 +199,14 @@ class TuiRunner:
                     engine=host.engine,
                     auth_env=host.auth_header_env,
                 ),
-                timeout=self._trial_timeout,
+                timeout=timeout,
             )
         except TimeoutError:
             result = {
                 "model": model.name,
                 "test_id": test["id"],
-                "failure_reason": f"TIMEOUT: no response in {self._trial_timeout:.0f}s",
-                "elapsed_sec": self._trial_timeout,
+                "failure_reason": f"TIMEOUT: no response in {timeout:.0f}s",
+                "elapsed_sec": timeout,
                 "output_preview": "",
                 "signals": {},
             }

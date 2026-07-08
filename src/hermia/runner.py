@@ -361,7 +361,15 @@ def run_test(
     except requests.exceptions.Timeout:
         error_type = f"TIMEOUT: no response in {_timeout}s"
     except TransportError as e:
-        prefix = "OLLAMA_ERROR" if e.kind == "ollama" else "API_ERROR"
+        if e.kind == "ollama":
+            prefix = "OLLAMA_ERROR"
+        elif e.kind == "openai-compat-retry-exhausted":
+            # Distinct from API_ERROR (an in-body application-level error): this
+            # is a transient-infra failure (repeated 5xx), kept separable so bulk
+            # analysis can filter infra noise from behavioral failures.
+            prefix = "RETRY_EXHAUSTED"
+        else:
+            prefix = "API_ERROR"
         error_type = f"{prefix}: {e}"
     except Exception as e:  # noqa: BLE001
         error_type = f"ERROR: {e}"

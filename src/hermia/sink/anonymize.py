@@ -57,6 +57,7 @@ _KNOWN_FAILURE_PREFIXES: tuple[str, ...] = (
     "EMPTY_RESPONSE",
     "CONTENT_LEAK",
     "TIMEOUT",
+    "RETRY_EXHAUSTED",
     "OLLAMA_ERROR",
     "API_ERROR",
     "ERROR",
