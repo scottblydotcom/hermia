@@ -79,6 +79,13 @@ def test_failure_reason_schema_fail_category() -> None:
     assert "missing required field" not in str(out)
 
 
+def test_failure_reason_retry_exhausted_category() -> None:
+    # Must stay a distinct category from API_ERROR/OLLAMA_ERROR so bulk
+    # analysis can separate infra-retry noise from behavioral failures.
+    out = anonymize_row({"failure_reason": "RETRY_EXHAUSTED: after 3 attempts: HTTP 503"})
+    assert out["failure_category"] == "RETRY_EXHAUSTED"
+
+
 def test_failure_reason_none_gives_none_category() -> None:
     out = anonymize_row({"failure_reason": None})
     assert out["failure_category"] == "none"

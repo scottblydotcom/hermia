@@ -2,8 +2,20 @@
 import asyncio
 
 from hermia.tui.bus import SessionBus
-from hermia.tui.runner_backend import TuiRunner, verdict_from_result
+from hermia.tui.runner_backend import TuiRunner, _trial_wall_timeout_sec, verdict_from_result
 from hermia.tui.state import FleetConfig, Host, ModelChoice
+
+
+class TestTrialWallTimeoutSec:
+    def test_single_turn_test_uses_per_call_timeout_unscaled(self) -> None:
+        assert _trial_wall_timeout_sec({"id": "t1"}, 300.0) == 300.0
+
+    def test_two_turn_test_scales_timeout_by_turn_count(self) -> None:
+        test = {"id": "multiturn-context-carry", "turns": ["turn1", "turn2"]}
+        assert _trial_wall_timeout_sec(test, 300.0) == 600.0
+
+    def test_empty_turns_list_treated_as_single_turn(self) -> None:
+        assert _trial_wall_timeout_sec({"id": "t1", "turns": []}, 300.0) == 300.0
 
 
 class TestVerdictFromResult:

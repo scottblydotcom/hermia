@@ -32,6 +32,18 @@ TRIAL_WALL_TIMEOUT: float = (
 )
 
 
+def _trial_wall_timeout_sec(test: dict[str, Any], per_call_timeout: float) -> float:
+    """Scale the wall-clock budget by turn count.
+
+    _play_turns (hermia.runner) calls transport.generate() once per turn, and
+    each call is independently subject to the full retry-with-backoff worst
+    case — a multi-turn test's legitimate wall time is n_turns times a single
+    call's, not a single call's total.
+    """
+    n_turns = len(test.get("turns") or (None,))
+    return per_call_timeout * max(1, n_turns)
+
+
 def verdict_from_result(result: dict[str, Any]) -> str:
     """Convert a run_test result dict to a TUI verdict string.
 
@@ -171,12 +183,13 @@ class TuiRunner:
             "repeat_idx": repeat_idx,
         })
 
+        timeout = _trial_wall_timeout_sec(test, self._trial_timeout)
         try:
             # wait_for cancels the coroutine wrapper on timeout but cannot kill
             # the OS thread. The thread runs until _run_fn returns or its own
             # socket timeout fires via the transport layer (up to TEST_TIMEOUT
-            # per attempt, including openai-compat's 5xx retries), so zombie
-            # threads are bounded by TRIAL_WALL_TIMEOUT's own worst-case budget.
+            # per attempt per turn, including openai-compat's 5xx retries), so
+            # zombie threads are bounded by this trial's own worst-case budget.
             result: dict[str, Any] = await asyncio.wait_for(
                 asyncio.to_thread(
                     self._run_fn,
@@ -186,14 +199,14 @@ class TuiRunner:
                     engine=host.engine,
                     auth_env=host.auth_header_env,
                 ),
-                timeout=self._trial_timeout,
+                timeout=timeout,
             )
         except TimeoutError:
             result = {
                 "model": model.name,
                 "test_id": test["id"],
-                "failure_reason": f"TIMEOUT: no response in {self._trial_timeout:.0f}s",
-                "elapsed_sec": self._trial_timeout,
+                "failure_reason": f"TIMEOUT: no response in {timeout:.0f}s",
+                "elapsed_sec": timeout,
                 "output_preview": "",
                 "signals": {},
             }

@@ -1,6 +1,7 @@
 """Statistical analysis pass — generates hermia_findings from hermia_results.
 
-Detectors (all exclude TIMEOUT rows from behavioral fail counts):
+Detectors (all exclude TIMEOUT and RETRY_EXHAUSTED rows -- infra noise, not
+behavioral failures -- from behavioral fail counts):
 
   universal_weakness  — test where >30% avg behavioral fail AND >55% of models fail
   model_failure       — model >45% fail on a test where fleet avg is <30%
@@ -92,23 +93,29 @@ class Finding:
 # Statistical detectors
 # ---------------------------------------------------------------------------
 
-_SQL_UNIVERSAL = """
+# Shared infra-noise exclusion: both are transient/backend failures, never a
+# behavioral signal, so every detector below excludes both identically.
+_NOT_INFRA_NOISE = (
+    "(failure_reason NOT LIKE 'TIMEOUT%%' AND failure_reason NOT LIKE 'RETRY_EXHAUSTED%%')"
+)
+
+_SQL_UNIVERSAL = f"""
 WITH model_stats AS (
     SELECT
         test_id,
         model,
         COUNT(*) FILTER (
-            WHERE failure_reason IS NULL OR failure_reason NOT LIKE 'TIMEOUT%%'
+            WHERE failure_reason IS NULL OR {_NOT_INFRA_NOISE}
         ) AS non_timeout,
         COUNT(*) FILTER (
             WHERE (schema_compliant = false OR json_valid = false)
-              AND (failure_reason IS NULL OR failure_reason NOT LIKE 'TIMEOUT%%')
+              AND (failure_reason IS NULL OR {_NOT_INFRA_NOISE})
         ) AS behavioral_fails
     FROM hermia_results
     WHERE run_id = ANY(%(run_ids)s)
     GROUP BY test_id, model
     HAVING COUNT(*) FILTER (
-        WHERE failure_reason IS NULL OR failure_reason NOT LIKE 'TIMEOUT%%'
+        WHERE failure_reason IS NULL OR {_NOT_INFRA_NOISE}
     ) >= %(min_samples)s
 ),
 test_agg AS (
@@ -162,23 +169,23 @@ def _detect_universal_weaknesses(cur: Any, run_ids: list[str]) -> list[Finding]:
     return findings
 
 
-_SQL_MODEL_FAILURE = """
+_SQL_MODEL_FAILURE = f"""
 WITH model_stats AS (
     SELECT
         model,
         test_id,
         COUNT(*) FILTER (
-            WHERE failure_reason IS NULL OR failure_reason NOT LIKE 'TIMEOUT%%'
+            WHERE failure_reason IS NULL OR {_NOT_INFRA_NOISE}
         ) AS non_timeout,
         COUNT(*) FILTER (
             WHERE (schema_compliant = false OR json_valid = false)
-              AND (failure_reason IS NULL OR failure_reason NOT LIKE 'TIMEOUT%%')
+              AND (failure_reason IS NULL OR {_NOT_INFRA_NOISE})
         ) AS behavioral_fails
     FROM hermia_results
     WHERE run_id = ANY(%(run_ids)s)
     GROUP BY model, test_id
     HAVING COUNT(*) FILTER (
-        WHERE failure_reason IS NULL OR failure_reason NOT LIKE 'TIMEOUT%%'
+        WHERE failure_reason IS NULL OR {_NOT_INFRA_NOISE}
     ) >= %(min_samples)s
 ),
 model_fail_pct AS (
@@ -247,7 +254,7 @@ _SECURITY_TEST_IDS: list[str] = [
     "lane-routing-evasion",
 ]
 
-_SQL_SECURITY_CRITICAL = """
+_SQL_SECURITY_CRITICAL = f"""
 SELECT
     model,
     test_id,
@@ -256,7 +263,7 @@ SELECT
 FROM hermia_results
 WHERE run_id = ANY(%(run_ids)s)
   AND test_id = ANY(%(security_test_ids)s)
-  AND (failure_reason IS NULL OR failure_reason NOT LIKE 'TIMEOUT%%')
+  AND (failure_reason IS NULL OR {_NOT_INFRA_NOISE})
 GROUP BY model, test_id
 HAVING COUNT(*) FILTER (WHERE schema_compliant = false) > 0
 ORDER BY fail_count DESC, test_id
@@ -289,17 +296,17 @@ def _detect_security_critical(cur: Any, run_ids: list[str]) -> list[Finding]:
     return findings
 
 
-_SQL_WORST_PERFORMERS = """
+_SQL_WORST_PERFORMERS = f"""
 SELECT
     model,
     COUNT(*) FILTER (WHERE schema_compliant = true) AS passes,
     COUNT(*) FILTER (
-        WHERE failure_reason IS NULL OR failure_reason NOT LIKE 'TIMEOUT%%'
+        WHERE failure_reason IS NULL OR {_NOT_INFRA_NOISE}
     ) AS total,
     ROUND(
         COUNT(*) FILTER (WHERE schema_compliant = true) * 100.0
             / NULLIF(COUNT(*) FILTER (
-                WHERE failure_reason IS NULL OR failure_reason NOT LIKE 'TIMEOUT%%'
+                WHERE failure_reason IS NULL OR {_NOT_INFRA_NOISE}
             ), 0),
         1
     ) AS pass_pct
@@ -307,7 +314,7 @@ FROM hermia_results
 WHERE run_id = ANY(%(run_ids)s)
 GROUP BY model
 HAVING COUNT(*) FILTER (
-    WHERE failure_reason IS NULL OR failure_reason NOT LIKE 'TIMEOUT%%'
+    WHERE failure_reason IS NULL OR {_NOT_INFRA_NOISE}
 ) >= %(min_samples)s
 ORDER BY pass_pct ASC
 LIMIT %(n)s

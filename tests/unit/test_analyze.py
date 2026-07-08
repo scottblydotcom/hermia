@@ -12,6 +12,10 @@ import pytest
 
 from hermia.analyze import (
     _SECURITY_TEST_IDS,
+    _SQL_MODEL_FAILURE,
+    _SQL_SECURITY_CRITICAL,
+    _SQL_UNIVERSAL,
+    _SQL_WORST_PERFORMERS,
     Finding,
     _detect_model_failures,
     _detect_security_critical,
@@ -39,6 +43,20 @@ def _finding(**kwargs: Any) -> Finding:
     )
     defaults.update(kwargs)
     return Finding(**defaults)
+
+
+# ---------------------------------------------------------------------------
+# Infra-vs-behavioral SQL exclusion — RETRY_EXHAUSTED must ride along with
+# TIMEOUT everywhere it's excluded, or retry-exhaustion rows (transient infra
+# failures) get miscounted as behavioral failures in fleet-health verdicts.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "sql", [_SQL_UNIVERSAL, _SQL_MODEL_FAILURE, _SQL_SECURITY_CRITICAL, _SQL_WORST_PERFORMERS]
+)
+def test_sql_excludes_retry_exhausted_alongside_timeout(sql: str) -> None:
+    assert sql.count("NOT LIKE 'RETRY_EXHAUSTED%%'") == sql.count("NOT LIKE 'TIMEOUT%%'")
 
 
 def _mock_cur(rows: list[tuple[Any, ...]]) -> MagicMock:
