@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from hermia.runner import TEST_TIMEOUT
-from hermia.transport.openai_compat import _MAX_5XX_RETRIES, _RETRY_BACKOFF_SEC
+from hermia.transport.openai_compat import MAX_5XX_RETRIES, RETRY_BACKOFF_SEC
 from hermia.tui.bus import SessionBus
 from hermia.tui.state import FleetConfig, Host, ModelChoice
 
@@ -28,7 +28,7 @@ from hermia.tui.state import FleetConfig, Host, ModelChoice
 # behavior — derive it instead of hardcoding a number that requires everyone to
 # remember to update it when the retry/backoff constants change.
 TRIAL_WALL_TIMEOUT: float = (
-    TEST_TIMEOUT * (_MAX_5XX_RETRIES + 1) + sum(_RETRY_BACKOFF_SEC) + 30.0
+    TEST_TIMEOUT * (MAX_5XX_RETRIES + 1) + sum(RETRY_BACKOFF_SEC) + 30.0
 )
 
 

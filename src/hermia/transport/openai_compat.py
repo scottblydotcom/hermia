@@ -9,8 +9,10 @@ import requests
 from hermia.transport.base import Response, TransportError
 
 _OPENAI_SAMPLING_KEYS = ("temperature", "seed", "top_p")
-_MAX_5XX_RETRIES = 2
-_RETRY_BACKOFF_SEC = (0.5, 2.0)
+# Public (no underscore): imported cross-module by tui/runner_backend.py to
+# derive its own timeout budget, so these are an intentional shared contract.
+RETRY_BACKOFF_SEC = (0.5, 2.0)
+MAX_5XX_RETRIES = len(RETRY_BACKOFF_SEC)
 
 
 class OpenAICompatTransport:
@@ -81,12 +83,12 @@ class OpenAICompatTransport:
                 timeout=float(opts.get("timeout", 90)),  # type: ignore[arg-type]
             )
             if isinstance(resp.status_code, int) and resp.status_code >= 500:
-                if retries >= _MAX_5XX_RETRIES:
+                if retries >= MAX_5XX_RETRIES:
                     raise TransportError(
-                        f"after {_MAX_5XX_RETRIES + 1} attempts: HTTP {resp.status_code}",
+                        f"after {MAX_5XX_RETRIES + 1} attempts: HTTP {resp.status_code}",
                         kind="openai-compat-retry-exhausted",
                     )
-                time.sleep(_RETRY_BACKOFF_SEC[retries])
+                time.sleep(RETRY_BACKOFF_SEC[retries])
                 retries += 1
                 continue
             resp.raise_for_status()
