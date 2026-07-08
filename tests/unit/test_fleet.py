@@ -1036,6 +1036,92 @@ def test_load_fleet_config_stack_optional(tmp_path: Path) -> None:
     assert "stack" not in entries[0]
 
 
+@pytest.mark.parametrize(
+    "bad_key",
+    ["engine", "url"],
+    ids=["engine-tui-key", "url-typo-for-host"],
+)
+def test_load_fleet_config_rejects_unrecognized_key(tmp_path: Path, bad_key: str) -> None:
+    """A fleet[] entry key outside the allowed set (e.g. 'engine' — a TUI hosts[]
+    key — or a typo'd 'url' instead of 'host') must raise ValueError naming it,
+    not silently drop it."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: node3\n"
+        "    host: http://host1:11434\n"
+        f"    {bad_key}: some-value\n"
+    )
+    with pytest.raises(ValueError, match=bad_key):
+        load_fleet_config(cfg)
+
+
+def test_load_fleet_config_unrelated_typo_omits_engine_hint(tmp_path: Path) -> None:
+    """The 'engine is a TUI key' hint should only appear when 'engine' is the
+    actual unrecognized key — not tacked onto every unrelated typo."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: node3\n"
+        "    host: http://host1:11434\n"
+        "    modles: llama3\n"
+    )
+    with pytest.raises(ValueError) as exc_info:
+        load_fleet_config(cfg)
+    assert "modles" in str(exc_info.value)
+    assert "TUI hosts" not in str(exc_info.value)
+
+
+def test_load_fleet_config_rejects_multiple_unrecognized_keys(tmp_path: Path) -> None:
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: node3\n"
+        "    host: http://host1:11434\n"
+        "    engine: openai-compat\n"
+        "    port: 8080\n"
+    )
+    with pytest.raises(ValueError) as exc_info:
+        load_fleet_config(cfg)
+    assert "engine" in str(exc_info.value)
+    assert "port" in str(exc_info.value)
+
+
+def test_load_fleet_config_all_allowed_keys_no_raise(tmp_path: Path) -> None:
+    """An entry using only the documented allowed keys must parse cleanly."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: node3\n"
+        "    host: http://host1:11434\n"
+        "    transport: openai-compat\n"
+        "    auth:\n"
+        "      bearer:\n"
+        "        key_env: MY_KEY\n"
+        "    models:\n"
+        "      - llama3\n"
+        "    stack:\n"
+        "      gpu_arch: sm_89\n"
+        "    test_timeout: 30\n"
+    )
+    entries = load_fleet_config(cfg)
+    assert entries[0]["transport"] == "openai-compat"
+
+
+def test_load_fleet_config_tui_hosts_schema_engine_key_unaffected(tmp_path: Path) -> None:
+    """The TUI hosts[] schema's 'engine' key is a different, already-valid
+    schema and must not be rejected by the fleet[] unrecognized-key check."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "hosts:\n"
+        "  - name: node3\n"
+        "    url: http://host1:11434\n"
+        "    engine: openai-compat\n"
+    )
+    entries = load_fleet_config(cfg)
+    assert entries[0]["transport"] == "openai-compat"
+
+
 # ---------------------------------------------------------------------------
 # repeat loop — run_results accumulation and score_rows stamping
 # ---------------------------------------------------------------------------

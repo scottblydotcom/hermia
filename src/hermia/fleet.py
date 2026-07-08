@@ -10,6 +10,12 @@ from typing import Any
 
 import yaml
 
+# Headless fleet[] schema only — TUI hosts[] uses different keys (url/engine),
+# converted to this schema by _tui_fleet_to_entries before entries reach load_fleet_config's checks.
+_FLEET_ENTRY_KEYS = frozenset(
+    {"name", "host", "transport", "auth", "models", "stack", "test_timeout"}
+)
+
 
 def _tui_fleet_to_entries(data: dict[str, Any]) -> list[dict[str, Any]]:
     """Convert TUI save_fleet format to headless fleet entries.
@@ -67,6 +73,18 @@ def load_fleet_config(path: Path) -> list[dict[str, Any]]:
     for i, entry in enumerate(entries):
         if not isinstance(entry, dict):
             raise ValueError(f"Fleet entry [{i}] must be a mapping, got {type(entry).__name__}")
+        unrecognized = sorted(str(k) for k in entry if k not in _FLEET_ENTRY_KEYS)
+        if unrecognized:
+            hint = (
+                " (Note: 'engine' is a TUI hosts[] key — headless fleet[] entries use "
+                "'transport' instead.)"
+                if "engine" in unrecognized
+                else ""
+            )
+            raise ValueError(
+                f"Fleet entry [{i}] has unrecognized key(s): {', '.join(unrecognized)}. "
+                f"Allowed keys: {', '.join(sorted(_FLEET_ENTRY_KEYS))}.{hint}"
+            )
         if not isinstance(entry.get("name"), str) or not entry["name"]:
             raise ValueError(f"Fleet entry [{i}] missing or invalid 'name'")
         if not isinstance(entry.get("host"), str) or not entry["host"]:
