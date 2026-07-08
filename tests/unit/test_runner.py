@@ -19,6 +19,7 @@ from hermia.runner import (
     unload_model,
 )
 from hermia.transport.base import Response as TransportResponse
+from hermia.transport.base import TransportError
 
 
 @pytest.fixture(autouse=True)
@@ -252,6 +253,20 @@ def test_run_test_transport_http_error() -> None:
         result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler(), transport=transport)
     assert result["failure_reason"].startswith("ERROR")
     assert result["json_valid"] is False
+
+
+def test_run_test_retry_exhausted_classified_separately_from_api_error() -> None:
+    # A TransportError from exhausted 5xx retries must produce a distinct
+    # failure_reason prefix from an in-body application-level API error, so
+    # bulk analysis can separate infra noise from behavioral failures.
+    transport = MagicMock()
+    transport.generate.side_effect = TransportError(
+        "after 3 attempts: HTTP 503", kind="openai-compat-retry-exhausted"
+    )
+    with patch("hermia.runner.fetch_server_ps_data", return_value=_PS_EMPTY):
+        result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler(), transport=transport)
+    assert result["failure_reason"].startswith("RETRY_EXHAUSTED")
+    assert not result["failure_reason"].startswith("API_ERROR")
 
 
 def test_run_test_generic_exception() -> None:

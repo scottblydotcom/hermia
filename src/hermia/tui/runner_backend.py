@@ -17,10 +17,19 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from hermia.runner import TEST_TIMEOUT
+from hermia.transport.openai_compat import _MAX_5XX_RETRIES, _RETRY_BACKOFF_SEC
 from hermia.tui.bus import SessionBus
 from hermia.tui.state import FleetConfig, Host, ModelChoice
 
-TRIAL_WALL_TIMEOUT: float = 120.0
+# Must cover the openai-compat transport's worst case: every attempt (including
+# retries) can take up to TEST_TIMEOUT, plus backoff sleep between them. A
+# static budget here silently drifts out of sync with the transport's retry
+# behavior — derive it instead of hardcoding a number that requires everyone to
+# remember to update it when the retry/backoff constants change.
+TRIAL_WALL_TIMEOUT: float = (
+    TEST_TIMEOUT * (_MAX_5XX_RETRIES + 1) + sum(_RETRY_BACKOFF_SEC) + 30.0
+)
 
 
 def verdict_from_result(result: dict[str, Any]) -> str:
@@ -165,8 +174,9 @@ class TuiRunner:
         try:
             # wait_for cancels the coroutine wrapper on timeout but cannot kill
             # the OS thread. The thread runs until _run_fn returns or its own
-            # socket timeout fires (~90 s via the transport layer), so zombie
-            # threads are bounded to at most 1-2 per host lane at any moment.
+            # socket timeout fires via the transport layer (up to TEST_TIMEOUT
+            # per attempt, including openai-compat's 5xx retries), so zombie
+            # threads are bounded by TRIAL_WALL_TIMEOUT's own worst-case budget.
             result: dict[str, Any] = await asyncio.wait_for(
                 asyncio.to_thread(
                     self._run_fn,
