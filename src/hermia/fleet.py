@@ -15,6 +15,9 @@ import yaml
 _FLEET_ENTRY_KEYS = frozenset(
     {"name", "host", "transport", "auth", "models", "stack", "test_timeout"}
 )
+_AUTH_KEYS = frozenset({"bearer"})
+_BEARER_KEYS = frozenset({"key_env"})
+_STACK_KEYS = frozenset({"gpu_arch", "runtime_version"})
 
 
 def _tui_fleet_to_entries(data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -45,6 +48,27 @@ def _tui_fleet_to_entries(data: dict[str, Any]) -> list[dict[str, Any]]:
             entry["stack"] = h["stack"]
         entries.append(entry)
     return entries
+
+
+def _check_nested_dict(
+    value: Any, label: str, allowed: frozenset[str], i: int
+) -> dict[str, Any] | None:
+    """Validate an optional nested dict (e.g. entry['stack'], auth['bearer']):
+    must be a mapping if present, and every key must be in `allowed`.
+    Returns the dict (or None if absent) for the caller to inspect further."""
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError(
+            f"Fleet entry [{i}] '{label}' must be a mapping, got {type(value).__name__}"
+        )
+    unrecognized = sorted(str(k) for k in value if k not in allowed)
+    if unrecognized:
+        raise ValueError(
+            f"Fleet entry [{i}] '{label}' has unrecognized key(s): {', '.join(unrecognized)}. "
+            f"Allowed keys: {', '.join(sorted(allowed))}."
+        )
+    return value
 
 
 def load_fleet_config(path: Path) -> list[dict[str, Any]]:
@@ -108,11 +132,10 @@ def load_fleet_config(path: Path) -> list[dict[str, Any]]:
                 raise ValueError(
                     f"Fleet entry [{i}] 'models' must be a list of strings or 'auto'"
                 )
-        stack = entry.get("stack")
-        if stack is not None and not isinstance(stack, dict):
-            raise ValueError(
-                f"Fleet entry [{i}] 'stack' must be a mapping, got {type(stack).__name__}"
-            )
+        _check_nested_dict(entry.get("stack"), "stack", _STACK_KEYS, i)
+        auth = _check_nested_dict(entry.get("auth"), "auth", _AUTH_KEYS, i)
+        if auth is not None:
+            _check_nested_dict(auth.get("bearer"), "auth.bearer", _BEARER_KEYS, i)
     return entries
 
 
