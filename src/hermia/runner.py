@@ -13,7 +13,7 @@ from urllib.parse import urlparse
 
 import requests
 
-from hermia import __version__
+from hermia import __git_sha__, __version__
 from hermia.fingerprint.cache import FingerprintCache
 from hermia.metrics import MetricsSampler, get_gpu_stats
 from hermia.normalize import strip_fences
@@ -475,6 +475,7 @@ def run_test(
         "turn_count": len(user_turns),
         "raw_turns": user_turns,
         "hermia_version": __version__,
+        "git_sha": __git_sha__,
         "corpus_sha256": corpus_sha256(),
         "sampling": {k: _EVAL_SAMPLING.get(k) for k in _SAMPLING_SCHEMA_KEYS},
         "stack_fingerprint": _fp,

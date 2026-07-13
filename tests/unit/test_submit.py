@@ -436,6 +436,12 @@ def test_build_payload_hermia_version_present() -> None:
     assert len(payload["hermia_version"]) > 0
 
 
+def test_build_payload_git_sha_present() -> None:
+    payload = build_payload("uuid-1234", "local:cpu", None, [])
+    assert isinstance(payload["git_sha"], str)
+    assert len(payload["git_sha"]) > 0
+
+
 def test_build_payload_none_unified_memory_allowed() -> None:
     payload = build_payload("uuid-1234", "local:other", None, [])
     assert payload["unified_memory_gb"] is None
