@@ -23,7 +23,7 @@ from uuid import uuid4
 import psutil
 import requests
 
-from hermia import __version__
+from hermia import __git_sha__, __version__
 from hermia.metrics import detect_gpu
 from hermia.results import load_jsonl
 from hermia.sink.anonymize import anonymize_row
@@ -291,6 +291,7 @@ def build_payload(
     return {
         "install_id": install_id,
         "hermia_version": __version__,
+        "git_sha": __git_sha__,
         "corpus_version": CORPUS_VERSION,
         "host_class": host_class,
         "unified_memory_gb": unified_memory_gb,

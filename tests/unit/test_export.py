@@ -643,6 +643,10 @@ def test_pg_columns_includes_hermia_version() -> None:
     assert "hermia_version" in _PG_COLUMNS
 
 
+def test_pg_columns_includes_git_sha() -> None:
+    assert "git_sha" in _PG_COLUMNS
+
+
 def test_pg_columns_includes_backend_stack_fields() -> None:
     assert "gpu_arch" in _PG_COLUMNS
     assert "runtime_version" in _PG_COLUMNS
@@ -658,6 +662,13 @@ def test_build_record_projects_hermia_version() -> None:
     row = {**_ROW, "hermia_version": "0.2.0"}
     rec = _build_record(row)
     assert rec["hermia_version"] == "0.2.0"
+
+
+def test_build_record_projects_git_sha() -> None:
+    from hermia.export import _build_record
+    row = {**_ROW, "git_sha": "abc1234"}
+    rec = _build_record(row)
+    assert rec["git_sha"] == "abc1234"
 
 
 def test_build_record_projects_backend_fields() -> None:
@@ -679,6 +690,7 @@ def test_build_record_backend_fields_default_none() -> None:
     from hermia.export import _build_record
     rec = _build_record(_ROW)
     assert rec["hermia_version"] is None
+    assert rec["git_sha"] is None
     assert rec["gpu_arch"] is None
     assert rec["runtime_version"] is None
     assert rec["backend_stack"] is None

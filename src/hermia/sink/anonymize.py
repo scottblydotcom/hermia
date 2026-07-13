@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from hermia import __version__
+from hermia import __git_sha__, __version__
 
 # Explicit whitelist of fields safe to share.  Default-deny: anything NOT
 # listed here is dropped, including future fields not yet imagined.
@@ -88,9 +88,10 @@ def anonymize_row(row: dict[str, Any]) -> dict[str, Any]:
     """Return an anonymized copy of *row* safe for community submission.
 
     Only whitelisted fields are copied.  ``failure_reason`` is replaced by
-    ``failure_category`` (the prefix only).  The Hermia version is stamped
-    in ``hermia_version``.  No host identity, raw text, client hardware
-    metrics, run ids, or timestamps are ever emitted.
+    ``failure_category`` (the prefix only).  The Hermia version and git
+    commit are stamped in ``hermia_version`` and ``git_sha``.  No host
+    identity, raw text, client hardware metrics, run ids, or timestamps
+    are ever emitted.
     """
     out: dict[str, Any] = {k: row[k] for k in SUBMIT_WHITELIST if k in row}
 
@@ -121,4 +122,5 @@ def anonymize_row(row: dict[str, Any]) -> dict[str, Any]:
 
     out["failure_category"] = _categorize_failure(row.get("failure_reason"))
     out["hermia_version"] = __version__
+    out["git_sha"] = __git_sha__
     return out

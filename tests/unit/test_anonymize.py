@@ -33,7 +33,7 @@ FORBIDDEN_KEYS = {
 }
 
 # The complete set of keys the anonymizer is ever allowed to emit.
-_ALLOWED_OUTPUT_KEYS = SUBMIT_WHITELIST | {"failure_category", "hermia_version"}
+_ALLOWED_OUTPUT_KEYS = SUBMIT_WHITELIST | {"failure_category", "hermia_version", "git_sha"}
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +131,13 @@ def test_hermia_version_stamped() -> None:
     out = anonymize_row({"model": "x"})
     assert "hermia_version" in out
     assert out["hermia_version"]  # non-empty
+
+
+def test_git_sha_stamped() -> None:
+    """The output must always carry git_sha (hermia-c38b provenance fix)."""
+    out = anonymize_row({"model": "x"})
+    assert "git_sha" in out
+    assert out["git_sha"]  # non-empty
 
 
 def test_whitelist_fields_pass_through() -> None:

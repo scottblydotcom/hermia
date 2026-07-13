@@ -293,6 +293,23 @@ def test_run_test_stamps_hermia_version() -> None:
     assert result["hermia_version"]  # non-empty
 
 
+def test_run_test_stamps_git_sha() -> None:
+    """Every result row must carry git_sha (hermia-c38b: hermia_version alone
+    goes stale on editable installs; git_sha is an independent, always-fresh check).
+    """
+    payload = '{"action": "search_documentation", "params": {}}'
+    transport = MagicMock()
+    transport.generate.return_value = TransportResponse(
+        text=payload, tokens=10, elapsed_sec=1.0,
+        orchestration="ollama", orchestration_version="0.24.0", is_api_mode=False,
+    )
+    with patch("hermia.runner.fetch_server_ps_data", return_value=_PS_EMPTY):
+        result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler(), transport=transport)
+    assert "git_sha" in result
+    assert isinstance(result["git_sha"], str)
+    assert result["git_sha"]  # non-empty
+
+
 def test_run_test_peak_metrics_in_result() -> None:
     transport = MagicMock()
     transport.generate.return_value = TransportResponse(
