@@ -30,3 +30,20 @@ def test_detect_git_sha_falls_back_to_unknown_on_non_git_checkout(monkeypatch) -
 
     monkeypatch.setattr(subprocess, "run", _raise)
     assert _detect_git_sha() == "unknown"
+
+
+def test_detect_git_sha_falls_back_to_unknown_when_file_untracked_in_enclosing_repo(
+    monkeypatch,
+) -> None:
+    """git rev-parse searches upward for the nearest .git — if the package
+    happens to sit inside an unrelated enclosing repo (e.g. a venv nested
+    inside a stale checkout), that repo's HEAD must not be reported as
+    hermia's git_sha."""
+
+    def _fake_run(cmd, **kwargs):
+        if "ls-files" in cmd:
+            raise subprocess.CalledProcessError(1, cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout="deadbeef\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", _fake_run)
+    assert _detect_git_sha() == "unknown"
