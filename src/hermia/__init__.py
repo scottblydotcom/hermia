@@ -19,8 +19,21 @@ def _detect_git_sha() -> str:
     freshly on every import, so stale __version__ data is self-diagnosing.
     """
     try:
+        file_path = str(Path(__file__).resolve())
+        pkg_dir = str(Path(__file__).resolve().parent)
+        # git rev-parse searches upward for the nearest .git — if this file
+        # sits inside an unrelated enclosing repo (e.g. a venv nested inside
+        # a stale checkout), that repo's HEAD would be reported instead.
+        # Confirm the file is actually tracked here before trusting HEAD.
+        subprocess.run(
+            ["git", "-C", pkg_dir, "ls-files", "--error-unmatch", file_path],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        )
         result = subprocess.run(
-            ["git", "-C", str(Path(__file__).resolve().parent), "rev-parse", "--short", "HEAD"],
+            ["git", "-C", pkg_dir, "rev-parse", "--short", "HEAD"],
             capture_output=True,
             text=True,
             timeout=5,
