@@ -19,16 +19,19 @@ def _detect_git_sha() -> str:
     freshly on every import, so stale __version__ data is self-diagnosing.
     """
     try:
-        file_path = str(Path(__file__).resolve())
-        pkg_dir = str(Path(__file__).resolve().parent)
+        resolved_path = Path(__file__).resolve()
+        pkg_dir = str(resolved_path.parent)
         # git rev-parse searches upward for the nearest .git — if this file
         # sits inside an unrelated enclosing repo (e.g. a venv nested inside
         # a stale checkout), that repo's HEAD would be reported instead.
         # Confirm the file is actually tracked here before trusting HEAD.
+        # Pass the bare filename (not the absolute path) since MSYS Git on
+        # Windows can mismatch absolute Windows paths against its internal
+        # virtual path scheme.
         subprocess.run(
-            ["git", "-C", pkg_dir, "ls-files", "--error-unmatch", file_path],
-            capture_output=True,
-            text=True,
+            ["git", "-C", pkg_dir, "ls-files", "--error-unmatch", resolved_path.name],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             timeout=5,
             check=True,
         )
