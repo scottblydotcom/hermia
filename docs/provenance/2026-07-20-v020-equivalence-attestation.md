@@ -116,10 +116,23 @@ The 2026-07-08 run carries a **~21% infra-failure rate** — 903 of 4,230 rows:
 | `JSON_PARSE_ERROR` | 117 |
 | `TIMEOUT: no response in 120s` | 3 |
 
-Two causes are known and both are **fixed in v0.2.0 but absent from the executing code**:
-the retry-on-5xx transport fix (`hermia-x49`, merged after these runs — explains the 500s), and
-Rampage's documented wedging (`hermia-v5nl`). The 180s timeouts are consistent with reasoning models
-exceeding the window (cf. `hermia-cv5z`).
+**CORRECTION (2026-07-20, same day): an earlier version of this section claimed the retry-on-5xx
+fix (`hermia-x49`) would have absorbed the 500-error rows. That was wrong.** Verified against the
+code: `src/hermia/transport/ollama.py` contains **zero** retry logic; the retry lives only in
+`src/hermia/transport/openai_compat.py`. The x49 bead is explicitly scoped to *openai-compat lanes*
+(the LiteLLM/neuron path). **Every host in these runs uses the Ollama transport, so the 500s were
+never covered by that fix — and still are not.** Updating the executing code does not reduce them.
+
+Actual causes, as far as established:
+- **HTTP 500s (180 rows, all Rampage):** diagnosed live on 2026-07-20 as a **corrupt/unloadable model
+  blob**, not host wedging — `gemma4:12b-it-q8_0` returns
+  `"unable to load model: /mnt/models/blobs/sha256-047dae1d…"` while other models on the same host
+  return 200. Fix is to re-pull that model, not to change hermia. (Distinct from `hermia-v5nl`,
+  which describes genuine wedging.)
+- **180s timeouts (358 rows):** consistent with reasoning models spending their budget on thinking
+  (cf. `hermia-cv5z`); `hermia-b8t` (stream-based no-token-progress timeout) remains open.
+- **SCHEMA_FAIL / JSON_PARSE_ERROR (362 rows):** model output shape, i.e. genuine model behaviour
+  rather than infrastructure — arguably these should NOT be excluded as infra noise.
 
 **Any headline metric computed from these files must exclude rows with a non-empty
 `failure_reason`,** or infra noise will be read as security results.
