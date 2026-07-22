@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<!--
+  GUARDS + CO-STAR framework reference. Public, shareable artifact.
+
+  This file is written to be read by people outside the project. Keep it that
+  way: no internal planning material, no commentary about individuals or
+  organisations, no negotiating posture. If you need any of that, it belongs
+  outside this repository, which is public.
+
+  CO-STAR's origin is stated neutrally and deliberately: published sources
+  disagree about it, so this document attributes its creation to no one.
+  Leave it that way.
+
+  Figures come from docs/provenance/2026-07-21-guards-effect-regrade-analysis.md
+  and are also reproduced in docs/hermia-corpus-provenance-tracker.xlsx.
+  Update all of them together or they will drift.
+
+  Regenerate the PDF:
+    /Applications/LibreOffice.app/Contents/MacOS/soffice --headless \
+      --convert-to pdf:writer_web_pdf_Export --outdir docs docs/GUARDS-costar-reference.html
+-->
+<html><head><meta charset="utf-8"><title>GUARDS + CO-STAR — Framework Reference</title>
+<style>
+@page { size: letter; margin: 0.5in; }
+body { font-family: Arial, Helvetica, sans-serif; font-size: 8.6pt; line-height: 1.28; color: #111; margin:0; }
+h1 { font-size: 15pt; margin: 0 0 1pt 0; color: #1F3864; }
+.sub { font-size: 8pt; color: #666; margin: 0 0 7pt 0; font-style: italic; }
+h2 { font-size: 9.6pt; margin: 9pt 0 3pt 0; color: #1F3864;
+     border-bottom: 1.3pt solid #1F3864; padding-bottom: 1.5pt; text-transform: uppercase; letter-spacing: .4pt; }
+table { border-collapse: collapse; width: 100%; margin: 2pt 0 4pt 0; }
+th { background: #1F3864; color: #fff; font-size: 7.8pt; padding: 2.5pt 4pt; text-align: left; }
+td { border: .5pt solid #BFBFBF; padding: 2.5pt 4pt; vertical-align: top; font-size: 8.2pt; }
+.ltr { font-weight: bold; color: #1F3864; font-size: 10pt; text-align: center; width: 20pt; }
+.nm { font-weight: bold; width: 74pt; }
+ul { margin: 2pt 0 4pt 0; padding-left: 13pt; }
+li { margin-bottom: 2.4pt; }
+.key { background: #FFF2CC; padding: 4pt 6pt; border-left: 2.5pt solid #BF8F00; margin: 3pt 0; }
+.lim { background: #F2F2F2; padding: 4pt 6pt; border-left: 2.5pt solid #808080; margin: 3pt 0; }
+.two { display: flex; gap: 11pt; }
+.col { flex: 1; }
+.foot { margin-top: 9pt; padding-top: 4pt; border-top: .5pt solid #BFBFBF; font-size: 7.4pt; color: #666; }
+</style></head><body>
+
+<h1>GUARDS + CO-STAR — Framework Reference</h1>
+<p class="sub">Scott Bly · Field CISO, SIS · author of GUARDS · GUARDS v1 published 2026-06-07, MIT licensed · part of the Hermia open-source LLM security evaluation project</p>
+
+<h2>The problem GUARDS addresses</h2>
+<p style="margin:1pt 0 4pt 0">A survey of 27+ prompt-engineering frameworks — CO-STAR, RISEN, ROSES, CRAFT, CRISPE, TIDD-EC, RTF, CARE, COAST, RACE, ReAct and others — found that all of them define <b>positive intent</b>: role, context, objective, style, format, audience, steps. <b>None includes explicit dimensions for defensive instructions, attack-pattern detection, refusal protocols, or scope allowlists.</b> GUARDS is a six-dimension standard for that missing defensive layer, plus a maturity model for assessing guardrail quality independent of model capability.</p>
+<p style="margin:1pt 0 4pt 0"><b>Scope.</b> GUARDS addresses semantic prompt injection and operational drift — analogous to input validation in traditional AppSec. It does not defend against gradient-based token-optimization attacks, which need representation-layer defenses outside its scope. It is a conceptual schema, not a text-only artifact: the dimensions hold whether implemented as system-prompt text, fine-tuning data, or structured API parameters.</p>
+
+<h2>GUARDS — the six defensive dimensions</h2>
+<table>
+<tr><th>&nbsp;</th><th>Dimension</th><th>What it specifies</th></tr>
+<tr><td class="ltr">G</td><td class="nm">Goal</td><td>The defensive mission. Why the guardrail exists. A model that understands <i>why</i> it has boundaries holds them better under adversarial pressure than one given arbitrary restrictions.</td></tr>
+<tr><td class="ltr">U</td><td class="nm">Unit</td><td>What the agent <i>is</i>: identity/role, the trust posture it adopts toward each principal, session-state awareness, and voice. Sub-dimensions: Role · Principal/Trust · Session State · Voice. ("Unit" rather than "User" because User already names a principal type in OpenAI's Chain of Command.)</td></tr>
+<tr><td class="ltr">A</td><td class="nm">Actions</td><td>Scope — permitted vs prohibited operations. An <b>allowlist is stronger than a blocklist</b> because it fails closed on novel requests.</td></tr>
+<tr><td class="ltr">R</td><td class="nm">Response</td><td>Output schema for <b>both</b> the success path and the refusal path, plus output grounding. Without a refusal schema the model improvises, which breaks downstream parsing.</td></tr>
+<tr><td class="ltr">D</td><td class="nm">Detect</td><td>Tell the model what an attack looks like, in plain language, inside the prompt. The dimension most commonly absent from production system prompts.</td></tr>
+<tr><td class="ltr">S</td><td class="nm">Stop</td><td>What to do when Detect fires — a typed refusal a downstream orchestrator can route on, not ad-hoc prose. Detect says "watch for this"; Stop says "and do this when you see it."</td></tr>
+</table>
+
+<h2>CO-STAR — the positive layer it composes with</h2>
+<table>
+<tr><th>&nbsp;</th><th>Dimension</th><th>What it specifies</th></tr>
+<tr><td class="ltr">C</td><td class="nm">Context</td><td>Who the user is, the domain knowledge in play, the platform environment.</td></tr>
+<tr><td class="ltr">O</td><td class="nm">Objective</td><td>What the AI is there to accomplish — the task it should proactively do.</td></tr>
+<tr><td class="ltr">S</td><td class="nm">Style</td><td>How it writes: voice, register, conventions.</td></tr>
+<tr><td class="ltr">T</td><td class="nm">Tone</td><td>Emotional register — collaborative, direct, formal.</td></tr>
+<tr><td class="ltr">A</td><td class="nm">Audience</td><td>Who it is talking to, and their expertise level.</td></tr>
+<tr><td class="ltr">R</td><td class="nm">Response</td><td>Output format — length, structure, formatting preferences.</td></tr>
+</table>
+<div class="key"><b>How the two compose:</b> <b>CO-STAR dimensions are additive</b> (what to include); <b>GUARDS dimensions are restrictive</b> (what to constrain). They wrap the same system prompt from opposite directions — CO-STAR builds the positive space, GUARDS carves the negative space around it.
+<br><b>The shared "R" is a clean boundary, not a collision:</b> CO-STAR's R governs <i>format</i> (length, structure); GUARDS' R governs <i>refusal</i> (how to say no, in schema). Similarly CO-STAR's <b>O</b> defines what to <i>do</i>; GUARDS' <b>A</b> defines what is <i>out of bounds</i>.
+<br><b>Why CO-STAR pairs cleanly:</b> its six dimensions are almost entirely positive. Frameworks that already carry a constraint dimension — RISEN's "Narrowing", TIDD-EC's "Do/Don't" — overlap GUARDS territory and produce dimensional ambiguity when combined. CO-STAR does not.</div>
+
+<h2>Maturity model (SAMM-style)</h2>
+<div class="two">
+<div class="col">
+<table>
+<tr><th>Level</th><th>Assessment</th></tr>
+<tr><td><b>M0</b></td><td>Implicit / not addressed</td></tr>
+<tr><td><b>M1</b></td><td>Initial, ad-hoc — single sentence, minimum viable</td></tr>
+<tr><td><b>M2</b></td><td>Defined, consistent — explicit sub-dimensions present</td></tr>
+<tr><td><b>M3</b></td><td>Comprehensive — depth + quality criteria + automated CI/CD gating before a system prompt merges to main</td></tr>
+</table>
+</div>
+<div class="col">
+<table>
+<tr><th>Tier</th><th>Profile</th></tr>
+<tr><td><b>Bare</b></td><td>M0–M1 across most dimensions — relies on base model training</td></tr>
+<tr><td><b>Implicit</b></td><td>M2 in G/U/A/R, M0–M1 in D/S — boundaries without threat awareness</td></tr>
+<tr><td><b>Standard</b></td><td>M2+ across all six — full guardrailed posture</td></tr>
+</table>
+</div>
+</div>
+<div class="key">A GUARDS score is a <b>maturity profile across six dimensions, not a single number.</b> A prompt at M3/M3/M2/M2/M1/M0 is <i>not</i> equivalent to one at straight M2 — a missing Stop dimension is a known failure mode, not an averaging detail. SAMM was chosen over NIST CSF 2.0 tiers and CIS Implementation Groups for granularity: it offers explicit quality criteria as definition-of-done, and NIST's own documentation states its tiers are <i>not</i> maturity levels.</div>
+
+<h2>Where GUARDS sits — three orthogonal layers</h2>
+<table>
+<tr><th>Layer</th><th>Framework</th><th>Question it answers</th></tr>
+<tr><td>Runtime / architecture</td><td>Anthropic Zero Trust for AI Agents</td><td>How is the agent contained, identified, observed?</td></tr>
+<tr><td>Across-actor precedence</td><td>OpenAI Model Spec (Chain of Command)</td><td>Whose instructions win when they conflict?</td></tr>
+<tr><td><b>Within-prompt construction</b></td><td><b>GUARDS</b></td><td><b>How does the system author structure the prompt?</b></td></tr>
+</table>
+<p style="margin:1pt 0 4pt 0">Each is necessary; none is sufficient alone. A GUARDS-structured prompt runs inside a Model-Spec-governed actor hierarchy inside a Zero-Trust runtime. The CO-STAR + GUARDS pairing is this same complementarity one level down, at the level of a single prompt.</p>
+
+<h2>Validation status — what is measured and what is not</h2>
+<table>
+<tr><th>#</th><th>Step</th><th>Status</th></tr>
+<tr><td>1</td><td>Baseline — score the test corpus against the six dimensions and maturity grid</td><td>done</td></tr>
+<tr><td>2</td><td>Normalization — bring all tests to a consistent maturity profile</td><td>done (2026-06-09)</td></tr>
+<tr><td>3</td><td><b>Ablation</b> — remove one dimension at a time; measure pass-rate delta <i>and variance under adversarial pressure</i></td><td><b>not yet — the decisive experiment</b></td></tr>
+<tr><td>4</td><td>Cross-model — does effectiveness vary by architecture, size, quantization?</td><td>partial (23 models)</td></tr>
+<tr><td>5</td><td>Cross-stack — efficacy across CUDA / ROCm / Metal / Vulkan inference backends</td><td>in progress</td></tr>
+</table>
+
+<h2>Preliminary measurement (2026-07-21)</h2>
+<p style="margin:1pt 0 4pt 0">Approximately 14,000 stored evaluation responses spanning the point the GUARDS normalization entered the test corpus were re-scored with a single, identical grader, matched on model and test:</p>
+<table>
+<tr><th>Observation</th><th>Value</th></tr>
+<tr><td>Security-dimension pass rate, before vs after</td><td><b>+7.6 percentage points</b> (95% CI [6.3, 8.9])</td></tr>
+<tr><td>Direction of the grader revision itself</td><td><b>Stricter</b> — 173 historical passes became failures; <b>zero</b> failures became passes</td></tr>
+<tr><td>Breadth</td><td>19 of 23 models improved</td></tr>
+<tr><td>Dimensions targeted by GUARDS</td><td>routing +16.0, security +7.6, constraint +6.7</td></tr>
+<tr><td>Dimensions <i>not</i> targeted</td><td>reasoning −4.6, memory −2.0, domain −1.6, tool-use −0.7</td></tr>
+</table>
+<p style="margin:1pt 0 4pt 0">Two things make this more interesting than the headline number. First, the grader moved in the <i>opposite</i> direction — it became harsher, so it cannot manufacture an improvement, only suppress one. Second, the result is a <b>trade-off rather than a uniform gain</b>: the dimensions GUARDS targets improve while untargeted capability dimensions drift slightly negative, consistent with defensive instruction consuming attention budget.</p>
+<div class="lim"><b>Stated limitations.</b> This is <b>observational, not a controlled experiment</b>, and does not replace the ablation at step 3 above. The corpus commit that introduced the GUARDS normalization also bundled adversarial-framing changes to two tests, so GUARDS is not cleanly isolated from them. Inference hosts, hardware backends, and engine versions were not held constant across the comparison window; sample sizes are unequal; two models moved against the effect and are unexplained. The correct reading is that a controlled ablation is now well motivated — not that causation has been demonstrated.</div>
+
+<div class="foot">
+GUARDS specification: <b>docs/GUARDS.md</b> in the Hermia repository — github.com/scottblydotcom/hermia · MIT licensed.<br>
+Research basis: three rounds of adversarial deep research (313 agents, 67 sources, 71 verified claims) establishing the gap across regulated-industry guidance, AI-lab documentation, prompt-engineering meta-frameworks, and runtime governance frameworks. The closest published cousin, MITRE ATLAS AML.M0021, names "goals, role, voice, safety parameters" — covering three of the six dimensions and explicitly omitting Actions, Response, and Detect.<br>
+Method detail for the measurement above is documented in the repository under <b>docs/provenance/</b>.
+</div>
+
+</body></html>

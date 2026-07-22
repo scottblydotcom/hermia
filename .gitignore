@@ -51,3 +51,7 @@ fleets/*.yaml
 # .secrets.baseline is intentionally tracked (audited false-positive list)
 # .gitleaks.toml is intentionally tracked (custom rules)
 .superpowers/
+# Internal meeting-prep material — NEVER commit to this public repo.
+# Lives in ~/Git/hermia-research/meeting-prep/ instead.
+docs/GUARDS-cheatsheet.*
+docs/*-prep.*
