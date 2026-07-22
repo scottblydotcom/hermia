@@ -30,6 +30,8 @@ docs/slide-*.jpg
 docs/~$*
 logs/
 analysis/*.jsonl
+# derived re-grade data: regenerable from analysis/*/regrade.py, ~5MB, not worth versioning
+analysis/**/*.jsonl
 scripts/collect_and_push.sh
 scripts/run_analyze.sh
 scripts/seed_findings.py
