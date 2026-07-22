@@ -1,5 +1,26 @@
 # Project Instructions for AI Agents
 
+## ⚠️ THIS REPOSITORY IS PUBLIC
+
+`github.com/scottblydotcom/hermia` is public. **Everything you commit is world-readable** — file contents, file names, and commit messages alike, forever, whether or not it is later deleted.
+
+**"Internal" and "in this repo" are mutually exclusive.** Before committing anything that is not code, tests, or public-facing documentation, ask: *would I be comfortable with the subject of this reading it?* If not, it does not go here.
+
+**Never commit to this repo:**
+- **Anything about a named person or organisation** — meeting preparation, how to approach or handle someone, assessments of their likely reactions, negotiating posture, who to leverage for distribution.
+- **Infrastructure detail** — private/tailnet IPs, hostnames, network topology, machine ownership, security incidents involving anyone's machines.
+- **Commercial strategy** — pricing, positioning against named competitors, partner plans.
+- Credentials of any kind (there are pre-commit hooks for this; **do not `--no-verify` past them** — fix the finding or exclude the file).
+
+**Where internal material goes instead:** `~/Git/hermia-research/` (there is a `meeting-prep/` subdirectory). Beads are safe for internal detail — `.beads/` is not tracked — and so is the Claude memory system.
+
+**Checks that are actually load-bearing:**
+- Verify the **source**, not the rendered artifact. An HTML comment is invisible in a PDF and fully readable on GitHub.
+- Verify **commit messages** too. They are as public as the diff.
+- Grep the real thing before pushing: `git show <sha> | grep -iE "<names>|192\.168\.|100\.[0-9]+\."`
+
+*Grounded in a real near-miss (2026-07-22): a meeting-prep document naming an external collaborator, characterising their likely sensitivities, and describing what to withhold from them was committed to `docs/`. It was caught only because Scott asked whether `docs/` was public. Three separate leaks were involved — the file body, an HTML comment header in a file that had been declared clean, and two commit messages. Nothing had been pushed. `.gitignore` now carries a guard for `docs/GUARDS-cheatsheet.*` and `docs/*-prep.*`, but the guard only covers the names we already know.*
+
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:ca08a54f -->
 ## Beads Issue Tracker
 

@@ -13,6 +13,23 @@ Session Start and Close protocols live in `CLAUDE.md` and are auto-read by Claud
 
 These are grounded in actual git history. Violations have caused real rework.
 
+0. **Never commit internal material to this repo — it is PUBLIC.**
+   `github.com/scottblydotcom/hermia` is world-readable: file contents, file names, and
+   commit messages, permanently, whether or not they are later deleted. Never commit
+   material about a **named person or organisation** (meeting prep, how to approach or
+   handle someone, their likely reactions, negotiating posture, who to leverage for
+   reach), **infrastructure detail** (private/tailnet IPs, hostnames, topology, machine
+   ownership, security incidents on anyone's machines), or **commercial strategy**.
+   Internal material goes to `~/Git/hermia-research/`; `.beads/` is untracked and is safe
+   for internal notes. Verify the **source, not the rendered artifact** — an HTML comment
+   is invisible in a PDF and fully readable on GitHub — and verify **commit messages**,
+   which are as public as the diff. Never `--no-verify` past the secret-scanning hooks;
+   fix the finding or exclude the file. *(2026-07-22: a meeting-prep doc naming an
+   external collaborator and describing what to withhold from them was committed to
+   `docs/`; caught pre-push only because Scott asked whether `docs/` was public. Three
+   leaks — file body, an HTML comment in a file already declared clean, and two commit
+   messages.)* Full rule in `CLAUDE.md`.
+
 1. **Never import a new library without validating it first.**
    Before writing any code that imports a package not already in `pyproject.toml`,
    run a web search against a reputable source (PyPI, official docs, GitHub) to confirm:
