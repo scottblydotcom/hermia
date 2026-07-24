@@ -66,6 +66,9 @@ class OllamaTransport:
             raise TransportError(str(data["error"]), kind="ollama")
         message = data.get("message")
         text: str = message.get("content") or "" if isinstance(message, dict) else ""
+        # Reasoning models return the chain-of-thought in a sibling field
+        # (message.thinking); capture it rather than discarding it (hermia-cv5z).
+        thinking: str = message.get("thinking") or "" if isinstance(message, dict) else ""
         # .get(default) does not catch an explicit JSON null; coerce with `or 0`.
         tokens: int = data.get("eval_count") or 0
         return Response(
@@ -75,4 +78,5 @@ class OllamaTransport:
             orchestration="ollama",
             orchestration_version=self._fetch_version(),
             is_api_mode=False,
+            thinking=thinking,
         )

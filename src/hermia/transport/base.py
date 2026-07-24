@@ -17,6 +17,7 @@ class Response:
     orchestration_version: str | None
     is_api_mode: bool
     retries: int = 0
+    thinking: str = ""
 
 
 class TransportError(Exception):

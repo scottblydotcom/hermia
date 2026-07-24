@@ -105,6 +105,13 @@ class OpenAICompatTransport:
         first = choices[0] if choices and isinstance(choices[0], dict) else {}
         message = first.get("message")
         text: str = message.get("content") or "" if isinstance(message, dict) else ""
+        # Reasoning models expose the chain-of-thought as reasoning_content (or
+        # 'reasoning' on some backends); capture it rather than discarding it
+        # (hermia-cv5z).
+        thinking: str = (
+            (message.get("reasoning_content") or message.get("reasoning") or "")
+            if isinstance(message, dict) else ""
+        )
         # .get(default) does not catch an explicit JSON null; coerce with `or 0`.
         usage = data.get("usage")
         tokens: int = usage.get("completion_tokens") or 0 if isinstance(usage, dict) else 0
@@ -116,4 +123,5 @@ class OpenAICompatTransport:
             orchestration_version=None,
             is_api_mode=True,
             retries=retries,
+            thinking=thinking,
         )

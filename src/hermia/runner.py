@@ -305,6 +305,10 @@ def _play_turns(
         orchestration=last.orchestration,
         orchestration_version=last.orchestration_version,
         is_api_mode=last.is_api_mode,
+        # The final turn's reasoning trace (hermia-cv5z). Thinking is captured for
+        # the row but deliberately NOT replayed into `messages` above as assistant
+        # content — only `.text` is fed back to the model.
+        thinking=last.thinking,
     )
 
 
@@ -379,6 +383,7 @@ def run_test(
     error_elapsed = time.monotonic() - t0
 
     output: str = response.text if response is not None else ""
+    thinking_text: str = response.thinking if response is not None else ""
     tokens: int = response.tokens if response is not None else 0
     elapsed: float = (
         response.elapsed_sec if response is not None
@@ -428,7 +433,13 @@ def run_test(
         except json.JSONDecodeError:
             failure_reason = "CONTENT_LEAK" if content_leak else "JSON_PARSE_ERROR"
     elif not error_type:
-        failure_reason = "EMPTY_RESPONSE"
+        # Empty content but a non-empty reasoning trace: a reasoning model that
+        # spent its budget in the thinking channel and emitted no answer. Flag it
+        # distinctly (hermia-cv5z) so it is not silently indistinguishable from a
+        # dead-empty reply; grading stays content-only, so this is still a failure.
+        failure_reason = (
+            "EMPTY_CONTENT_WITH_THINKING" if thinking_text.strip() else "EMPTY_RESPONSE"
+        )
 
     tps = tokens / elapsed if elapsed > 0 and tokens > 0 else 0
     preview = output[:120].replace("\n", " ") if output.strip() else failure_reason
@@ -460,6 +471,7 @@ def run_test(
         "raw_system": test.get("system") or "",
         "raw_prompt": test.get("prompt") or "",
         "raw_response": "" if error_type else output,
+        "raw_thinking": "" if error_type else thinking_text,
         "peak_cpu_pct": round(peak.get("cpu_pct", 0), 1) if is_local else None,
         "peak_ram_used_gb": round(peak.get("ram_used_gb", 0), 2) if is_local else None,
         "peak_gpu_pct": round(peak.get("gpu_pct", 0), 1) if is_local else None,
