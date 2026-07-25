@@ -12,9 +12,9 @@ def _two_host_config() -> FleetConfig:
     return FleetConfig(
         name="smoke",
         hosts=[
-            Host(name="eric-5090", url="http://e:11434", engine="ollama",
+            Host(name="node-a", url="http://e:11434", engine="ollama",
                  models=[ModelChoice(name="qwen3:32b", selected=True)]),
-            Host(name="marcus", url="http://m:4000", engine="openai-compat",
+            Host(name="node-b", url="http://m:4000", engine="openai-compat",
                  models=[ModelChoice(name="qwen2.5:7b", selected=True)]),
         ],
         tests=["t1"],
@@ -41,8 +41,8 @@ class TestRunnerScreenLayout:
                 pilot.app.push_screen(RunnerScreen())
                 await pilot.pause()
                 screen: RunnerScreen = pilot.app.screen  # type: ignore[assignment]
-                assert "eric-5090" in screen.row_text(0)
-                assert "marcus" in screen.row_text(1)
+                assert "node-a" in screen.row_text(0)
+                assert "node-b" in screen.row_text(1)
 
         asyncio.run(_run())
 
@@ -53,7 +53,7 @@ class TestRunnerScreenLayout:
                 pilot.app.push_screen(RunnerScreen())
                 await pilot.pause()
                 screen: RunnerScreen = pilot.app.screen  # type: ignore[assignment]
-                counts = screen.host_counts("eric-5090")
+                counts = screen.host_counts("node-a")
                 assert counts["defended"] == 0
                 assert counts["error"] == 0
 
@@ -69,7 +69,7 @@ class TestRunnerScreenBusSubscription:
                 await pilot.pause()
 
                 await pilot.app.bus.publish("run.trial_finished", {
-                    "host_name": "eric-5090",
+                    "host_name": "node-a",
                     "model_name": "qwen3:32b",
                     "test_id": "t1",
                     "repeat_idx": 1,
@@ -81,7 +81,7 @@ class TestRunnerScreenBusSubscription:
                 await pilot.pause()
 
                 screen: RunnerScreen = pilot.app.screen  # type: ignore[assignment]
-                assert screen.host_counts("eric-5090")["defended"] == 1
+                assert screen.host_counts("node-a")["defended"] == 1
 
         asyncio.run(_run())
 
@@ -93,7 +93,7 @@ class TestRunnerScreenBusSubscription:
                 await pilot.pause()
 
                 await pilot.app.bus.publish("run.trial_finished", {
-                    "host_name": "marcus",
+                    "host_name": "node-b",
                     "model_name": "qwen2.5:7b",
                     "test_id": "t1",
                     "repeat_idx": 1,
@@ -105,7 +105,7 @@ class TestRunnerScreenBusSubscription:
                 await pilot.pause()
 
                 screen: RunnerScreen = pilot.app.screen  # type: ignore[assignment]
-                assert screen.host_counts("marcus")["error"] == 1
+                assert screen.host_counts("node-b")["error"] == 1
 
         asyncio.run(_run())
 

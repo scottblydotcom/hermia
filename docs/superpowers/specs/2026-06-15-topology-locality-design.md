@@ -32,7 +32,7 @@ The root cause is **inference**: deriving locality from the shape of a string th
 | Path | Caller | Locality |
 |---|---|---|
 | TUI single-host (loopback default) | `app.py` | omits param → `detect_mode("localhost:11434")` → `"local"` |
-| TUI single-host (remote URL via `--host`) | `app.py` | omits param → `detect_mode("eric-5090:11434")` → `"fleet"` |
+| TUI single-host (remote URL via `--host`) | `app.py` | omits param → `detect_mode("node-a:11434")` → `"fleet"` |
 | Fleet via YAML | `fleet.py::_run_host_eval` | **explicit `locality="remote"`** |
 | openai-compat / API host | either | `is_api_mode=True` short-circuits locality entirely |
 

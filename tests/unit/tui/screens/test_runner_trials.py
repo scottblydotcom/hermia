@@ -13,7 +13,7 @@ from hermia.tui.state import FleetConfig, Host, ModelChoice
 
 def _host_with_models() -> Host:
     return Host(
-        name="eric-5090",
+        name="node-a",
         url="http://e:11434",
         engine="ollama",
         models=[
@@ -36,7 +36,7 @@ class TestRunnerTrialsScreenLayout:
                 pilot.app.push_screen(RunnerTrialsScreen(host=host))
                 await pilot.pause()
                 screen: RunnerTrialsScreen = pilot.app.screen  # type: ignore[assignment]
-                assert "eric-5090" in screen.breadcrumb_text
+                assert "node-a" in screen.breadcrumb_text
 
         asyncio.run(_run())
 
@@ -79,7 +79,7 @@ class TestRunnerTrialsScreenBus:
                 await pilot.pause()
 
                 await pilot.app.bus.publish("run.trial_started", {
-                    "host_name": "eric-5090",
+                    "host_name": "node-a",
                     "model_name": "qwen3:32b",
                     "test_id": "t1",
                     "repeat_idx": 1,
@@ -100,7 +100,7 @@ class TestRunnerTrialsScreenBus:
                 await pilot.pause()
 
                 await pilot.app.bus.publish("run.trial_finished", {
-                    "host_name": "eric-5090",
+                    "host_name": "node-a",
                     "model_name": "qwen3:32b",
                     "test_id": "t1",
                     "repeat_idx": 1,

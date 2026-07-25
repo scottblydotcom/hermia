@@ -43,8 +43,8 @@ class TestSaveFleet:
             name="kwaainet-baseline",
             hosts=[
                 Host(
-                    name="eric-5090",
-                    url="https://eric:11434",
+                    name="node-a",
+                    url="https://node-a:11434",
                     engine="ollama",
                     hardware="RTX 5090",
                     auth_header_env="LITELLM_KEY",
@@ -64,8 +64,8 @@ class TestSaveFleet:
         assert data["tests"] == ["prompt-injection-1", "jailbreak-1"]
         assert len(data["hosts"]) == 1
         h = data["hosts"][0]
-        assert h["name"] == "eric-5090"
-        assert h["url"] == "https://eric:11434"
+        assert h["name"] == "node-a"
+        assert h["url"] == "https://node-a:11434"
         assert h["engine"] == "ollama"
         assert h["hardware"] == "RTX 5090"
         assert h["auth_header_env"] == "LITELLM_KEY"
@@ -244,8 +244,8 @@ class TestHostsSeed:
         seed_path = tmp_path / "hosts.yaml"
         hosts = [
             Host(
-                name="eric-5090",
-                url="https://eric:11434",
+                name="node-a",
+                url="https://node-a:11434",
                 engine="ollama",
                 hardware="RTX 5090",
                 auth_header_env="LITELLM_KEY",
@@ -257,7 +257,7 @@ class TestHostsSeed:
 
         loaded = load_hosts_seed(path=seed_path)
         assert len(loaded) == 2
-        assert loaded[0].name == "eric-5090"
+        assert loaded[0].name == "node-a"
         assert loaded[0].hardware == "RTX 5090"
         assert loaded[0].auth_header_env == "LITELLM_KEY"
         assert loaded[1].name == "m3-pro"

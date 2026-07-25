@@ -19,14 +19,14 @@ def test_load_fleet_config_valid(tmp_path: Path) -> None:
         "fleet:\n"
         "  - name: node3\n"
         "    host: http://host1:11434\n"
-        "  - name: eric-5090\n"
+        "  - name: node-a\n"
         "    host: https://host2:4000\n"
     )
     entries = load_fleet_config(cfg)
     assert len(entries) == 2
     assert entries[0]["name"] == "node3"
     assert entries[0]["host"] == "http://host1:11434"
-    assert entries[1]["name"] == "eric-5090"
+    assert entries[1]["name"] == "node-a"
     assert entries[1]["host"] == "https://host2:4000"
 
 
@@ -90,7 +90,7 @@ def test_build_auth_headers_no_auth() -> None:
 def test_build_auth_headers_bearer_present(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MY_API_KEY", "tok_secret")
     entry: dict = {
-        "name": "eric-5090",
+        "name": "node-a",
         "host": "https://host2:4000",
         "auth": {"bearer": {"key_env": "MY_API_KEY"}},
     }
@@ -101,7 +101,7 @@ def test_build_auth_headers_bearer_present(monkeypatch: pytest.MonkeyPatch) -> N
 def test_build_auth_headers_bearer_missing_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("MISSING_KEY", raising=False)
     entry: dict = {
-        "name": "eric-5090",
+        "name": "node-a",
         "host": "https://host2:4000",
         "auth": {"bearer": {"key_env": "MISSING_KEY"}},
     }
@@ -324,14 +324,14 @@ def _make_run_test_result(model: str = "qwen2.5:7b", test_id: str = "tool-callin
         "peak_gpu_pct": None,
         "peak_vram_used_gb": None,
         "mode": "fleet",
-        "host": "http://192.168.25.100:11434",
+        "host": "http://192.168.99.100:11434",
         "vram_server_gb": None,
     }
 
 
 def test_run_fleet_result_has_fleet_host_name(tmp_path: Path) -> None:
     from hermia.fleet import run_fleet
-    entries = [{"name": "node2", "host": "http://192.168.25.100:11434"}]
+    entries = [{"name": "node2", "host": "http://192.168.99.100:11434"}]
     fake_result = _make_run_test_result()
 
     # run_fleet uses lazy imports inside the function body, so patch source modules
@@ -757,8 +757,8 @@ def test_load_fleet_config_accepts_tui_format(tmp_path: Path) -> None:
         name="kwaainet-baseline",
         hosts=[
             Host(
-                name="eric-5090",
-                url="https://eric:11434",
+                name="node-a",
+                url="https://node-a:11434",
                 engine="ollama",
                 models=[ModelChoice(name="qwen3:32b", selected=True)],
             )
@@ -771,8 +771,8 @@ def test_load_fleet_config_accepts_tui_format(tmp_path: Path) -> None:
     entries = load_fleet_config(yaml_path)
 
     assert len(entries) == 1
-    assert entries[0]["name"] == "eric-5090"
-    assert entries[0]["host"] == "https://eric:11434"
+    assert entries[0]["name"] == "node-a"
+    assert entries[0]["host"] == "https://node-a:11434"
     assert entries[0].get("transport", "ollama") == "ollama"
 
 
@@ -864,7 +864,7 @@ def test_load_fleet_config_invalid_transport(tmp_path: Path) -> None:
 
 def test_run_fleet_result_has_fleet_host_start(tmp_path: Path) -> None:
     from hermia.fleet import run_fleet
-    entries = [{"name": "node2", "host": "http://192.168.25.100:11434"}]
+    entries = [{"name": "node2", "host": "http://192.168.99.100:11434"}]
     fake_result = _make_run_test_result()
 
     # run_fleet uses lazy imports inside the function body, so patch source modules

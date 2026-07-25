@@ -251,7 +251,7 @@ def test_run_audit_empty_file_warns_to_stderr(
 
 
 def _make_row(
-    host: str = "http://192.168.25.100:11434",
+    host: str = "http://192.168.99.100:11434",
     fleet_host_name: str | None = "node2",
     schema_compliant: bool = True,
     run_timestamp: str = "2026-05-15T16:00:00+00:00",
@@ -279,17 +279,17 @@ def _make_row(
 
 def test_render_html_groups_by_host() -> None:
     rows = [
-        _make_row(host="http://192.168.25.100:11434", fleet_host_name="node2",
+        _make_row(host="http://192.168.99.100:11434", fleet_host_name="node2",
                   run_timestamp="2026-05-15T16:00:00+00:00"),
-        _make_row(host="http://192.168.25.10:11434", fleet_host_name="node3",
+        _make_row(host="http://192.168.99.10:11434", fleet_host_name="node3",
                   run_timestamp="2026-05-15T17:00:00+00:00"),
     ]
     html = render_html(rows)
     assert "node2" in html
     assert "node3" in html
     # Both host URLs should appear
-    assert "192.168.25.100" in html
-    assert "192.168.25.10" in html
+    assert "192.168.99.100" in html
+    assert "192.168.99.10" in html
 
 
 def test_render_html_per_host_pass_rate() -> None:
@@ -333,7 +333,7 @@ def test_render_html_host_label_falls_back_to_url() -> None:
     """If fleet_host_name is absent, host URL is used as section label."""
     rows = [_make_row(fleet_host_name=None)]
     html = render_html(rows)
-    assert "192.168.25.100:11434" in html
+    assert "192.168.99.100:11434" in html
 
 
 def test_render_html_host_duration_shown() -> None:

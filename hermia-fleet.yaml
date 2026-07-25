@@ -17,7 +17,7 @@ fleet:
   - name: m1pro
     host: http://localhost:11410
 
-  - name: erics-5090
+  - name: node-a
     host: http://YOUR_FLEET_NODE:11434  # replace with your Ollama endpoint
     models:
       - qwen3:8b-q8_0

@@ -441,7 +441,7 @@ def test_detect_mode_remote_ip() -> None:
 
 def test_detect_mode_remote_hostname() -> None:
     from hermia.runner import detect_mode
-    assert detect_mode("http://erics-origin-neuron:11434") == "fleet"
+    assert detect_mode("http://remote-neuron:11434") == "fleet"
 
 
 def test_detect_mode_ipv6_loopback() -> None:

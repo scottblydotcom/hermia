@@ -145,8 +145,8 @@ tests:
   - leakage-1
 
 hosts:
-  - name: eric-5090
-    url: https://eric.tail***.ts.net:11434
+  - name: node-a
+    url: https://node-a.example:11434
     engine: ollama
     hardware: RTX 5090
     auth_header_env: LITELLM_KEY
@@ -161,8 +161,8 @@ repeat: 1
 
 ```yaml
 hosts:
-  - name: eric-5090
-    url: https://eric.tail***.ts.net:11434
+  - name: node-a
+    url: https://node-a.example:11434
     engine: ollama
     hardware: RTX 5090
     auth_header_env: LITELLM_KEY
@@ -277,7 +277,7 @@ Textual's `push_screen` / `pop_screen` is the drill mechanism. Every drill is a 
 
 ### Breadcrumb
 
-Every drillable screen has a breadcrumb header (`hermia · fleet · kwaainet-baseline ▸ hosts ▸ marcus`). Each `▸` segment is clickable for direct jump-back. Same affordance on the runner (L1 ▸ L2 ▸ L3).
+Every drillable screen has a breadcrumb header (`hermia · fleet · kwaainet-baseline ▸ hosts ▸ node-b`). Each `▸` segment is clickable for direct jump-back. Same affordance on the runner (L1 ▸ L2 ▸ L3).
 
 ### Lifecycle hooks
 
