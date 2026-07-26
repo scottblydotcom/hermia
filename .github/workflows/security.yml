@@ -73,7 +73,9 @@ jobs:
       - name: Audit hermia dependencies in isolated venv
         run: |
           python -m venv /tmp/audit-env
-          /tmp/audit-env/bin/pip install --quiet --upgrade pip
+          # Upgrade setuptools too: the venv's pinned setuptools trips
+          # PYSEC-2026-3447 (fixed in 83.0.0); pip alone does not bump it.
+          /tmp/audit-env/bin/pip install --quiet --upgrade pip setuptools
           /tmp/audit-env/bin/pip install --quiet pip-audit
           /tmp/audit-env/bin/pip install --quiet -e .
           # CVE-2026-3219 affects pip itself (no fix available yet); all hermia deps are clean

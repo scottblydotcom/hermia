@@ -10,7 +10,7 @@
 
 `runner.run_test()` derives `is_local` by passing the host string through `detect_mode()`, which returns `"local"` when the URL's hostname is `localhost`, `127.0.0.1`, or `::1`. This is correct for standalone single-host runs, but it is **wrong** for fleet runs.
 
-Fleet entries reach remote nodes via SSH tunnels on loopback ports — e.g. `http://localhost:11440` is forwarded through the gateway to OpenClaw's `127.0.0.1:11434`. The hostname is loopback at the TCP layer, but the work happens on a remote machine. `detect_mode()` returns `"local"`, so `is_local=True`, so:
+Fleet entries reach remote nodes via SSH tunnels on loopback ports — e.g. `http://localhost:11440` is forwarded through the gateway to the remote node's `127.0.0.1:11434`. The hostname is loopback at the TCP layer, but the work happens on a remote machine. `detect_mode()` returns `"local"`, so `is_local=True`, so:
 
 1. `MetricsSampler` runs against the orchestrator's own CPU/GPU/RAM and the resulting `peak_*` values are misattributed to a row whose work was computed elsewhere.
 2. The `mode` field is stamped `"local"` when it should be `"fleet"`.

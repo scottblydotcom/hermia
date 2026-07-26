@@ -1,5 +1,5 @@
 fleet:
-  - name: openclaw
+  - name: node-a
     host: http://localhost:11440
     models:
       - llama3.2:latest
@@ -11,13 +11,13 @@ fleet:
       - gemma2:9b
       - qwen3:8b
 
-  - name: m3pro
+  - name: node-b
     host: http://localhost:11450
 
-  - name: m1pro
+  - name: node-c
     host: http://localhost:11410
 
-  - name: node-a
+  - name: node-d
     host: http://YOUR_FLEET_NODE:11434  # replace with your Ollama endpoint
     models:
       - qwen3:8b-q8_0

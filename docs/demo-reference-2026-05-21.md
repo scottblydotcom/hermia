@@ -85,7 +85,7 @@ Do not conflate this with the timeout/OOM failures — those are infrastructure,
 |---|---|---|---|---|
 | CUDA | node-b (3090) | **96.4%** | 77.4 | reported |
 | Metal | M1 Pro 16GB | **96.4%** | 22.5 | unified |
-| Vulkan | OpenClaw Vega64 | **50.0%** | ~10 | 8GB |
+| Vulkan | node-c (Vega64) | **50.0%** | ~10 | 8GB |
 | ROCm | Windows 7800 XT | **14.3%** | 3.3 | 0.0 (not reported) |
 
 Same weights. Same 28 tests. 82-point accuracy spread. ROCm not reporting VRAM is itself a telemetry failure — the inference stack is hiding its own state.
