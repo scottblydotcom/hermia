@@ -305,6 +305,10 @@ def _play_turns(
         orchestration=last.orchestration,
         orchestration_version=last.orchestration_version,
         is_api_mode=last.is_api_mode,
+        # The final turn's reasoning trace (hermia-cv5z). Thinking is captured for
+        # the row but deliberately NOT replayed into `messages` above as assistant
+        # content — only `.text` is fed back to the model.
+        thinking=last.thinking,
     )
 
 
@@ -379,6 +383,14 @@ def run_test(
     error_elapsed = time.monotonic() - t0
 
     output: str = response.text if response is not None else ""
+    # isinstance-guard the consumption point too: a custom/mock transport could
+    # hand back Response.thinking=None (or any non-str), and it is .strip()ed
+    # below — keep thinking_text provably a str (hermia-cv5z).
+    thinking_text: str = (
+        response.thinking
+        if response is not None and isinstance(response.thinking, str)
+        else ""
+    )
     tokens: int = response.tokens if response is not None else 0
     elapsed: float = (
         response.elapsed_sec if response is not None
@@ -396,7 +408,10 @@ def run_test(
     failure_reason = error_type  # network/transport errors; "" on clean path
 
     signals: dict[str, bool] = {}
-    if output and not error_type:
+    # Gate on non-whitespace content: a whitespace-only answer ("\n") must fall
+    # through to the empty-content branch (EMPTY_CONTENT_WITH_THINKING) rather
+    # than entering JSON parsing and being mislabeled JSON_PARSE_ERROR (hermia-cv5z).
+    if output.strip() and not error_type:
         cleaned = strip_fences(output)
         had_markdown_fence = cleaned != output.strip()
         # Raw-output leak gate (hermia-m12): SCHEMA_CHECKS grade the fence-stripped
@@ -428,7 +443,13 @@ def run_test(
         except json.JSONDecodeError:
             failure_reason = "CONTENT_LEAK" if content_leak else "JSON_PARSE_ERROR"
     elif not error_type:
-        failure_reason = "EMPTY_RESPONSE"
+        # Empty content but a non-empty reasoning trace: a reasoning model that
+        # spent its budget in the thinking channel and emitted no answer. Flag it
+        # distinctly (hermia-cv5z) so it is not silently indistinguishable from a
+        # dead-empty reply; grading stays content-only, so this is still a failure.
+        failure_reason = (
+            "EMPTY_CONTENT_WITH_THINKING" if thinking_text.strip() else "EMPTY_RESPONSE"
+        )
 
     tps = tokens / elapsed if elapsed > 0 and tokens > 0 else 0
     preview = output[:120].replace("\n", " ") if output.strip() else failure_reason
@@ -460,6 +481,7 @@ def run_test(
         "raw_system": test.get("system") or "",
         "raw_prompt": test.get("prompt") or "",
         "raw_response": "" if error_type else output,
+        "raw_thinking": "" if error_type else thinking_text,
         "peak_cpu_pct": round(peak.get("cpu_pct", 0), 1) if is_local else None,
         "peak_ram_used_gb": round(peak.get("ram_used_gb", 0), 2) if is_local else None,
         "peak_gpu_pct": round(peak.get("gpu_pct", 0), 1) if is_local else None,
