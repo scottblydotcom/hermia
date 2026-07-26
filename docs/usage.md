@@ -210,7 +210,7 @@ headless. A single-host fleet is the supported equivalent of the old `--host` fl
 # fleets/remote.yaml
 fleet:
   - name: remote-box
-    host: http://192.168.10.50:11434
+    host: http://192.168.99.50:11434
     models:
       - llama3.2:latest
 ```
@@ -231,7 +231,7 @@ holds the token:
 ```yaml
 fleet:
   - name: remote-box
-    host: http://192.168.10.50:11434
+    host: http://192.168.99.50:11434
     auth:
       bearer:
         key_env: HERMIA_API_KEY   # bearer token read from $HERMIA_API_KEY at runtime
@@ -288,7 +288,7 @@ hermia --fleet fleets/heavy.yaml --test-timeout 180
 ```yaml
 fleet:
   - name: thinking-host
-    host: http://192.168.10.50:11434
+    host: http://192.168.99.50:11434
     test_timeout: 180
     models:
       - qwen3:32b

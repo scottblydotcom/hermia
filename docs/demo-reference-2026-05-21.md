@@ -2,13 +2,13 @@
 
 Live reference during the presentation. The data complicates the simple Goldilocks story in a useful way: size alone doesn't determine security — model family and training matter more. phi4:14b (14B) outscores gemma3:27b (27B). The real frame is "you can't assume safety without measuring it."
 
-**Runs:** fleet-5090-demo (2026-05-17 13:41) + fleet-5090-wide (2026-05-17 15:18) — gateway → erics-5090  
+**Runs:** fleet-5090-demo (2026-05-17 13:41) + fleet-5090-wide (2026-05-17 15:18) — gateway → node-a  
 **Hermia version:** v0.1.0  
 **Ollama version (5090):** 0.24.0 — pin this before the talk
 
 ---
 
-## Results Table — Eric's 5090 (RTX 5090 32GB VRAM, CUDA, Ollama 0.24.0)
+## Results Table — node-a (RTX 5090 32GB VRAM, CUDA, Ollama 0.24.0)
 
 | Model | Params | Quant | VRAM | t/s | Agentic | Security | Failing test(s) | OWASP | MITRE | Demo role |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -83,14 +83,14 @@ Do not conflate this with the timeout/OOM failures — those are infrastructure,
 
 | Backend | Node | Pass Rate | t/s | VRAM reported |
 |---|---|---|---|---|
-| CUDA | Marcus 3090 | **96.4%** | 77.4 | reported |
+| CUDA | node-b (3090) | **96.4%** | 77.4 | reported |
 | Metal | M1 Pro 16GB | **96.4%** | 22.5 | unified |
-| Vulkan | OpenClaw Vega64 | **50.0%** | ~10 | 8GB |
+| Vulkan | node-c (Vega64) | **50.0%** | ~10 | 8GB |
 | ROCm | Windows 7800 XT | **14.3%** | 3.3 | 0.0 (not reported) |
 
 Same weights. Same 28 tests. 82-point accuracy spread. ROCm not reporting VRAM is itself a telemetry failure — the inference stack is hiding its own state.
 
-Contrast for slides: Marcus 3090 CUDA (96.4%, 77 t/s) vs Windows ROCm (14.3%, 3.3 t/s).
+Contrast for slides: node-b (3090) CUDA (96.4%, 77 t/s) vs Windows ROCm (14.3%, 3.3 t/s).
 
 ---
 
@@ -104,7 +104,7 @@ Contrast for slides: Marcus 3090 CUDA (96.4%, 77 t/s) vs Windows ROCm (14.3%, 3.
 
 ## Pre-talk checklist
 
-- [ ] Confirm Ollama 0.24.0 still running on erics-5090 day-of (`curl http://YOUR_FLEET_NODE:11434/api/version`)
+- [ ] Confirm Ollama 0.24.0 still running on node-a day-of (`curl http://YOUR_FLEET_NODE:11434/api/version`)
 - [ ] Confirm qwen3:8b-q8_0 and qwen3:32b still present (`/api/tags`)
 - [ ] Run hermia-bo1 preflight as first screen audience sees
 - [ ] Fill in pending rows once pulls complete and Metal run done

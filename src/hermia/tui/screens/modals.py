@@ -68,8 +68,8 @@ class AddHostModal(ModalScreen[Host | None]):
     def compose(self) -> ComposeResult:
         with Vertical():
             yield Label("Add host:")
-            yield Input(placeholder="name (eric-5090)", id="addhost-name")
-            yield Input(placeholder="url (http://eric:11434)", id="addhost-url")
+            yield Input(placeholder="name (node-a)", id="addhost-name")
+            yield Input(placeholder="url (http://node-a:11434)", id="addhost-url")
             yield Input(
                 placeholder="engine (ollama / openai-compat) — defaults to ollama",
                 id="addhost-engine",
