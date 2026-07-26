@@ -11,7 +11,6 @@ from hermia.transport.base import Response
 from hermia.transport.ollama import OllamaTransport
 from hermia.transport.openai_compat import OpenAICompatTransport
 
-
 # ── Response dataclass ─────────────────────────────────────────────────────────
 
 def test_response_thinking_defaults_empty() -> None:
@@ -116,3 +115,65 @@ def test_openai_thinking_defaults_empty_when_absent() -> None:
 
         assert result.text == "the answer"
         assert result.thinking == ""
+
+
+def test_ollama_nonstring_thinking_coerced_to_empty() -> None:
+    """A non-string thinking field (e.g. a list from a gateway) must not poison
+    Response.thinking — the runner .strip()s it downstream (hermia-cv5z)."""
+    with patch("hermia.transport.ollama.requests.post") as mock_post, \
+         patch("hermia.transport.ollama.requests.get") as mock_get:
+        mock_get.return_value.json.return_value = {"version": "0.24.0"}
+        mock_post.return_value.json.return_value = {
+            "message": {
+                "role": "assistant",
+                "content": "4",
+                "thinking": ["step one", "step two"],
+            },
+            "eval_count": 10,
+        }
+        transport = OllamaTransport(base_url="http://localhost:11434")
+        response = transport.generate("m", [{"role": "user", "content": "hi"}])
+
+        assert response.text == "4"
+        assert response.thinking == ""
+        assert isinstance(response.thinking, str)
+
+
+def test_openai_nonstring_reasoning_coerced_to_empty() -> None:
+    """Some backends return reasoning as a list/dict of blocks; it must not reach
+    Response.thinking as a non-string (hermia-cv5z)."""
+    with patch("hermia.transport.openai_compat.requests.post") as mock_post:
+        mock_post.return_value = _openai_post({
+            "choices": [{"message": {
+                "role": "assistant",
+                "content": "the answer",
+                "reasoning": [{"type": "thinking", "text": "block"}],
+            }}],
+            "usage": {"completion_tokens": 5},
+        })
+        transport = OpenAICompatTransport(base_url="https://api.openai.com")
+        result = transport.generate("m", [{"role": "user", "content": "hi"}])
+
+        assert result.text == "the answer"
+        assert result.thinking == ""
+        assert isinstance(result.thinking, str)
+
+
+def test_openai_prefers_string_reasoning_over_nonstring_reasoning_content() -> None:
+    """When reasoning_content is a non-string (structured blocks) but 'reasoning'
+    holds the plain-text trace, capture the string rather than blanking it
+    (hermia-cv5z)."""
+    with patch("hermia.transport.openai_compat.requests.post") as mock_post:
+        mock_post.return_value = _openai_post({
+            "choices": [{"message": {
+                "role": "assistant",
+                "content": "the answer",
+                "reasoning_content": [{"type": "thinking", "text": "block"}],
+                "reasoning": "plain text trace",
+            }}],
+            "usage": {"completion_tokens": 5},
+        })
+        transport = OpenAICompatTransport(base_url="https://api.openai.com")
+        result = transport.generate("m", [{"role": "user", "content": "hi"}])
+
+        assert result.thinking == "plain text trace"

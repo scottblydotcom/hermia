@@ -68,7 +68,11 @@ class OllamaTransport:
         text: str = message.get("content") or "" if isinstance(message, dict) else ""
         # Reasoning models return the chain-of-thought in a sibling field
         # (message.thinking); capture it rather than discarding it (hermia-cv5z).
-        thinking: str = message.get("thinking") or "" if isinstance(message, dict) else ""
+        # str-guard, not value-guard: a non-string thinking (e.g. a list from a
+        # gateway) must not reach Response.thinking, which is .strip()ed
+        # downstream in the runner (hermia-cv5z).
+        _raw_thinking = message.get("thinking") if isinstance(message, dict) else None
+        thinking: str = _raw_thinking if isinstance(_raw_thinking, str) else ""
         # .get(default) does not catch an explicit JSON null; coerce with `or 0`.
         tokens: int = data.get("eval_count") or 0
         return Response(

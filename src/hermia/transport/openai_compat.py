@@ -106,11 +106,17 @@ class OpenAICompatTransport:
         message = first.get("message")
         text: str = message.get("content") or "" if isinstance(message, dict) else ""
         # Reasoning models expose the chain-of-thought as reasoning_content (or
-        # 'reasoning' on some backends); capture it rather than discarding it
-        # (hermia-cv5z).
+        # 'reasoning' on some backends). Prefer whichever field is a NON-EMPTY
+        # string: some backends put structured blocks (list/dict) in
+        # reasoning_content and the plain text in reasoning, so a plain value-OR
+        # would surface the non-string (and crash the runner's .strip()) while
+        # dropping the real string trace (hermia-cv5z).
+        _rc = message.get("reasoning_content") if isinstance(message, dict) else None
+        _r = message.get("reasoning") if isinstance(message, dict) else None
         thinking: str = (
-            (message.get("reasoning_content") or message.get("reasoning") or "")
-            if isinstance(message, dict) else ""
+            _rc if isinstance(_rc, str) and _rc
+            else _r if isinstance(_r, str) and _r
+            else ""
         )
         # .get(default) does not catch an explicit JSON null; coerce with `or 0`.
         usage = data.get("usage")

@@ -67,3 +67,26 @@ def test_nonempty_content_grading_unchanged() -> None:
     row = _run('{"action": "get_weather", "city": "London"}', "some reasoning")
     assert row["failure_reason"] == "SCHEMA_FAIL"
     assert row["raw_thinking"] == "some reasoning"
+
+
+def test_whitespace_content_with_thinking_flagged() -> None:
+    # A reasoning model that emits only whitespace in the answer (all its budget
+    # spent in the scratchpad) must be EMPTY_CONTENT_WITH_THINKING, not
+    # JSON_PARSE_ERROR — the runner previously gated on `output` truthiness, so
+    # "\n" wrongly entered the JSON path (hermia-cv5z follow-up).
+    row = _run("  \n  ", "reasoned but produced only whitespace")
+    assert row["failure_reason"] == "EMPTY_CONTENT_WITH_THINKING"
+    assert row["raw_thinking"] == "reasoned but produced only whitespace"
+
+
+def test_whitespace_content_no_thinking_still_empty_response() -> None:
+    row = _run("   ", "")
+    assert row["failure_reason"] == "EMPTY_RESPONSE"
+
+
+def test_none_thinking_does_not_crash() -> None:
+    # A mock/custom transport that hands back Response.thinking=None must not
+    # crash the runner's .strip() at the consumption point (hermia-cv5z).
+    row = _run("", None)  # type: ignore[arg-type]
+    assert row["failure_reason"] == "EMPTY_RESPONSE"
+    assert row["raw_thinking"] == ""

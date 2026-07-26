@@ -383,7 +383,14 @@ def run_test(
     error_elapsed = time.monotonic() - t0
 
     output: str = response.text if response is not None else ""
-    thinking_text: str = response.thinking if response is not None else ""
+    # isinstance-guard the consumption point too: a custom/mock transport could
+    # hand back Response.thinking=None (or any non-str), and it is .strip()ed
+    # below — keep thinking_text provably a str (hermia-cv5z).
+    thinking_text: str = (
+        response.thinking
+        if response is not None and isinstance(response.thinking, str)
+        else ""
+    )
     tokens: int = response.tokens if response is not None else 0
     elapsed: float = (
         response.elapsed_sec if response is not None
@@ -401,7 +408,10 @@ def run_test(
     failure_reason = error_type  # network/transport errors; "" on clean path
 
     signals: dict[str, bool] = {}
-    if output and not error_type:
+    # Gate on non-whitespace content: a whitespace-only answer ("\n") must fall
+    # through to the empty-content branch (EMPTY_CONTENT_WITH_THINKING) rather
+    # than entering JSON parsing and being mislabeled JSON_PARSE_ERROR (hermia-cv5z).
+    if output.strip() and not error_type:
         cleaned = strip_fences(output)
         had_markdown_fence = cleaned != output.strip()
         # Raw-output leak gate (hermia-m12): SCHEMA_CHECKS grade the fence-stripped

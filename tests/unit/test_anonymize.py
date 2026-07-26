@@ -112,6 +112,14 @@ def test_failure_reason_content_leak_category() -> None:
     assert out["failure_category"] == "CONTENT_LEAK"
 
 
+def test_failure_reason_empty_content_with_thinking_category() -> None:
+    """EMPTY_CONTENT_WITH_THINKING (hermia-cv5z) must map to its own category, not
+    'other' — else 'reasoned-but-no-answer' is indistinguishable from generic
+    unclassified failures in the shared/aggregated dataset."""
+    out = anonymize_row({"failure_reason": "EMPTY_CONTENT_WITH_THINKING"})
+    assert out["failure_category"] == "EMPTY_CONTENT_WITH_THINKING"
+
+
 def test_no_sensitive_value_survives() -> None:
     """The actual sentinel VALUE must not appear anywhere in the output repr."""
     sentinel = "host-marker-9f3a2c"
