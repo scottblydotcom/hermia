@@ -52,7 +52,7 @@ These are grounded in actual git history. Violations have caused real rework.
    *(Evidence: fix/reasoning-model-extra-keys and fix/reasoning-model-extra-keys-v2
    both exist in history.)*
 
-8. **Run the outside-family review gate after every push.**
+8. **Clear the outside-family review gate before merging.**
    Gemini Code Assist was RETIRED 2026-07-17 — the `/gemini review` PR comment is dead.
    CodeRabbit fires automatically on push; the outside-family adversary gate is now
    **Antigravity (`agy`)**, run in a container against the pushed diff (recipe: global

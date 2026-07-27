@@ -37,7 +37,7 @@ mypy src/
 feature/* or fix/* or chore/*
     ↓  PR → CI (ruff, mypy, pytest)
    dev  ← target for all feature PRs
-    ↓  PR → CI + security gate + Gemini review
+    ↓  PR → CI + security gate + CodeRabbit + Antigravity review
   main  ← branch protection active; releases cut from here
 ```
 
@@ -88,8 +88,8 @@ Types: `feat`, `fix`, `refactor`, `test`, `ci`, `docs`, `chore`
 - Target `dev`, not `main`
 - Fill out the PR template — it exists for a reason
 - CI must be green before requesting review
-- Gemini Code Assist will review your PR automatically; the maintainer will
-  not merge until that review is complete
+- CodeRabbit will review your PR automatically; the maintainer also runs an
+  Antigravity (`agy`) adversarial pass and will not merge until review is complete
 - Reference the GitHub Issue number in your PR description
 
 ---
@@ -98,7 +98,7 @@ Types: `feat`, `fix`, `refactor`, `test`, `ci`, `docs`, `chore`
 
 Every PR gets:
 1. CI — ruff, mypy, pytest
-2. Gemini Code Assist — logic and architecture review
+2. CodeRabbit + Antigravity — automated logic/architecture + adversarial review
 3. Maintainer review — security correctness, framework mapping accuracy,
    schema checker quality
 
