@@ -52,15 +52,18 @@ These are grounded in actual git history. Violations have caused real rework.
    *(Evidence: fix/reasoning-model-extra-keys and fix/reasoning-model-extra-keys-v2
    both exist in history.)*
 
-8. **Never assume Gemini re-review auto-triggers after a push.**
-   It does not. After pushing fixes to an open PR, immediately post `/gemini review`
-   as a PR comment. Do not proceed with other work until this is done.
+8. **Clear the outside-family review gate before merging.**
+   Gemini Code Assist was RETIRED 2026-07-17 — the `/gemini review` PR comment is dead.
+   CodeRabbit fires automatically on push; the outside-family adversary gate is now
+   **Antigravity (`agy`)**, run in a container against the pushed diff (recipe: global
+   CLAUDE.md "Antigravity PR Review"). **Verify every finding against the code —
+   Antigravity over-flags; never auto-apply.** Do not proceed to merge until this is done.
 
-9. **Call diminishing returns on Gemini after the first substantive round.**
-    Fix all HIGH-priority comments every round. After the first round, if subsequent
+9. **Call diminishing returns after the first substantive round.**
+    Fix all HIGH-priority findings every round. After the first round, if subsequent
     rounds contain only MEDIUM or LOW items, use judgment: apply what's genuinely
     worth it, skip pure style nits, and merge rather than chasing infinite feedback.
-    Gemini will loop forever on style. One or two rounds of MEDIUMs is fine; more
+    Outside tools loop forever on style. One or two rounds of MEDIUMs is fine; more
     than that is diminishing returns — merge.
 
 10. **Never write CI/workflow jobs with assumed permissions.**
@@ -166,10 +169,10 @@ A task is not done until every applicable gate below is cleared, in order.
    └─ gitleaks + trivy + bandit + pip-audit
    └─ Runs on PRs to main and weekly
 
-4. Gemini Code Assist review completed
-   └─ Required on every PR — do NOT merge without it
-   └─ Does NOT auto-trigger on post-PR pushes
-   └─ After any push to an open PR: post /gemini review as a PR comment immediately
+4. Outside-family adversarial review completed
+   └─ Antigravity (`agy`) review on the diff — required before merge; verify findings (it over-flags)
+   └─ CodeRabbit fires automatically on push; Gemini Code Assist retired 2026-07-17
+   └─ Runs at user privilege — safe only on a read-only mount of this (public) repo in a throwaway container
 
 5. Opus on-demand review (for complex or security-sensitive changes)
    └─ Triggered via /review slash command in Claude Code
@@ -209,6 +212,6 @@ This project uses a layered security review pipeline. Before submitting a PR:
 - Do not add dependencies without opening a GitHub Issue to discuss first
 - Schema validators must use the `_keys_ok()` pattern — see `schemas.py` for reference
 - CLI entrypoints must be tested via direct CLI invocation, not just function calls
-- PRs require Gemini Code Assist review before merge — maintainer will trigger this
+- PRs require an outside-family adversarial review before merge (CodeRabbit auto-fires; the maintainer runs the Antigravity pass) — Gemini Code Assist retired 2026-07-17
 
 Welcome to the project. The eval framework is intentionally adversarial. That's the point.
