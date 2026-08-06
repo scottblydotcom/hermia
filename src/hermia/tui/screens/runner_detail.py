@@ -92,16 +92,23 @@ class RunnerDetailScreen(Screen[None]):
         # run_state holds the outcome if it landed while L2 was on screen.
         self._hydrate()
         self._refresh()
-        if self.is_awaiting_result:
-            self._listener_tasks = [
-                asyncio.create_task(self._listen_finished(finished)),
-                # Without these, a run that ends without ever reporting this
-                # trial leaves L3 asserting "Trial in progress…" forever, while
-                # L2 shows the same trial as unreported — the two screens
-                # contradict each other.
-                asyncio.create_task(self._listen_terminal(completed)),
-                asyncio.create_task(self._listen_terminal(aborted)),
-            ]
+        # Every subscription MUST get a consuming task, even when the trial is
+        # already settled and nothing will arrive. SessionBus.subscribe()
+        # registers the queue synchronously, but the registration is only undone
+        # by the finally in SessionBus._consume — which requires the generator to
+        # have been started and then closed. An un-consumed generator leaks its
+        # queue for the life of the app, and publish() keeps filling it (with
+        # full raw_response payloads) forever. Cancelling these on unmount is
+        # what actually unregisters them.
+        self._listener_tasks = [
+            asyncio.create_task(self._listen_finished(finished)),
+            # Without the terminal topics, a run that ends without ever
+            # reporting this trial leaves L3 asserting "Trial in progress…"
+            # forever, while L2 shows the same trial as unreported — the two
+            # screens contradict each other.
+            asyncio.create_task(self._listen_terminal(completed)),
+            asyncio.create_task(self._listen_terminal(aborted)),
+        ]
 
     def on_unmount(self) -> None:
         for task in self._listener_tasks:

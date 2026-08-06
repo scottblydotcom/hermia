@@ -616,6 +616,35 @@ def test_hydrated_abort_reason_survives_the_matching_bus_event() -> None:
     asyncio.run(_run())
 
 
+def test_detail_screen_leaves_no_bus_subscriptions_behind() -> None:
+    """Opening a settled trial must not leak its queues.
+
+    SessionBus.subscribe() registers a queue synchronously, but the
+    registration is only undone by the finally in SessionBus._consume — which
+    needs the generator started and then closed. A subscription with no
+    consuming task therefore leaks for the life of the app, and publish() keeps
+    filling it with full raw_response payloads.
+    """
+    async def _run() -> None:
+        async with HermiaApp().run_test() as pilot:
+            bus = pilot.app.bus
+            for i in range(5):
+                row = _TrialRow(
+                    model_name="m", test_id=f"t{i}", repeat_idx=1,
+                    state="defended", raw_response="answer",
+                )
+                pilot.app.push_screen(RunnerDetailScreen(trial=row))
+                await pilot.pause()
+                pilot.app.pop_screen()
+                await pilot.pause()
+            await pilot.pause()
+
+            leaked = {t: len(q) for t, q in bus._subscribers.items() if q}
+            assert leaked == {}, f"leaked bus subscriptions: {leaked}"
+
+    asyncio.run(_run())
+
+
 # ── End-to-end: the mid-run drill that produced the original report ──────────
 
 
