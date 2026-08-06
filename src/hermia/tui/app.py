@@ -4,6 +4,9 @@ Holds the shared FleetConfig as a mutable attribute. Picker screens read
 and write directly to `app.config`. `app.bus` is the shared SessionBus for
 runner ↔ screen communication (probe topics and run topics share one bus;
 they use distinct topic prefixes and screens only subscribe to their own).
+`app.run_state` is the durable fold of those run events — the bus has no
+replay, so screens hydrate from run_state on mount and use the bus for
+deltas thereafter.
 """
 from __future__ import annotations
 
@@ -12,6 +15,7 @@ import sys
 from textual.app import App
 
 from hermia.tui.bus import SessionBus
+from hermia.tui.run_state import RunState
 from hermia.tui.state import FleetConfig
 
 
@@ -22,6 +26,11 @@ class HermiaApp(App[None]):
         super().__init__()
         self.config: FleetConfig = FleetConfig(name="")
         self.bus: SessionBus = SessionBus()
+        # The bus carries deltas only — subscribe() allocates an empty queue
+        # with no replay, so a screen mounted mid-run cannot recover what it
+        # missed. run_state is the durable fold screens hydrate from on mount
+        # (hermia-mo4a).
+        self.run_state: RunState = RunState()
         # Local Ollama host to probe for engine-security advisories after
         # mount (see _probe_engine_security). None disables the probe
         # (e.g. for tests that don't want a network call at startup).

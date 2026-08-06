@@ -176,5 +176,6 @@ class FleetConfigScreen(Screen[None]):
             config=self.app_config,
             bus=self.app.bus,  # type: ignore[attr-defined]
             results_dir=results_dir,
+            run_state=self.app.run_state,  # type: ignore[attr-defined]
         )
         self.app.push_screen(RunnerScreen(runner=runner))

@@ -1,8 +1,13 @@
 """RunnerTrialsScreen (L2) — trial table for one host.
 
-One row per (selected model × test × repeat) combination. Subscribes to
-run.trial_started and run.trial_finished on app.bus; filters to this
-host only. enter drills to L3 for the focused trial. escape always pops.
+One row per (selected model × test × repeat) combination.
+
+The screen hydrates every row from `app.run_state` on mount and *then*
+subscribes to run.* on `app.bus` for deltas. Hydration is not optional: the bus
+allocates a fresh empty queue per subscriber with no replay, so before
+hermia-mo4a every trial that finished while the user was on another screen
+rendered as "pending" forever. It also tracks the run's terminal phase — a
+finished run with no end state read as frozen.
 """
 from __future__ import annotations
 
@@ -17,8 +22,19 @@ from textual.containers import Vertical
 from textual.screen import Screen
 from textual.widgets import Footer, Static
 
+from hermia.tui.run_state import (
+    PHASE_ABORTED,
+    STATE_PENDING,
+    STATE_RUNNING,
+    STATE_UNREPORTED,
+    RunState,
+)
 from hermia.tui.state import FleetConfig, Host
 from hermia.tui.widgets.breadcrumb import Breadcrumb
+
+# States that mean "no result has arrived". At a terminal phase these stop
+# reading as "pending" — see _apply_terminal.
+_UNSETTLED = frozenset({STATE_PENDING, STATE_RUNNING})
 
 
 @dataclass
@@ -27,10 +43,16 @@ class _TrialRow:
     test_id: str
     repeat_idx: int
     host_name: str = ""
-    state: str = "pending"   # pending | running | defended | error
+    state: str = STATE_PENDING  # pending | running | defended | error | unreported
     elapsed_sec: float | None = None
     failure_reason: str = ""
     output_preview: str = ""
+    # Full payload (hermia-2ke3) — the L3 detail screen renders raw_response;
+    # output_preview above is the 120-char row summary, not the response.
+    raw_response: str = ""
+    raw_prompt: str = ""
+    raw_system: str = ""
+    raw_thinking: str = ""
 
 
 class RunnerTrialsScreen(Screen[None]):
@@ -48,14 +70,25 @@ class RunnerTrialsScreen(Screen[None]):
         self._trials: list[_TrialRow] = []
         self._render_seq: int = 0
         self._listener_tasks: list[asyncio.Task[None]] = []
+        self.run_done: bool = False
+        self._terminal_text: str = ""
 
     @property
     def app_config(self) -> FleetConfig:
         return self.app.config  # type: ignore[attr-defined,no-any-return]
 
     @property
+    def app_run_state(self) -> RunState | None:
+        return getattr(self.app, "run_state", None)
+
+    @property
     def breadcrumb_text(self) -> str:
         return self.query_one(Breadcrumb).text
+
+    @property
+    def terminal_text(self) -> str:
+        """Banner text once the run ends; "" while it is still running."""
+        return self._terminal_text
 
     @property
     def n_trial_rows(self) -> int:
@@ -72,10 +105,11 @@ class RunnerTrialsScreen(Screen[None]):
         with Vertical(id="trials-root"):
             yield Breadcrumb(["hermia", "fleet", name, "runner", self._host.name])
             yield Static(
-                "  ✓ defended   ✗ error   ↺ running     pending\n"
+                "  ✓ defended   ✗ error   ↺ running     pending   ! unreported\n"
                 "  Enter  View trial detail     Esc  Back to runner",
                 id="trials-legend",
             )
+            yield Static("", id="trials-terminal")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -90,21 +124,79 @@ class RunnerTrialsScreen(Screen[None]):
                         repeat_idx=rep,
                         host_name=self._host.name,
                     ))
+        # Hydrate BEFORE subscribing. Anything published before this moment is
+        # unreachable from the bus, so run_state is the only source for it.
+        self._hydrate()
         self._rerender()
         self._listener_tasks = [
             asyncio.create_task(self._listen_started()),
             asyncio.create_task(self._listen_finished()),
+            asyncio.create_task(self._listen_terminal("run.completed", "completed")),
+            asyncio.create_task(self._listen_terminal("run.aborted", "aborted")),
         ]
 
     def on_unmount(self) -> None:
         for t in self._listener_tasks:
             t.cancel()
 
+    # ── Hydration ─────────────────────────────────────────────────────────
+
+    def _hydrate(self) -> None:
+        """Seed rows and terminal state from the app's RunState."""
+        rs = self.app_run_state
+        if rs is None:
+            return
+        for t in self._trials:
+            rec = rs.trial(self._host.name, t.model_name, t.test_id, t.repeat_idx)
+            if rec is None:
+                continue
+            t.state = rec.state
+            t.elapsed_sec = rec.elapsed_sec
+            t.failure_reason = rec.failure_reason
+            t.output_preview = rec.output_preview
+            t.raw_response = rec.raw_response
+            t.raw_prompt = rec.raw_prompt
+            t.raw_system = rec.raw_system
+            t.raw_thinking = rec.raw_thinking
+        if rs.is_terminal:
+            self._apply_terminal(
+                "aborted" if rs.phase == PHASE_ABORTED else "completed",
+                error=rs.error,
+                rerender=False,
+            )
+
+    def _apply_terminal(self, phase: str, *, error: str = "", rerender: bool = True) -> None:
+        """Record the run's end state and stop claiming trials are pending.
+
+        A row still at pending/running when the run ends never reported. Leaving
+        it as "pending" asserts a result is still coming — the screen has no
+        basis for that once the run is over, so it says only what it knows.
+        """
+        self.run_done = True
+        for t in self._trials:
+            if t.state in _UNSETTLED:
+                t.state = STATE_UNREPORTED
+        # Count the unreported rows rather than the ones this call flipped: on a
+        # second invocation (hydrated terminal, then a terminal bus event) the
+        # flip count is zero and the banner would claim every trial reported.
+        n_unreported = sum(1 for t in self._trials if t.state == STATE_UNREPORTED)
+        text = f"run {phase} — {len(self._trials) - n_unreported}/{len(self._trials)} reported"
+        if n_unreported:
+            text += f", {n_unreported} never reported"
+        if error:
+            text += f"  [{error}]"
+        self._terminal_text = text
+        if rerender and self.is_mounted:
+            self._rerender()
+
     # ── Rendering ─────────────────────────────────────────────────────────
 
     def _row_text(self, trial: _TrialRow, idx: int) -> str:
         cursor = "▸" if idx == self.cursor_idx else " "
-        _icons = {"pending": " ", "running": "↺", "defended": "✓", "error": "✗"}
+        _icons = {
+            "pending": " ", "running": "↺", "defended": "✓", "error": "✗",
+            STATE_UNREPORTED: "!",
+        }
         state_icon = _icons.get(trial.state, "?")
         elapsed = f"  {trial.elapsed_sec:.1f}s" if trial.elapsed_sec is not None else ""
         reason = f"  {escape(f'[{trial.failure_reason}]')}" if trial.failure_reason else ""
@@ -115,6 +207,7 @@ class RunnerTrialsScreen(Screen[None]):
 
     def _rerender(self) -> None:
         root = self.query_one("#trials-root", Vertical)
+        self.query_one("#trials-terminal", Static).update(escape(self._terminal_text))
         prefix = f"trial-row-{self._render_seq}-"
         current = [
             c for c in root.children
@@ -125,9 +218,12 @@ class RunnerTrialsScreen(Screen[None]):
             for i, trial in enumerate(self._trials):
                 cast("Static", current[i]).update(self._row_text(trial, i))
             return
+        # Chrome (legend, terminal banner) is not a stale row — removing it here
+        # would delete the banner on the next full re-render.
         stale = [
             c for c in root.children
-            if not isinstance(c, Breadcrumb) and c.id != "trials-legend"
+            if not isinstance(c, Breadcrumb)
+            and c.id not in ("trials-legend", "trials-terminal")
         ]
         for child in stale:
             child.remove()
@@ -160,8 +256,18 @@ class RunnerTrialsScreen(Screen[None]):
                     t.elapsed_sec = ev.get("elapsed_sec")
                     t.failure_reason = ev.get("failure_reason", "")
                     t.output_preview = ev.get("output_preview", "")
+                    t.raw_response = ev.get("raw_response", "")
+                    t.raw_prompt = ev.get("raw_prompt", "")
+                    t.raw_system = ev.get("raw_system", "")
+                    t.raw_thinking = ev.get("raw_thinking", "")
             if self.is_mounted:
                 self._rerender()
+
+    async def _listen_terminal(self, topic: str, phase: str) -> None:
+        """Give the screen an end state. Without this a finished run looks frozen."""
+        async for ev in self.app.bus.subscribe(topic):  # type: ignore[attr-defined]
+            self._apply_terminal(phase, error=str(ev.get("error", "")))
+            return
 
     # ── Navigation ─────────────────────────────────────────────────────────
 
