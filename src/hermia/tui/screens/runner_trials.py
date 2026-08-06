@@ -2,18 +2,20 @@
 
 One row per (selected model × test × repeat) combination.
 
-The screen hydrates every row from `app.run_state` on mount and *then*
-subscribes to run.* on `app.bus` for deltas. Hydration is not optional: the bus
-allocates a fresh empty queue per subscriber with no replay, so before
+On mount the screen registers its bus queues, hydrates every row from
+`app.run_state`, and only then starts consuming. Hydration is not optional: the
+bus allocates a fresh empty queue per subscriber with no replay, so before
 hermia-mo4a every trial that finished while the user was on another screen
-rendered as "pending" forever. It also tracks the run's terminal phase — a
-finished run with no end state read as frozen.
+rendered as "pending" forever. Registering before hydrating matters just as
+much — see on_mount. It also tracks the run's terminal phase; a finished run
+with no end state read as frozen.
 """
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import cast
+from typing import Any, cast
 
 from rich.markup import escape
 from textual.app import ComposeResult
@@ -24,10 +26,12 @@ from textual.widgets import Footer, Static
 
 from hermia.tui.run_state import (
     PHASE_ABORTED,
+    STATE_ERROR,
     STATE_PENDING,
     STATE_RUNNING,
     STATE_UNREPORTED,
     RunState,
+    opt_float,
 )
 from hermia.tui.state import FleetConfig, Host
 from hermia.tui.widgets.breadcrumb import Breadcrumb
@@ -72,6 +76,7 @@ class RunnerTrialsScreen(Screen[None]):
         self._listener_tasks: list[asyncio.Task[None]] = []
         self.run_done: bool = False
         self._terminal_text: str = ""
+        self._terminal_error: str = ""
 
     @property
     def app_config(self) -> FleetConfig:
@@ -124,15 +129,26 @@ class RunnerTrialsScreen(Screen[None]):
                         repeat_idx=rep,
                         host_name=self._host.name,
                     ))
-        # Hydrate BEFORE subscribing. Anything published before this moment is
-        # unreachable from the bus, so run_state is the only source for it.
+        # Register the queues BEFORE hydrating. bus.subscribe() is synchronous
+        # and registers immediately, but the coroutine that calls it does not
+        # run until the loop next schedules it — so subscribing inside the
+        # listener tasks leaves a window after the hydrate snapshot in which a
+        # published event is missed by the snapshot AND by the not-yet-created
+        # queue. That is the exact defect this screen is being fixed for.
+        # Subscribing first can only duplicate an event, and every apply here
+        # is idempotent.
+        bus = self.app.bus  # type: ignore[attr-defined]
+        started = bus.subscribe("run.trial_started")
+        finished = bus.subscribe("run.trial_finished")
+        completed = bus.subscribe("run.completed")
+        aborted = bus.subscribe("run.aborted")
         self._hydrate()
         self._rerender()
         self._listener_tasks = [
-            asyncio.create_task(self._listen_started()),
-            asyncio.create_task(self._listen_finished()),
-            asyncio.create_task(self._listen_terminal("run.completed", "completed")),
-            asyncio.create_task(self._listen_terminal("run.aborted", "aborted")),
+            asyncio.create_task(self._listen_started(started)),
+            asyncio.create_task(self._listen_finished(finished)),
+            asyncio.create_task(self._listen_terminal(completed, "completed")),
+            asyncio.create_task(self._listen_terminal(aborted, "aborted")),
         ]
 
     def on_unmount(self) -> None:
@@ -173,6 +189,10 @@ class RunnerTrialsScreen(Screen[None]):
         basis for that once the run is over, so it says only what it knows.
         """
         self.run_done = True
+        # Never replace a known reason with an empty one: the hydrated phase
+        # carries RunState.error, while the matching bus event may not.
+        if error:
+            self._terminal_error = error
         for t in self._trials:
             if t.state in _UNSETTLED:
                 t.state = STATE_UNREPORTED
@@ -183,8 +203,8 @@ class RunnerTrialsScreen(Screen[None]):
         text = f"run {phase} — {len(self._trials) - n_unreported}/{len(self._trials)} reported"
         if n_unreported:
             text += f", {n_unreported} never reported"
-        if error:
-            text += f"  [{error}]"
+        if self._terminal_error:
+            text += f"  [{self._terminal_error}]"
         self._terminal_text = text
         if rerender and self.is_mounted:
             self._rerender()
@@ -234,38 +254,44 @@ class RunnerTrialsScreen(Screen[None]):
 
     # ── Bus listeners ──────────────────────────────────────────────────────
 
-    async def _listen_started(self) -> None:
-        async for ev in self.app.bus.subscribe("run.trial_started"):  # type: ignore[attr-defined]
+    async def _listen_started(self, events: AsyncIterator[dict[str, Any]]) -> None:
+        async for ev in events:
             if ev.get("host_name") != self._host.name:
                 continue
             for t in self._trials:
                 if (t.model_name == ev.get("model_name") and t.test_id == ev.get("test_id")
                         and t.repeat_idx == ev.get("repeat_idx")):
-                    t.state = "running"
+                    t.state = STATE_RUNNING
             if self.is_mounted:
                 self._rerender()
 
-    async def _listen_finished(self) -> None:
-        async for ev in self.app.bus.subscribe("run.trial_finished"):  # type: ignore[attr-defined]
+    async def _listen_finished(self, events: AsyncIterator[dict[str, Any]]) -> None:
+        async for ev in events:
             if ev.get("host_name") != self._host.name:
                 continue
             for t in self._trials:
                 if (t.model_name == ev.get("model_name") and t.test_id == ev.get("test_id")
                         and t.repeat_idx == ev.get("repeat_idx")):
-                    t.state = ev.get("verdict", "error")
-                    t.elapsed_sec = ev.get("elapsed_sec")
-                    t.failure_reason = ev.get("failure_reason", "")
-                    t.output_preview = ev.get("output_preview", "")
-                    t.raw_response = ev.get("raw_response", "")
-                    t.raw_prompt = ev.get("raw_prompt", "")
-                    t.raw_system = ev.get("raw_system", "")
-                    t.raw_thinking = ev.get("raw_thinking", "")
+                    # Same coercions RunState.apply uses. When these two paths
+                    # disagree, the same event renders differently live than it
+                    # does after a remount — an empty verdict became the "?"
+                    # icon here but "error" there.
+                    t.state = str(ev.get("verdict") or STATE_ERROR)
+                    t.elapsed_sec = opt_float(ev.get("elapsed_sec"))
+                    t.failure_reason = str(ev.get("failure_reason", ""))
+                    t.output_preview = str(ev.get("output_preview", ""))
+                    t.raw_response = str(ev.get("raw_response", ""))
+                    t.raw_prompt = str(ev.get("raw_prompt", ""))
+                    t.raw_system = str(ev.get("raw_system", ""))
+                    t.raw_thinking = str(ev.get("raw_thinking", ""))
             if self.is_mounted:
                 self._rerender()
 
-    async def _listen_terminal(self, topic: str, phase: str) -> None:
+    async def _listen_terminal(
+        self, events: AsyncIterator[dict[str, Any]], phase: str
+    ) -> None:
         """Give the screen an end state. Without this a finished run looks frozen."""
-        async for ev in self.app.bus.subscribe(topic):  # type: ignore[attr-defined]
+        async for ev in events:
             self._apply_terminal(phase, error=str(ev.get("error", "")))
             return
 

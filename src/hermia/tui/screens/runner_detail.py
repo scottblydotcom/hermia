@@ -12,6 +12,8 @@ run.trial_finished. escape always pops.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
+from typing import Any
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -19,11 +21,18 @@ from textual.containers import Vertical, VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Footer, Static
 
-from hermia.tui.run_state import RunState
+from hermia.tui.run_state import (
+    STATE_ERROR,
+    STATE_PENDING,
+    STATE_RUNNING,
+    STATE_UNREPORTED,
+    RunState,
+    opt_float,
+)
 from hermia.tui.screens.runner_trials import _TrialRow
 from hermia.tui.widgets.breadcrumb import Breadcrumb
 
-_AWAITING_STATES = frozenset({"pending", "running"})
+_AWAITING_STATES = frozenset({STATE_PENDING, STATE_RUNNING})
 
 
 class RunnerDetailScreen(Screen[None]):
@@ -32,7 +41,7 @@ class RunnerDetailScreen(Screen[None]):
     def __init__(self, *, trial: _TrialRow) -> None:
         super().__init__()
         self._trial = trial
-        self._listener_task: asyncio.Task[None] | None = None
+        self._listener_tasks: list[asyncio.Task[None]] = []
         self._summary: str = ""
         self._output: str = ""
 
@@ -71,16 +80,32 @@ class RunnerDetailScreen(Screen[None]):
         yield Footer()
 
     def on_mount(self) -> None:
+        # Register the queues before hydrating — bus.subscribe() is sync but the
+        # consuming task is not scheduled until the loop next runs, so
+        # subscribing inside the task would leave a gap after the snapshot in
+        # which an event is lost by both. See RunnerTrialsScreen.on_mount.
+        bus = self.app.bus  # type: ignore[attr-defined]
+        finished = bus.subscribe("run.trial_finished")
+        completed = bus.subscribe("run.completed")
+        aborted = bus.subscribe("run.aborted")
         # A row handed over before its result arrived is stale by construction.
         # run_state holds the outcome if it landed while L2 was on screen.
         self._hydrate()
         self._refresh()
         if self.is_awaiting_result:
-            self._listener_task = asyncio.create_task(self._listen_finished())
+            self._listener_tasks = [
+                asyncio.create_task(self._listen_finished(finished)),
+                # Without these, a run that ends without ever reporting this
+                # trial leaves L3 asserting "Trial in progress…" forever, while
+                # L2 shows the same trial as unreported — the two screens
+                # contradict each other.
+                asyncio.create_task(self._listen_terminal(completed)),
+                asyncio.create_task(self._listen_terminal(aborted)),
+            ]
 
     def on_unmount(self) -> None:
-        if self._listener_task is not None:
-            self._listener_task.cancel()
+        for task in self._listener_tasks:
+            task.cancel()
 
     def _hydrate(self) -> None:
         rs = self.app_run_state
@@ -89,6 +114,9 @@ class RunnerDetailScreen(Screen[None]):
             return
         rec = rs.trial(t.host_name, t.model_name, t.test_id, t.repeat_idx)
         if rec is None or rec.state in _AWAITING_STATES:
+            # The run may have ended without this trial ever reporting.
+            if rs.is_terminal and t.state in _AWAITING_STATES:
+                t.state = STATE_UNREPORTED
             return
         t.state = rec.state
         t.elapsed_sec = rec.elapsed_sec
@@ -125,26 +153,37 @@ class RunnerDetailScreen(Screen[None]):
         self.query_one("#detail-summary", Static).update(summary)
         self.query_one("#detail-output", Static).update(self._output)
 
-    async def _listen_finished(self) -> None:
+    async def _listen_finished(self, events: AsyncIterator[dict[str, Any]]) -> None:
         t = self._trial
-        async for ev in self.app.bus.subscribe("run.trial_finished"):  # type: ignore[attr-defined]
+        async for ev in events:
             if (
                 ev.get("model_name") == t.model_name
                 and ev.get("test_id") == t.test_id
                 and ev.get("repeat_idx") == t.repeat_idx
                 and (not t.host_name or ev.get("host_name") == t.host_name)
             ):
-                t.state = ev.get("verdict", "error")
-                t.elapsed_sec = ev.get("elapsed_sec")
-                t.failure_reason = ev.get("failure_reason", "")
-                t.output_preview = ev.get("output_preview", "")
-                t.raw_response = ev.get("raw_response", "")
-                t.raw_prompt = ev.get("raw_prompt", "")
-                t.raw_system = ev.get("raw_system", "")
-                t.raw_thinking = ev.get("raw_thinking", "")
+                # Same coercions as RunState.apply — the two paths rendering the
+                # same event differently is its own defect.
+                t.state = str(ev.get("verdict") or STATE_ERROR)
+                t.elapsed_sec = opt_float(ev.get("elapsed_sec"))
+                t.failure_reason = str(ev.get("failure_reason", ""))
+                t.output_preview = str(ev.get("output_preview", ""))
+                t.raw_response = str(ev.get("raw_response", ""))
+                t.raw_prompt = str(ev.get("raw_prompt", ""))
+                t.raw_system = str(ev.get("raw_system", ""))
+                t.raw_thinking = str(ev.get("raw_thinking", ""))
                 if self.is_mounted:
                     self._refresh()
                 return
+
+    async def _listen_terminal(self, events: AsyncIterator[dict[str, Any]]) -> None:
+        """Stop claiming the trial is running once the run itself has ended."""
+        async for _ev in events:
+            if self.is_awaiting_result:
+                self._trial.state = STATE_UNREPORTED
+                if self.is_mounted:
+                    self._refresh()
+            return
 
     def action_back(self) -> None:
         self.app.pop_screen()

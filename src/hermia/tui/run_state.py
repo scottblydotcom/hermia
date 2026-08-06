@@ -66,7 +66,7 @@ def _key(event: dict[str, Any]) -> TrialKey:
     )
 
 
-def _opt_float(value: Any) -> float | None:
+def opt_float(value: Any) -> float | None:
     """Coerce an event's elapsed_sec to float, preserving a genuine absence.
 
     Absent and unparseable both become None rather than 0.0 — a zero would
@@ -112,7 +112,7 @@ class RunState:
             # `or STATE_ERROR` (not a dict default): an empty or null verdict is
             # not a verdict, and must not be rendered as one.
             rec.state = str(event.get("verdict") or STATE_ERROR)
-            rec.elapsed_sec = _opt_float(event.get("elapsed_sec"))
+            rec.elapsed_sec = opt_float(event.get("elapsed_sec"))
             rec.failure_reason = str(event.get("failure_reason", ""))
             rec.output_preview = str(event.get("output_preview", ""))
             rec.raw_response = str(event.get("raw_response", ""))

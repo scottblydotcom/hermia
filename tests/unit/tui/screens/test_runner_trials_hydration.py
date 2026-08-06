@@ -207,6 +207,92 @@ def test_screen_still_receives_live_events_after_hydrating() -> None:
     asyncio.run(_run())
 
 
+def test_bus_queues_are_registered_before_the_hydrate_snapshot() -> None:
+    """The ordering invariant that closes the last event-loss window.
+
+    bus.subscribe() is synchronous and registers the queue immediately, but the
+    coroutine that calls it is not scheduled until the loop next runs. If the
+    screen subscribes inside its listener tasks, an event published after the
+    hydrate snapshot but before those tasks first run is missed by BOTH — the
+    same "pending forever" defect hydration was added to fix. Registering first
+    can only duplicate an event, and every apply is idempotent.
+    """
+    async def _run() -> None:
+        async with HermiaApp().run_test() as pilot:
+            host = _host_with_models()
+            pilot.app.config = _config_with_host(host)
+            order: list[str] = []
+            real_subscribe = pilot.app.bus.subscribe
+            real_trial = pilot.app.run_state.trial
+
+            def spy_subscribe(topic: str, **kw: object) -> object:
+                order.append(f"subscribe:{topic}")
+                return real_subscribe(topic, **kw)  # type: ignore[arg-type]
+
+            def spy_trial(*a: object, **kw: object) -> object:
+                order.append("hydrate")
+                return real_trial(*a, **kw)  # type: ignore[arg-type]
+
+            pilot.app.bus.subscribe = spy_subscribe  # type: ignore[method-assign]
+            pilot.app.run_state.trial = spy_trial  # type: ignore[method-assign]
+
+            pilot.app.push_screen(RunnerTrialsScreen(host=host))
+            await pilot.pause()
+
+            assert "hydrate" in order, "screen never hydrated"
+            first_hydrate = order.index("hydrate")
+            registered = [o for o in order[:first_hydrate] if o.startswith("subscribe:")]
+            assert "subscribe:run.trial_finished" in registered
+            assert "subscribe:run.trial_started" in registered
+            assert "subscribe:run.completed" in registered
+            assert "subscribe:run.aborted" in registered
+
+    asyncio.run(_run())
+
+
+def test_empty_verdict_renders_the_same_live_as_hydrated() -> None:
+    # RunState folds `verdict or "error"`; the live listener used
+    # dict.get(k, "error"), which returns "" when the key is present but empty
+    # — rendering the "?" icon live and "✗" after a remount.
+    async def _run() -> None:
+        async with HermiaApp().run_test() as pilot:
+            host = _host_with_models()
+            pilot.app.config = _config_with_host(host)
+            pilot.app.push_screen(RunnerTrialsScreen(host=host))
+            await pilot.pause()
+
+            await pilot.app.bus.publish("run.trial_finished", _ev("t1", verdict=""))
+            await pilot.pause()
+
+            screen: RunnerTrialsScreen = pilot.app.screen  # type: ignore[assignment]
+            assert screen.trial_state("qwen3:32b", "t1", 1) == "error"
+            assert "?" not in _row_texts(screen)[0]
+
+    asyncio.run(_run())
+
+
+def test_non_float_elapsed_sec_does_not_crash_the_render() -> None:
+    # RunState coerced elapsed_sec; the live listener assigned it raw, so a
+    # string reached an f-string ":.1f" and raised TypeError mid-render.
+    async def _run() -> None:
+        async with HermiaApp().run_test() as pilot:
+            host = _host_with_models()
+            pilot.app.config = _config_with_host(host)
+            pilot.app.push_screen(RunnerTrialsScreen(host=host))
+            await pilot.pause()
+
+            await pilot.app.bus.publish(
+                "run.trial_finished", _ev("t1", verdict="defended", elapsed_sec="1.5")
+            )
+            await pilot.pause()
+
+            screen: RunnerTrialsScreen = pilot.app.screen  # type: ignore[assignment]
+            assert screen.trial_state("qwen3:32b", "t1", 1) == "defended"
+            assert "1.5s" in _row_texts(screen)[0]
+
+    asyncio.run(_run())
+
+
 # ── Terminal state (hermia-mo4a, part 2) ─────────────────────────────────────
 
 
@@ -456,6 +542,76 @@ def test_detail_hydrates_a_stale_row_from_run_state() -> None:
             screen: RunnerDetailScreen = pilot.app.screen  # type: ignore[assignment]
             assert screen.output_text == "the real answer"
             assert screen.is_awaiting_result is False
+
+    asyncio.run(_run())
+
+
+def test_detail_stops_claiming_in_progress_when_the_run_ends() -> None:
+    """L3 must not contradict L2.
+
+    The detail screen subscribed only to run.trial_finished. A run that ends
+    without ever reporting this trial (abort, host failure) left L3 asserting
+    "Trial in progress…" indefinitely while L2 showed the same trial as
+    unreported.
+    """
+    async def _run() -> None:
+        async with HermiaApp().run_test() as pilot:
+            pilot.app.run_state.apply("run.started", {})
+            row = _TrialRow(
+                model_name="qwen3:32b", test_id="t1", repeat_idx=1,
+                host_name="node-a", state="running",
+            )
+            pilot.app.push_screen(RunnerDetailScreen(trial=row))
+            await pilot.pause()
+            screen: RunnerDetailScreen = pilot.app.screen  # type: ignore[assignment]
+            assert screen.is_awaiting_result is True
+
+            await pilot.app.bus.publish("run.aborted", {"n_completed": 0})
+            await pilot.pause()
+
+            assert screen.is_awaiting_result is False
+            assert "in progress" not in screen.summary_text
+            assert "unreported" in screen.summary_text
+
+    asyncio.run(_run())
+
+
+def test_detail_mounted_after_a_terminal_run_is_not_in_progress() -> None:
+    async def _run() -> None:
+        async with HermiaApp().run_test() as pilot:
+            pilot.app.run_state.apply("run.started", {})
+            pilot.app.run_state.apply("run.aborted", {"error": "aborted by user"})
+            row = _TrialRow(
+                model_name="qwen3:32b", test_id="t1", repeat_idx=1,
+                host_name="node-a", state="pending",
+            )
+            pilot.app.push_screen(RunnerDetailScreen(trial=row))
+            await pilot.pause()
+            screen: RunnerDetailScreen = pilot.app.screen  # type: ignore[assignment]
+            assert screen.is_awaiting_result is False
+            assert "in progress" not in screen.summary_text
+
+    asyncio.run(_run())
+
+
+def test_hydrated_abort_reason_survives_the_matching_bus_event() -> None:
+    # The bus's run.aborted payload need not carry "error"; recomputing the
+    # banner from it must not erase the reason hydration already knew.
+    async def _run() -> None:
+        async with HermiaApp().run_test() as pilot:
+            host = _host_with_models()
+            pilot.app.config = _config_with_host(host)
+            pilot.app.run_state.apply("run.started", {})
+            pilot.app.run_state.apply("run.aborted", {"error": "no such test id"})
+            pilot.app.push_screen(RunnerTrialsScreen(host=host))
+            await pilot.pause()
+            screen: RunnerTrialsScreen = pilot.app.screen  # type: ignore[assignment]
+            assert "no such test id" in screen.terminal_text
+
+            await pilot.app.bus.publish("run.aborted", {"n_completed": 0})
+            await pilot.pause()
+
+            assert "no such test id" in screen.terminal_text
 
     asyncio.run(_run())
 
