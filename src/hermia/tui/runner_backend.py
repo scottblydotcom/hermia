@@ -20,6 +20,7 @@ from typing import Any
 from hermia.runner import TEST_TIMEOUT
 from hermia.transport.openai_compat import MAX_5XX_RETRIES, RETRY_BACKOFF_SEC
 from hermia.tui.bus import SessionBus
+from hermia.tui.run_state import RunState
 from hermia.tui.state import FleetConfig, Host, ModelChoice
 
 # Must cover the openai-compat transport's worst case: every attempt (including
@@ -74,12 +75,14 @@ class TuiRunner:
         bus: SessionBus,
         results_dir: Path | None,
         *,
+        run_state: RunState | None = None,
         run_test_fn: RunTestFn | None = None,
         _tests_override: list[dict[str, Any]] | None = None,  # for tests only
         trial_timeout: float = TRIAL_WALL_TIMEOUT,
     ) -> None:
         self._config = config
         self._bus = bus
+        self._run_state = run_state
         self._results_dir = results_dir
         self._run_fn: RunTestFn = run_test_fn or _real_run_test
         self._tests_override = _tests_override
@@ -104,23 +107,35 @@ class TuiRunner:
 
     # ── Internal ───────────────────────────────────────────────────────────
 
+    async def _emit(self, topic: str, event: dict[str, Any]) -> None:
+        """Fold into RunState, then publish.
+
+        Single choke point for every run.* event. Folding *before* publishing
+        guarantees the store is never behind the bus: any screen that wakes on
+        an event and hydrates from run_state sees at least that event. Six
+        separate publish sites would have drifted (hermia-mo4a).
+        """
+        if self._run_state is not None:
+            self._run_state.apply(topic, event)
+        await self._bus.publish(topic, event)
+
     async def _run(self) -> None:
         try:
             tests = self._load_tests()
         except Exception as exc:  # noqa: BLE001
-            await self._bus.publish("run.started", {
+            await self._emit("run.started", {
                 "run_id": _make_run_id(),
                 "n_hosts": len(self._config.hosts),
                 "n_trials_total": 0,
             })
-            await self._bus.publish("run.aborted", {
+            await self._emit("run.aborted", {
                 "n_completed": 0,
                 "error": str(exc),
             })
             return
 
         n_trials = self._count_trials(tests)
-        await self._bus.publish("run.started", {
+        await self._emit("run.started", {
             "run_id": _make_run_id(),
             "n_hosts": len(self._config.hosts),
             "n_trials_total": n_trials,
@@ -136,7 +151,7 @@ class TuiRunner:
         for host, host_result in zip(self._config.hosts, results, strict=True):
             is_exc = isinstance(host_result, BaseException)
             if is_exc and not isinstance(host_result, asyncio.CancelledError):
-                await self._bus.publish("run.trial_finished", {
+                await self._emit("run.trial_finished", {
                     "host_name": host.name,
                     "model_name": "",
                     "test_id": "",
@@ -145,12 +160,15 @@ class TuiRunner:
                     "elapsed_sec": 0.0,
                     "failure_reason": f"HOST_ERROR: {host_result}",
                     "output_preview": str(host_result)[:120],
+                    # The detail screen is the only place a host failure can be
+                    # read in full; the 120-char preview above is for the row.
+                    "raw_response": f"HOST_ERROR: {host_result}",
                 })
 
         if self._abort_requested:
-            await self._bus.publish("run.aborted", {"n_completed": self._n_completed})
+            await self._emit("run.aborted", {"n_completed": self._n_completed})
         else:
-            await self._bus.publish("run.completed", {
+            await self._emit("run.completed", {
                 "n_trials_total": n_trials,
                 "n_completed": self._n_completed,
             })
@@ -176,7 +194,7 @@ class TuiRunner:
         test: dict[str, Any],
         repeat_idx: int,
     ) -> None:
-        await self._bus.publish("run.trial_started", {
+        await self._emit("run.trial_started", {
             "host_name": host.name,
             "model_name": model.name,
             "test_id": test["id"],
@@ -202,12 +220,14 @@ class TuiRunner:
                 timeout=timeout,
             )
         except TimeoutError:
+            _timeout_msg = f"TIMEOUT: no response in {timeout:.0f}s"
             result = {
                 "model": model.name,
                 "test_id": test["id"],
-                "failure_reason": f"TIMEOUT: no response in {timeout:.0f}s",
+                "failure_reason": _timeout_msg,
                 "elapsed_sec": timeout,
                 "output_preview": "",
+                "raw_response": _timeout_msg,
                 "signals": {},
             }
         except Exception as exc:  # noqa: BLE001
@@ -216,13 +236,17 @@ class TuiRunner:
                 "test_id": test["id"],
                 "failure_reason": f"ERROR: {exc}",
                 "elapsed_sec": 0.0,
+                # output_preview stays truncated for the row; raw_response
+                # keeps the whole message so the detail screen can show a full
+                # traceback-bearing error instead of its first 120 characters.
                 "output_preview": str(exc)[:120],
+                "raw_response": f"ERROR: {exc}",
                 "signals": {},
             }
 
         self._n_completed += 1
 
-        await self._bus.publish("run.trial_finished", {
+        await self._emit("run.trial_finished", {
             "host_name": host.name,
             "model_name": model.name,
             "test_id": test["id"],
@@ -231,6 +255,13 @@ class TuiRunner:
             "elapsed_sec": float(result.get("elapsed_sec") or 0.0),
             "failure_reason": result.get("failure_reason", ""),
             "output_preview": result.get("output_preview", ""),
+            # hermia-2ke3: the event previously carried only the 120-char
+            # preview, so the full response was unreachable from the TUI even
+            # though runner.run_test captures it and writes it to the JSONL.
+            "raw_response": result.get("raw_response", ""),
+            "raw_prompt": result.get("raw_prompt", ""),
+            "raw_system": result.get("raw_system", ""),
+            "raw_thinking": result.get("raw_thinking", ""),
         })
 
         if self._results_dir is not None:
