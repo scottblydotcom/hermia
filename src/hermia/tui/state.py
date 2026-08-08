@@ -10,7 +10,7 @@ MCP-sourced data).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 
 @dataclass
@@ -30,6 +30,10 @@ class Host:
     engine: str
     auth_header_env: str | None = None
     hardware: str | None = None
+    # Fleet YAML `stack:` block (gpu_arch / runtime_version). Carried so a TUI
+    # run can resolve backend_stack the way the CLI does; previously dropped on
+    # load, leaving TUI rows with no backend provenance (hermia-0hqm).
+    stack: dict[str, Any] | None = None
     models: list[ModelChoice] = field(default_factory=list)
 
 

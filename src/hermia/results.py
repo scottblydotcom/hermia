@@ -33,14 +33,36 @@ def append_result(
                 f.write(json.dumps(result) + "\n")
 
         if csv_path is not None:
-            write_header = not csv_path.exists()
+            # Fieldnames MUST come from the header already on disk, not from this
+            # row. Deriving them per-row wrote later rows' values under the first
+            # row's column names whenever the key sets differed — silently, with
+            # no exception, so a JSONL-only test passed over corrupt CSV
+            # (hermia-0hqm). Rows written before the header existed decide it.
+            fieldnames = _existing_header(csv_path)
+            write_header = fieldnames is None
+            if fieldnames is None:
+                fieldnames = list(result.keys())
             with open(csv_path, "a", newline="", encoding="utf-8") as f:
                 writer = csv.DictWriter(
-                    f, fieldnames=result.keys(), extrasaction="ignore", restval=""
+                    f, fieldnames=fieldnames, extrasaction="ignore", restval=""
                 )
                 if write_header:
                     writer.writeheader()
                 writer.writerow(result)
+
+
+def _existing_header(csv_path: Path) -> list[str] | None:
+    """Return the column names already written to csv_path, or None if there are none.
+
+    A zero-byte file counts as "no header" — it exists, but committing to its
+    (absent) columns would make the first data row masquerade as the header.
+    Called under _write_lock so the check and the append cannot interleave.
+    """
+    if not csv_path.exists() or csv_path.stat().st_size == 0:
+        return None
+    with open(csv_path, newline="", encoding="utf-8") as f:
+        header = next(csv.reader(f), None)
+    return header or None
 
 
 def patch_results(jsonl_path: Path, updated_rows: list[dict[str, Any]]) -> None:
