@@ -12,6 +12,7 @@ Fleet YAML schema:
         engine: str
         auth_header_env: str (optional — env var NAME, never a secret value)
         hardware: str (optional)
+        stack: mapping (optional — gpu_arch / runtime_version, feeds backend_stack)
         models: list[str]  # only selected models
 
 Per AGENTS.md rule 11, credentials are never persisted in this file. Only the
@@ -66,8 +67,10 @@ def _headless_host(d: Any) -> Host:
     with it: headless writes {name, host, transport?, auth.bearer.key_env?,
     models?}, the TUI wants {name, url, engine, auth_header_env?, models[]}.
 
-    ``test_timeout`` and ``stack`` have no Host field and are dropped — a
-    headless config carrying them still loads rather than failing.
+    ``stack`` is preserved (it feeds backend_stack on result rows, hermia-0hqm);
+    a non-mapping ``stack`` is ignored rather than raising, so a malformed
+    headless config still loads. ``test_timeout`` has no Host field and is
+    dropped — a headless config carrying it still loads rather than failing.
     """
     if not isinstance(d, dict):
         raise TypeError("Fleet entry must be a dictionary")
@@ -87,8 +90,15 @@ def _headless_host(d: Any) -> Host:
         url=d["host"],
         engine=d.get("transport") or "ollama",
         auth_header_env=bearer.get("key_env") if isinstance(bearer, dict) else None,
+        stack=_stack_of(d),
         models=[ModelChoice(name=n, selected=True) for n in models],
     )
+
+
+def _stack_of(d: dict[str, Any]) -> dict[str, Any] | None:
+    """Read a host entry's ``stack:`` block, or None if absent/malformed."""
+    stack = d.get("stack")
+    return stack if isinstance(stack, dict) else None
 
 
 def load_fleet(path: Path) -> FleetConfig:
@@ -179,6 +189,8 @@ def _serialize_host(h: Host) -> dict[str, Any]:
         d["auth_header_env"] = h.auth_header_env
     if h.hardware:
         d["hardware"] = h.hardware
+    if h.stack:
+        d["stack"] = dict(h.stack)
     d["models"] = [m.name for m in h.models if m.selected]
     return d
 
@@ -198,6 +210,7 @@ def _deserialize_host(d: Any) -> Host:
         engine=d["engine"],
         auth_header_env=d.get("auth_header_env"),
         hardware=d.get("hardware"),
+        stack=_stack_of(d),
         # `models:` with no children parses as None; `or []` guards iteration.
         models=[ModelChoice(name=n, selected=True) for n in (d.get("models") or [])],
     )

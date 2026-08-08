@@ -173,3 +173,107 @@ def test_append_result_is_thread_safe(tmp_path: Path) -> None:
     assert len(rows) == n_threads * per_thread
     for line in jsonl.read_text().splitlines():
         json.loads(line)
+
+
+# ── CSV column shear (hermia-0hqm) ────────────────────────────────────────────
+#
+# append_result pinned the header from the FIRST row but rebuilt DictWriter's
+# fieldnames from the CURRENT row, so a later row with a different key set wrote
+# its values under the wrong column names — silently, with no exception. These
+# tests assert on the CSV itself; a JSONL-only test ships green over the bug.
+
+
+def test_csv_columns_stay_aligned_when_later_row_has_different_keys(tmp_path: Path) -> None:
+    csv_path = tmp_path / "results.csv"
+    append_result({"a": 1, "b": 2, "c": 3}, None, csv_path)
+    # Different order AND a key the header does not have.
+    append_result({"c": 30, "a": 10, "z": 99}, None, csv_path)
+
+    with csv_path.open(newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+
+    assert len(rows) == 2
+    assert rows[0] == {"a": "1", "b": "2", "c": "3"}
+    # Pre-fix these read a="30", b="10", c="99" — every value under the wrong name.
+    assert rows[1]["a"] == "10"
+    assert rows[1]["c"] == "30"
+    assert rows[1]["b"] == ""
+
+
+def test_csv_header_is_written_once_and_never_repeated(tmp_path: Path) -> None:
+    csv_path = tmp_path / "results.csv"
+    append_result({"a": 1, "b": 2}, None, csv_path)
+    append_result({"a": 3, "b": 4}, None, csv_path)
+
+    lines = csv_path.read_text(encoding="utf-8").strip().splitlines()
+    assert len(lines) == 3  # header + 2 data rows
+    assert lines[0] == "a,b"
+
+
+def test_csv_extra_keys_in_later_row_are_dropped_not_sheared(tmp_path: Path) -> None:
+    csv_path = tmp_path / "results.csv"
+    append_result({"a": 1, "b": 2}, None, csv_path)
+    append_result({"a": 10, "b": 20, "z": 99}, None, csv_path)
+
+    with csv_path.open(newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        assert reader.fieldnames == ["a", "b"]
+        rows = list(reader)
+
+    assert "z" not in rows[1]
+    assert rows[1]["a"] == "10"
+    assert rows[1]["b"] == "20"
+
+
+def test_csv_row_with_fewer_keys_fills_blanks(tmp_path: Path) -> None:
+    csv_path = tmp_path / "results.csv"
+    append_result({"a": 1, "b": 2, "c": 3}, None, csv_path)
+    append_result({"a": 10, "c": 30}, None, csv_path)
+
+    with csv_path.open(newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+
+    assert rows[1]["b"] == ""
+    assert rows[1]["c"] == "30"
+
+
+def test_jsonl_still_records_every_key_even_when_csv_drops_it(tmp_path: Path) -> None:
+    import json
+
+    jsonl_path = tmp_path / "results.jsonl"
+    csv_path = tmp_path / "results.csv"
+    append_result({"a": 1, "b": 2}, jsonl_path, csv_path)
+    append_result({"a": 10, "z": 99}, jsonl_path, csv_path)
+
+    rows = [json.loads(line) for line in jsonl_path.read_text().splitlines()]
+    # Dropping is a CSV-shape concern only — the JSONL stays lossless.
+    assert rows[1]["z"] == 99
+
+
+def test_append_result_to_empty_existing_csv_file_writes_header(tmp_path: Path) -> None:
+    csv_path = tmp_path / "results.csv"
+    csv_path.write_text("", encoding="utf-8")  # exists but has no header
+
+    append_result({"a": 1, "b": 2}, None, csv_path)
+
+    with csv_path.open(newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        fieldnames = reader.fieldnames
+        rows = list(reader)
+
+    assert fieldnames == ["a", "b"]
+    assert rows == [{"a": "1", "b": "2"}]
+
+
+def test_blank_first_line_does_not_re_emit_the_header_every_row(tmp_path: Path) -> None:
+    """A whitespace-only csv (touch, interrupted write) read as 'no header' forever."""
+    csv_path = tmp_path / "results.csv"
+    csv_path.write_text("\n", encoding="utf-8")
+
+    append_result({"a": 1, "b": 2}, None, csv_path)
+    append_result({"a": 3, "b": 4}, None, csv_path)
+
+    assert csv_path.read_text(encoding="utf-8").count("a,b") == 1
+    with csv_path.open(newline="", encoding="utf-8") as f:
+        rows = [r for r in csv.DictReader(line for line in f if line.strip())]
+    assert [r["a"] for r in rows] == ["1", "3"]
