@@ -263,3 +263,17 @@ def test_append_result_to_empty_existing_csv_file_writes_header(tmp_path: Path) 
 
     assert fieldnames == ["a", "b"]
     assert rows == [{"a": "1", "b": "2"}]
+
+
+def test_blank_first_line_does_not_re_emit_the_header_every_row(tmp_path: Path) -> None:
+    """A whitespace-only csv (touch, interrupted write) read as 'no header' forever."""
+    csv_path = tmp_path / "results.csv"
+    csv_path.write_text("\n", encoding="utf-8")
+
+    append_result({"a": 1, "b": 2}, None, csv_path)
+    append_result({"a": 3, "b": 4}, None, csv_path)
+
+    assert csv_path.read_text(encoding="utf-8").count("a,b") == 1
+    with csv_path.open(newline="", encoding="utf-8") as f:
+        rows = [r for r in csv.DictReader(line for line in f if line.strip())]
+    assert [r["a"] for r in rows] == ["1", "3"]

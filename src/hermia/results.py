@@ -57,12 +57,19 @@ def _existing_header(csv_path: Path) -> list[str] | None:
     A zero-byte file counts as "no header" — it exists, but committing to its
     (absent) columns would make the first data row masquerade as the header.
     Called under _write_lock so the check and the append cannot interleave.
+
+    Leading blank lines are skipped rather than treated as the header. A file
+    holding only a newline (touch, or an interrupted write) is non-zero in size
+    but yields [] from csv.reader, which read as "no header" on EVERY call and
+    made append_result re-emit the header before every row.
     """
     if not csv_path.exists() or csv_path.stat().st_size == 0:
         return None
     with open(csv_path, newline="", encoding="utf-8") as f:
-        header = next(csv.reader(f), None)
-    return header or None
+        for row in csv.reader(f):
+            if row and any(field.strip() for field in row):
+                return row
+    return None
 
 
 def patch_results(jsonl_path: Path, updated_rows: list[dict[str, Any]]) -> None:

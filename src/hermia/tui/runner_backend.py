@@ -54,7 +54,14 @@ def _trial_wall_timeout_sec(test: dict[str, Any], per_call_timeout: float) -> fl
 # tests/unit/tui/test_runner_backend_run_identity.py asserts this stays in step
 # with run_test; if that test reds, decide what error rows should carry rather
 # than letting the two shapes drift.
-SUCCESS_ROW_KEYS: frozenset[str] = frozenset({
+
+# Order matters and must match run_test's return dict. append_result pins the CSV
+# header from whichever row is written first, so if error rows enumerated their
+# keys in a different order than success rows, the column layout would depend on
+# whether the first trial happened to fail. Deriving the set from a tuple (rather
+# than iterating a frozenset, whose order varies with PYTHONHASHSEED across
+# processes) also keeps that layout stable run to run.
+SUCCESS_ROW_ORDER: tuple[str, ...] = (
     "model", "test_id", "dimension", "frameworks", "framework_versions",
     "failure_reason", "had_markdown_fence", "json_valid", "schema_compliant",
     "signals", "tokens", "elapsed_sec", "tokens_per_sec", "output_preview",
@@ -63,7 +70,9 @@ SUCCESS_ROW_KEYS: frozenset[str] = frozenset({
     "vram_server_gb", "model_size_server_gb", "execution_path", "orchestration",
     "orchestration_version", "turn_count", "raw_turns", "hermia_version",
     "git_sha", "corpus_sha256", "sampling", "stack_fingerprint", "_provenance",
-})
+)
+
+SUCCESS_ROW_KEYS: frozenset[str] = frozenset(SUCCESS_ROW_ORDER)
 
 
 def _error_result(
@@ -82,19 +91,25 @@ def _error_result(
     not observe 0 tokens/sec, it observed nothing, and a fabricated zero would
     be indistinguishable from a real measurement downstream. `mode` is left
     None for the same reason: it derives from transport.is_api_mode, which is
-    decided inside the worker thread that never returned. Provenance IS
-    stamped — the run happened, it just failed.
+    decided inside the worker thread that never returned.
+
+    Provenance that is knowable WITHOUT reaching the host is stamped —
+    hermia_version, git_sha, corpus_sha256, framework_versions — because the run
+    happened, it just failed. `stack_fingerprint` and `_provenance` stay None on
+    purpose: both come from probing the host, which is exactly what did not
+    happen here, and inventing them would assert a backend we never observed.
     """
     from hermia import __git_sha__, __version__
-    from hermia.runner import corpus_sha256
+    from hermia.runner import corpus_sha256, load_framework_versions
 
-    row: dict[str, Any] = dict.fromkeys(SUCCESS_ROW_KEYS)
+    row: dict[str, Any] = dict.fromkeys(SUCCESS_ROW_ORDER)
     row.update({
         "model": model,
         "test_id": test["id"],
         "host": host,
         "dimension": test.get("dimension", ""),
         "frameworks": test.get("frameworks", {}),
+        "framework_versions": load_framework_versions(),
         "failure_reason": failure_reason,
         "elapsed_sec": elapsed_sec,
         "output_preview": output_preview,

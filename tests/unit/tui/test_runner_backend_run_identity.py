@@ -23,6 +23,7 @@ from hermia.export import _REQUIRED_FIELDS
 from hermia.tui.bus import SessionBus
 from hermia.tui.runner_backend import (
     SUCCESS_ROW_KEYS,
+    SUCCESS_ROW_ORDER,
     TuiRunner,
     _error_result,
     _make_run_id,
@@ -383,3 +384,62 @@ class TestOutOfScopeAggregatesStayAbsent:
         _run_to_completion(runner)
 
         assert field not in _rows(tmp_path)[0]
+
+
+class TestColumnOrderIsDeterministic:
+    """append_result pins the header from whichever row lands first.
+
+    If error rows enumerated their keys in a different order than success rows,
+    the CSV column layout would depend on whether the first trial failed — and
+    iterating a frozenset varies with PYTHONHASHSEED across processes.
+    """
+
+    def test_error_row_key_order_matches_the_declared_order(self) -> None:
+        row = _error_result(
+            model="m1", test={"id": "t1"}, host=HOST_URL,
+            failure_reason="ERROR: boom", elapsed_sec=0.0,
+            raw_response="ERROR: boom", output_preview="boom",
+        )
+        assert list(row) == list(SUCCESS_ROW_ORDER)
+
+    def test_declared_order_matches_the_key_set(self) -> None:
+        assert frozenset(SUCCESS_ROW_ORDER) == SUCCESS_ROW_KEYS
+        assert len(SUCCESS_ROW_ORDER) == len(SUCCESS_ROW_KEYS)  # no duplicates
+
+    def test_order_is_stable_across_processes(self) -> None:
+        """Different PYTHONHASHSEED must not reorder the columns."""
+        import subprocess
+        import sys
+        code = (
+            "from hermia.tui.runner_backend import _error_result;"
+            "r=_error_result(model='m',test={'id':'t'},host='h',failure_reason='x',"
+            "elapsed_sec=0.0,raw_response='x',output_preview='x');"
+            "print(','.join(r))"
+        )
+        seen = {
+            subprocess.run(  # noqa: S603
+                [sys.executable, "-c", code], capture_output=True, text=True,
+                env={"PYTHONHASHSEED": seed, "PATH": "/usr/bin:/bin"}, check=True,
+            ).stdout.strip()
+            for seed in ("0", "1", "12345")
+        }
+        assert len(seen) == 1
+
+    def test_err_row_carries_framework_versions(self) -> None:
+        """Static corpus metadata is knowable even when the trial never ran."""
+        row = _error_result(
+            model="m1", test={"id": "t1"}, host=HOST_URL,
+            failure_reason="TIMEOUT", elapsed_sec=1.0,
+            raw_response="TIMEOUT", output_preview="",
+        )
+        assert row["framework_versions"]
+
+    def test_host_probe_fields_stay_none_on_error(self) -> None:
+        """We never reached the host, so asserting a backend would be invention."""
+        row = _error_result(
+            model="m1", test={"id": "t1"}, host=HOST_URL,
+            failure_reason="TIMEOUT", elapsed_sec=1.0,
+            raw_response="TIMEOUT", output_preview="",
+        )
+        assert row["stack_fingerprint"] is None
+        assert row["_provenance"] is None
