@@ -25,13 +25,24 @@ If `hermia` isn't found afterward, run `pipx ensurepath` and reopen your shell.
 pAI-OS runs its inference backend as Ollama on port `11434`, which is **Hermia's
 native default target** — no config file needed.
 
+Run Hermia with no arguments. It opens a terminal UI:
+
 ```bash
-# Point Hermia at your pAI-OS Ollama backend (this is the default host).
-hermia --host http://localhost:11434
+hermia
 ```
 
-Hermia auto-discovers the models installed on that Ollama instance and runs the
-corpus against each. Results land in `results/eval_*.{jsonl,csv}`.
+From the launch screen, choose **Quick local run**. That pre-fills the host as
+`http://localhost:11434` (Ollama) and selects the full test corpus, so the only
+thing left to choose is which models to evaluate:
+
+1. **Quick local run** on the launch screen.
+2. On the config screen, open the host's model list — Hermia probes
+   `GET /api/tags` and shows what pAI-OS actually has installed.
+3. Select one or more models, then start the run.
+4. Watch verdicts land per trial; drill into any row for the full response.
+
+Each run writes its own file: **`results/eval_<run_id>.jsonl`** (and `.csv`) —
+the same directory and naming the fleet path uses, so every Hermia tool finds it.
 
 ---
 
@@ -84,6 +95,10 @@ hermia-submit --dry-run     # inspect the anonymized payload — no network I/O
 hermia-submit               # submit (prompts for confirmation; --yes to skip)
 ```
 
+With no `--results`, `hermia-submit` uses the most recent results file — which
+is the run you just finished, on either path. Pass `--results <file>` to submit
+a specific one.
+
 `hermia-submit` anonymizes the payload (no usernames, no raw hostnames) before
 sending it to the live endpoint (`https://hermia.scottbly.com`). On success it
 prints a public URL where your submission renders.
@@ -95,6 +110,8 @@ prints a public URL where your submission renders.
 | Symptom | Fix |
 |---------|-----|
 | `hermia: command not found` | `pipx ensurepath`, reopen shell |
+| `unrecognized arguments: --host` | There is no `--host` flag. Run bare `hermia` and pick **Quick local run** (Path A). |
+| `--repeat/--verbose can only be used with --fleet` | Those flags are fleet-mode only; set repeats inside the TUI or use `--fleet` |
 | openai-compat host "requires an explicit 'models:' list" | add `models: auto` (or an explicit list) to the entry |
 | `/v1/models` returns nothing | confirm `kwaainet shard api` is up on `:11435` and a model is loaded |
 | Discovery failed, host skipped | the endpoint was unreachable or returned a malformed `/v1/models` — re-check step 2 |

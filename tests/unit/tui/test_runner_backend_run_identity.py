@@ -1,7 +1,7 @@
 """Run identity on TUI-written result rows (hermia-0hqm).
 
 Before this, TUI rows carried no run_id / run_timestamp / run_index, so rows
-appended to the shared results.jsonl could not be attributed to the run that
+appended to a shared results file could not be attributed to the run that
 produced them. Error and timeout rows were built as 7-key dicts with no `host`,
 so one file held two row shapes and export.push silently dropped the error rows
 (_REQUIRED_FIELDS = {run_id, host, model, test_id}).
@@ -108,8 +108,10 @@ def _run_to_completion(runner: TuiRunner) -> None:
 
 
 def _rows(results_dir: Path) -> list[dict]:
-    path = results_dir / "results.jsonl"
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    # Run-scoped filename since hermia-u1v7; exactly one per run here.
+    paths = list(results_dir.glob("eval_*.jsonl"))
+    assert len(paths) == 1, f"expected one run file, got {[p.name for p in paths]}"
+    return [json.loads(line) for line in paths[0].read_text().splitlines() if line.strip()]
 
 
 class TestMakeRunId:
@@ -307,7 +309,9 @@ class TestErrorRowShape:
         )
         _run_to_completion(runner)
 
-        with (tmp_path / "results.csv").open(newline="", encoding="utf-8") as f:
+        csv_paths = list(tmp_path.glob("eval_*.csv"))
+        assert len(csv_paths) == 1
+        with csv_paths[0].open(newline="", encoding="utf-8") as f:
             csv_rows = list(csv.DictReader(f))
 
         assert len(csv_rows) == 2

@@ -374,8 +374,12 @@ class TuiRunner:
         result["backend_stack"] = resolve_stack(
             {"stack": host.stack}, result.get("orchestration_version")
         )["backend_stack"]
-        jsonl_path = results_dir / "results.jsonl"
-        csv_path = results_dir / "results.csv"
+        # Run-scoped, and named the way the CLI names its files, so hermia-push,
+        # hermia-submit and hermia --audit all find TUI runs — every one of them
+        # scans the top level of results/ for eval_*.jsonl (hermia-u1v7). The
+        # old shared results.jsonl also accumulated across runs indefinitely.
+        jsonl_path = results_dir / f"eval_{self._run_id}.jsonl"
+        csv_path = results_dir / f"eval_{self._run_id}.csv"
         append_result(result, jsonl_path, csv_path)
 
     def _count_trials(self, tests: list[dict[str, Any]]) -> int:
