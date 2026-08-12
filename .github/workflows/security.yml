@@ -38,6 +38,14 @@ jobs:
           fetch-depth: 0
       - name: TruffleHog — entropy + credential scan
         uses: trufflesecurity/trufflehog@0fa069c12f0c7baf431041cd1e564a9c5058846c  # main 2026-05-16
+        with:
+          # Lob detector (hermia-v0h6): Lob issues test_<random> API keys, colliding
+          # with pytest's test_<description> naming convention. Confirmed 3x false
+          # positive (most recently hermia-u1v7 PR #162), 0 true positives ever —
+          # hermia has no mail/postcard/check feature and none is planned. A real,
+          # correctly-formatted Lob key deliberately planted for testing (hermia-scyz)
+          # was NOT caught by this detector, so excluding it loses no real coverage.
+          extra_args: --exclude-detectors=Lob
 
   trivy:
     runs-on: ubuntu-latest
