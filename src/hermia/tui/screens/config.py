@@ -6,6 +6,8 @@ child drills; Task 9 wires save / unsaved-changes indicator.
 """
 from __future__ import annotations
 
+from pathlib import Path
+
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
@@ -14,6 +16,30 @@ from textual.widgets import Footer, Static
 
 from hermia.tui.state import FleetConfig
 from hermia.tui.widgets.breadcrumb import Breadcrumb
+
+RESULTS_DIR = Path("results")
+
+
+def results_dir_for(config: FleetConfig) -> Path:
+    """Where a TUI run writes its rows.
+
+    Always the top-level `results/`, the same directory the CLI writes to.
+    Runs are separated by filename (`eval_<run_id>.jsonl`), not by directory
+    (hermia-u1v7). Two defects lived in the per-fleet subdirectory this
+    replaces:
+
+    * nothing could find the rows — hermia-push, hermia-submit and
+      hermia --audit all scan the top level of `results/`, so a TUI run was
+      invisible to every one of them; and
+    * an unnamed fleet produced no results directory at all, so the run
+      executed normally and every row was discarded without a word.
+
+    `config` is accepted and deliberately ignored — the destination no longer
+    depends on it. That is the point: the fleet name never reaches the
+    filesystem, so a hostile name out of YAML cannot steer where results are
+    written and no longer needs sanitising against `../` traversal.
+    """
+    return RESULTS_DIR
 
 
 class FleetConfigScreen(Screen[None]):
@@ -160,22 +186,12 @@ class FleetConfigScreen(Screen[None]):
         self.app.pop_screen()
 
     def action_run(self) -> None:
-        from pathlib import Path
-
         from hermia.tui.runner_backend import TuiRunner
         from hermia.tui.screens.runner import RunnerScreen
-        results_dir: Path | None = None
-        if self.app_config.name:
-            # Strip any directory components from the fleet name before using
-            # it as a path segment (guards against '../' traversal in YAML).
-            safe_name = Path(self.app_config.name).name or "unnamed"
-            results_dir = Path("results") / safe_name
-            # mkdir is deferred to _write_result so no empty dir is created
-            # if the run is aborted before writing any results.
         runner = TuiRunner(
             config=self.app_config,
             bus=self.app.bus,  # type: ignore[attr-defined]
-            results_dir=results_dir,
+            results_dir=results_dir_for(self.app_config),
             run_state=self.app.run_state,  # type: ignore[attr-defined]
         )
         self.app.push_screen(RunnerScreen(runner=runner))
