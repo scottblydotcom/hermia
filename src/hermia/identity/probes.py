@@ -1,29 +1,38 @@
 """Cross-platform local hardware probe (hermia-cfqv).
 
-Measures the machine hermia is running ON. Remote probes (SSH, agent) implement
-the same ``HardwareProbe`` Protocol later and are deliberately absent here.
+Measures the machine hermia is running ON, returning identifiers and capabilities
+as two separate things (see types.py for why that split is the whole design).
 
 Every measurement that fails yields ``None`` and records the field name in
-``unavailable``. There is no default, no zero, no empty string standing in for a
-real value: a ``ram_bytes`` of 0 would read as a genuine measurement of a
-0-byte machine, and a guessed identity is worse than an admitted gap.
+``unavailable``. No default, no zero, no empty string standing in for a value: a
+``ram_bytes`` of 0 would read as a genuine measurement of a 0-byte machine.
 
-No MAC address or other network identifier is collected anywhere in this module.
-DHCP reservations are commonly bound to detachable USB/Thunderbolt adapters
-or a dock, so a MAC-derived identity follows the accessory rather
-than the computer — the exact defect this package exists to end.
+Identifier ordering is strongest-first on every platform. An earlier version read
+Linux ``/etc/machine-id`` first and never fell through to the firmware UUID,
+silently preferring the weakest identifier available; and on Windows read only
+``MachineGuid``, never touching the firmware UUID at all. Both are fixed here.
+``/etc/machine-id`` and ``MachineGuid`` are OS-install ids, so they are reported
+as ``persisted_token`` — the weakest tier — because a reinstall resets them and a
+cloned disk image duplicates them.
 """
 from __future__ import annotations
 
 import os
 import platform
+import re
 import subprocess
+import uuid
 from pathlib import Path
 from typing import Any
 
-from hermia.identity.types import HardwareFacts
+from hermia.identity.types import (
+    MachineCapabilities,
+    MachineIdentifiers,
+    MachineObservation,
+)
 
 _TIMEOUT_SEC = 5
+_VIRTUAL_HINTS = ("vmware", "virtualbox", "kvm", "qemu", "xen", "hyper-v", "parallels")
 
 
 def _run(cmd: list[str], **kwargs: Any) -> str | None:
@@ -55,15 +64,12 @@ def _read_text(path: str | Path) -> str | None:
 
 
 def _clean(value: str | None) -> str | None:
-    """Normalise a measured string: blank or missing means NOT MEASURED."""
     if value is None:
         return None
-    stripped = value.strip()
-    return stripped or None
+    return value.strip() or None
 
 
 def _to_int(value: str | None) -> int | None:
-    """Parse a positive integer; anything else means NOT MEASURED."""
     if value is None:
         return None
     try:
@@ -73,51 +79,27 @@ def _to_int(value: str | None) -> int | None:
     return parsed if parsed > 0 else None
 
 
-def _macos_uuid(ioreg_output: str | None) -> str | None:
-    if not ioreg_output:
+def _ioreg_field(output: str | None, key: str) -> str | None:
+    if not output:
         return None
-    for line in ioreg_output.splitlines():
-        if '"IOPlatformUUID"' not in line:
-            continue
-        _, _, rhs = line.partition("=")
-        return _clean(rhs.strip().strip('"'))
+    for line in output.splitlines():
+        if f'"{key}"' in line:
+            _, _, rhs = line.partition("=")
+            return _clean(rhs.strip().strip('"'))
     return None
 
 
-def _linux_cpu_brand(cpuinfo: str | None) -> str | None:
-    if not cpuinfo:
-        return None
-    for line in cpuinfo.splitlines():
-        if line.startswith("model name"):
-            return _clean(line.split(":", 1)[1] if ":" in line else None)
-    return None
+def _reg_value(output: str | None, name: str) -> str | None:
+    """Last token of a `reg query` line, rejecting the type token.
 
-
-def _linux_ram_bytes(meminfo: str | None) -> int | None:
-    if not meminfo:
-        return None
-    for line in meminfo.splitlines():
-        if line.startswith("MemTotal:"):
-            parts = line.split()
-            kb = _to_int(parts[1]) if len(parts) > 1 else None
-            return kb * 1024 if kb is not None else None
-    return None
-
-
-def _windows_uuid(reg_output: str | None) -> str | None:
-    """Extract MachineGuid from `reg query` output.
-
-    The value token must be the FOURTH-onward field: `reg query` prints
-    ``<name> <type> <value>``, so an EMPTY value leaves only two tokens and a
-    naive ``parts[-1]`` returns the literal type name ``REG_SZ``. That would be
-    accepted downstream as a measured hardware id, giving every affected
-    Windows box the same uuid component — a fabricated identity, which is far
-    worse than admitting the value is missing.
+    `reg query` prints ``<name> <type> <value>``; an EMPTY value leaves only two
+    tokens, so a naive last-token read returns the literal ``REG_SZ`` and every
+    affected box would share that as an identifier.
     """
-    if not reg_output:
+    if not output:
         return None
-    for line in reg_output.splitlines():
-        if "MachineGuid" not in line:
+    for line in output.splitlines():
+        if name not in line:
             continue
         parts = line.split()
         if len(parts) < 3:
@@ -129,14 +111,63 @@ def _windows_uuid(reg_output: str | None) -> str | None:
     return None
 
 
-def _windows_ram_bytes(wmic_output: str | None) -> int | None:
-    if not wmic_output:
+def _wmic_value(output: str | None) -> str | None:
+    """First non-header, non-blank line of `wmic ... get X` output."""
+    if not output:
         return None
-    for line in wmic_output.splitlines():
-        candidate = line.strip()
-        if candidate.isdigit():
-            return _to_int(candidate)
+    for line in output.splitlines()[1:]:
+        value = _clean(line)
+        if value:
+            return value
     return None
+
+
+def _proc_field(text: str | None, prefix: str) -> str | None:
+    if not text:
+        return None
+    for line in text.splitlines():
+        if line.startswith(prefix) and ":" in line:
+            return _clean(line.split(":", 1)[1])
+    return None
+
+
+def _meminfo_bytes(meminfo: str | None) -> int | None:
+    """MemTotal in bytes.
+
+    NOTE: MemTotal is kernel-visible memory, not installed DIMM capacity — it
+    drifts with kernel updates, crashkernel reservations and driver allocations.
+    That is tolerable ONLY because this is a capability. It must never feed an
+    identity, or a routine kernel update would look like a hardware swap.
+    """
+    if not meminfo:
+        return None
+    for line in meminfo.splitlines():
+        if line.startswith("MemTotal:"):
+            parts = line.split()
+            kb = _to_int(parts[1]) if len(parts) > 1 else None
+            return kb * 1024 if kb is not None else None
+    return None
+
+
+def _primary_mac() -> str | None:
+    """A MAC address, recorded as a CAPABILITY only.
+
+    Never an identifier: reservations here are bound to detachable adapters and a
+    dock, so this value follows the accessory. Recording it lets an operator see
+    that a dock moved; it must never decide which machine answered.
+    """
+    node = uuid.getnode()
+    # Bit 41 set means the value was randomly generated, not read from hardware.
+    if (node >> 40) & 0x1:
+        return None
+    return ":".join(f"{(node >> shift) & 0xFF:02x}" for shift in range(40, -8, -8))
+
+
+def _looks_virtual(*values: str | None) -> bool | None:
+    joined = " ".join(v.lower() for v in values if v)
+    if not joined:
+        return None
+    return any(hint in joined for hint in _VIRTUAL_HINTS)
 
 
 class LocalProbe:
@@ -144,61 +175,149 @@ class LocalProbe:
 
     def __init__(self, os_family: str | None = None) -> None:
         # platform.system().lower() -> "darwin" | "linux" | "windows".
-        # NOT os.name, which returns "posix" on both macOS and Linux and would
-        # therefore match no branch at all, silently probing nothing everywhere.
+        # NOT os.name, which returns "posix" on macOS AND Linux and would match
+        # no branch at all, silently probing nothing on every platform.
         self.os_family = os_family or platform.system().lower()
 
-    def probe(self) -> HardwareFacts:
-        platform_uuid: str | None = None
-        cpu_brand: str | None = None
-        ram_bytes: int | None = None
-
+    def probe(self) -> MachineObservation:
         if self.os_family == "darwin":
-            platform_uuid = _macos_uuid(
-                _run(["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"])
-            )
-            cpu_brand = _clean(_run(["sysctl", "-n", "machdep.cpu.brand_string"]))
-            ram_bytes = _to_int(_run(["sysctl", "-n", "hw.memsize"]))
-
+            ident, caps = self._darwin()
         elif self.os_family == "linux":
-            platform_uuid = _clean(_read_text("/etc/machine-id")) or _clean(
-                _read_text("/sys/class/dmi/id/product_uuid")
-            )
-            cpu_brand = _linux_cpu_brand(_read_text("/proc/cpuinfo"))
-            ram_bytes = _linux_ram_bytes(_read_text("/proc/meminfo"))
-
+            ident, caps = self._linux()
         elif self.os_family == "windows":
-            platform_uuid = _windows_uuid(
-                _run(
-                    [
-                        "reg",
-                        "query",
-                        r"HKLM\SOFTWARE\Microsoft\Cryptography",  # pragma: allowlist secret
-                        "/v",
-                        "MachineGuid",
-                    ]
-                )
+            ident, caps = self._windows()
+        else:
+            ident, caps = MachineIdentifiers(), MachineCapabilities(
+                os_family=self.os_family
             )
-            cpu_brand = _clean(os.environ.get("PROCESSOR_IDENTIFIER"))
-            ram_bytes = _windows_ram_bytes(
-                _run(["wmic", "ComputerSystem", "get", "TotalPhysicalMemory"])
-            )
-
-        # Any other os_family: everything stays None. Not an error, just unknown.
-
-        unavailable = tuple(
-            name
-            for name, value in (
-                ("platform_uuid", platform_uuid),
-                ("cpu_brand", cpu_brand),
-                ("ram_bytes", ram_bytes),
-            )
-            if value is None
+        return MachineObservation(
+            identifiers=_mark_identifiers(ident), capabilities=_mark_caps(caps)
         )
-        return HardwareFacts(
-            platform_uuid=platform_uuid,
-            cpu_brand=cpu_brand,
-            ram_bytes=ram_bytes,
-            os_family=self.os_family,
-            unavailable=unavailable,
+
+    def _darwin(self) -> tuple[MachineIdentifiers, MachineCapabilities]:
+        ioreg = _run(["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"])
+        model = _clean(_run(["sysctl", "-n", "hw.model"]))
+        return (
+            MachineIdentifiers(
+                firmware_uuid=_ioreg_field(ioreg, "IOPlatformUUID"),
+                hardware_serial=_ioreg_field(ioreg, "IOPlatformSerialNumber"),
+            ),
+            MachineCapabilities(
+                cpu_brand=_clean(_run(["sysctl", "-n", "machdep.cpu.brand_string"])),
+                logical_cores=_to_int(_run(["sysctl", "-n", "hw.logicalcpu"])),
+                ram_bytes=_to_int(_run(["sysctl", "-n", "hw.memsize"])),
+                model_identifier=model,
+                os_family="darwin",
+                os_version=_clean(_run(["sw_vers", "-productVersion"])),
+                nic_mac=_primary_mac(),
+                is_virtual=_looks_virtual(model),
+            ),
         )
+
+    def _linux(self) -> tuple[MachineIdentifiers, MachineCapabilities]:
+        # Firmware root FIRST. These are often mode 0400 (root only); when they
+        # are unreadable the result is None and we fall through to the weak
+        # persisted token, which is recorded AS such rather than promoted.
+        product_name = _clean(_read_text("/sys/class/dmi/id/product_name"))
+        cpuinfo = _read_text("/proc/cpuinfo")
+        cores = len(re.findall(r"^processor\s*:", cpuinfo, re.M)) if cpuinfo else 0
+        return (
+            MachineIdentifiers(
+                firmware_uuid=_clean(_read_text("/sys/class/dmi/id/product_uuid")),
+                hardware_serial=_clean(_read_text("/sys/class/dmi/id/board_serial"))
+                or _clean(_read_text("/sys/class/dmi/id/product_serial")),
+                persisted_token=_clean(_read_text("/etc/machine-id")),
+            ),
+            MachineCapabilities(
+                cpu_brand=_proc_field(cpuinfo, "model name"),
+                logical_cores=cores or None,
+                ram_bytes=_meminfo_bytes(_read_text("/proc/meminfo")),
+                model_identifier=product_name,
+                os_family="linux",
+                os_version=_clean(_run(["uname", "-r"])),
+                nic_mac=_primary_mac(),
+                is_virtual=_looks_virtual(
+                    product_name, _clean(_read_text("/sys/class/dmi/id/sys_vendor"))
+                ),
+            ),
+        )
+
+    def _windows(self) -> tuple[MachineIdentifiers, MachineCapabilities]:
+        model = _wmic_value(_run(["wmic", "csproduct", "get", "Name"]))
+        return (
+            MachineIdentifiers(
+                firmware_uuid=_wmic_value(_run(["wmic", "csproduct", "get", "UUID"])),
+                hardware_serial=_wmic_value(
+                    _run(["wmic", "baseboard", "get", "SerialNumber"])
+                ),
+                persisted_token=_reg_value(
+                    _run(
+                        [
+                            "reg",
+                            "query",
+                            r"HKLM\SOFTWARE\Microsoft\Cryptography",  # pragma: allowlist secret
+                            "/v",
+                            "MachineGuid",
+                        ]
+                    ),
+                    "MachineGuid",
+                ),
+            ),
+            MachineCapabilities(
+                cpu_brand=_clean(os.environ.get("PROCESSOR_IDENTIFIER")),
+                logical_cores=_to_int(os.environ.get("NUMBER_OF_PROCESSORS")),
+                ram_bytes=_to_int(
+                    _wmic_value(
+                        _run(["wmic", "ComputerSystem", "get", "TotalPhysicalMemory"])
+                    )
+                ),
+                model_identifier=model,
+                os_family="windows",
+                os_version=_clean(platform.version()),
+                nic_mac=_primary_mac(),
+                is_virtual=_looks_virtual(model),
+            ),
+        )
+
+
+def _mark_identifiers(ident: MachineIdentifiers) -> MachineIdentifiers:
+    missing = tuple(
+        name
+        for name, value in (
+            ("firmware_uuid", ident.firmware_uuid),
+            ("hardware_serial", ident.hardware_serial),
+            ("persisted_token", ident.persisted_token),
+        )
+        if value is None
+    )
+    return MachineIdentifiers(
+        firmware_uuid=ident.firmware_uuid,
+        hardware_serial=ident.hardware_serial,
+        persisted_token=ident.persisted_token,
+        unavailable=missing,
+    )
+
+
+def _mark_caps(caps: MachineCapabilities) -> MachineCapabilities:
+    missing = tuple(
+        name
+        for name, value in (
+            ("cpu_brand", caps.cpu_brand),
+            ("logical_cores", caps.logical_cores),
+            ("ram_bytes", caps.ram_bytes),
+            ("model_identifier", caps.model_identifier),
+            ("nic_mac", caps.nic_mac),
+        )
+        if value is None
+    )
+    return MachineCapabilities(
+        cpu_brand=caps.cpu_brand,
+        logical_cores=caps.logical_cores,
+        ram_bytes=caps.ram_bytes,
+        model_identifier=caps.model_identifier,
+        os_family=caps.os_family,
+        os_version=caps.os_version,
+        nic_mac=caps.nic_mac,
+        is_virtual=caps.is_virtual,
+        unavailable=missing,
+    )

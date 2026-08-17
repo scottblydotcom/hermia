@@ -1,56 +1,27 @@
-"""Per-install salt store (hermia-cfqv)."""
+"""Fleet-scoped salt (hermia-cfqv)."""
+import os
 import stat
 
-from hermia.identity.salt import load_or_create_salt
+from hermia.identity.salt import load_or_create_salt, load_salt
 
 
-def test_creates_salt_and_is_stable_across_calls(tmp_path):
+def test_stable_across_calls_and_owner_only(tmp_path):
     p = tmp_path / "machine_salt"
     a = load_or_create_salt(p)
-    b = load_or_create_salt(p)
-    assert a == b
+    assert a == load_or_create_salt(p)
     assert len(a) == 32
-
-
-def test_salt_file_is_owner_only(tmp_path):
-    p = tmp_path / "machine_salt"
-    load_or_create_salt(p)
     assert stat.S_IMODE(p.stat().st_mode) == 0o600
 
 
-def test_distinct_paths_get_distinct_salts(tmp_path):
-    assert load_or_create_salt(tmp_path / "a") != load_or_create_salt(tmp_path / "b")
-
-
-def test_corrupt_salt_file_is_regenerated_not_crashed(tmp_path):
-    p = tmp_path / "machine_salt"
-    p.write_text("not-hex-at-all!!")
-    s = load_or_create_salt(p)
-    assert len(s) == 32
-
-
-def test_wrong_length_salt_is_regenerated(tmp_path):
-    """A truncated but valid-hex file must not yield a short salt."""
-    p = tmp_path / "machine_salt"
+def test_corrupt_or_short_salt_is_regenerated(tmp_path):
+    p = tmp_path / "s"
+    p.write_text("not-hex!!")
+    assert len(load_or_create_salt(p)) == 32
     p.write_text("abcd")
     assert len(load_or_create_salt(p)) == 32
 
 
-def test_unwritable_location_still_returns_a_usable_salt(tmp_path):
-    """A read-only home must degrade to an ephemeral salt, not crash the CLI."""
-    d = tmp_path / "ro"
-    d.mkdir()
-    d.chmod(0o500)
-    try:
-        s = load_or_create_salt(d / "machine_salt")
-        assert len(s) == 32
-    finally:
-        d.chmod(0o700)
-
-
-def test_existing_salt_with_loose_permissions_is_repaired_on_read(tmp_path):
-    """A salt restored from backup or written by an older build must not stay
-    world-readable just because its contents are valid."""
+def test_existing_loose_permissions_are_repaired_on_read(tmp_path):
     p = tmp_path / "machine_salt"
     p.write_text("ab" * 32)
     p.chmod(0o644)
@@ -58,10 +29,7 @@ def test_existing_salt_with_loose_permissions_is_repaired_on_read(tmp_path):
     assert stat.S_IMODE(p.stat().st_mode) == 0o600
 
 
-def test_salt_is_never_world_readable_even_under_a_loose_umask(tmp_path):
-    """write_text() then chmod() would expose the secret in between."""
-    import os
-
+def test_never_world_readable_even_under_a_loose_umask(tmp_path):
     old = os.umask(0o022)
     try:
         p = tmp_path / "machine_salt"
@@ -69,3 +37,66 @@ def test_salt_is_never_world_readable_even_under_a_loose_umask(tmp_path):
         assert stat.S_IMODE(p.stat().st_mode) == 0o600
     finally:
         os.umask(old)
+
+
+def test_unwritable_location_still_returns_a_usable_salt(tmp_path):
+    d = tmp_path / "ro"
+    d.mkdir()
+    d.chmod(0o500)
+    try:
+        assert len(load_or_create_salt(d / "machine_salt")) == 32
+    finally:
+        d.chmod(0o700)
+
+
+# --- FLEET SCOPE ---------------------------------------------------------
+# Regression: a per-install salt meant the SAME fleet host derived a different
+# id depending on which workstation ran the eval, so one machine appeared as
+# two in the corpus.
+
+
+def test_env_salt_wins_and_is_reported_as_fleet_scope(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMIA_FLEET_SALT", "ab" * 32)
+    info = load_salt(tmp_path / "fleet", tmp_path / "install")
+    assert info.scope == "fleet:env"
+    assert info.salt == bytes.fromhex("ab" * 32)
+
+
+def test_env_passphrase_is_accepted_and_stretched(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMIA_FLEET_SALT", "a shared team phrase")
+    info = load_salt(tmp_path / "fleet", tmp_path / "install")
+    assert info.scope == "fleet:env"
+    assert len(info.salt) == 32
+
+
+def test_two_installs_sharing_a_fleet_salt_agree(tmp_path, monkeypatch):
+    monkeypatch.setenv("HERMIA_FLEET_SALT", "shared")
+    a = load_salt(tmp_path / "f1", tmp_path / "i1")
+    b = load_salt(tmp_path / "f2", tmp_path / "i2")
+    assert a.salt == b.salt, "same fleet salt must give the same material"
+
+
+def test_fleet_file_outranks_install_file(tmp_path, monkeypatch):
+    monkeypatch.delenv("HERMIA_FLEET_SALT", raising=False)
+    fleet, install = tmp_path / "fleet", tmp_path / "install"
+    fleet.write_text("cd" * 32)
+    install.write_text("ef" * 32)
+    info = load_salt(fleet, install)
+    assert info.scope == "fleet:file"
+    assert info.salt == bytes.fromhex("cd" * 32)
+
+
+def test_falls_back_to_install_scope_and_says_so(tmp_path, monkeypatch):
+    monkeypatch.delenv("HERMIA_FLEET_SALT", raising=False)
+    info = load_salt(tmp_path / "nofleet", tmp_path / "install")
+    assert info.scope == "install"
+    assert len(info.salt) == 32
+
+
+def test_install_scope_is_not_silently_equivalent_to_fleet(tmp_path, monkeypatch):
+    """Ids from different scopes are not comparable; the scope must be visible."""
+    monkeypatch.delenv("HERMIA_FLEET_SALT", raising=False)
+    a = load_salt(tmp_path / "nf1", tmp_path / "i1")
+    b = load_salt(tmp_path / "nf2", tmp_path / "i2")
+    assert a.scope == b.scope == "install"
+    assert a.salt != b.salt

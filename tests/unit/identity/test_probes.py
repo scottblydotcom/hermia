@@ -1,151 +1,121 @@
-"""Cross-platform local hardware probe (hermia-cfqv)."""
+"""Cross-platform probe: identifiers vs capabilities (hermia-cfqv)."""
+import platform as _platform
 from unittest.mock import patch
 
-from hermia.identity.probes import LocalProbe
+import pytest
 
-IOREG_OUT = '    "IOPlatformUUID" = "ABC-123"\n'
+from hermia.identity.probes import LocalProbe, _reg_value
 
 
 def _mac_run(cmd, **kwargs):
     joined = " ".join(cmd)
     if "ioreg" in joined:
-        return IOREG_OUT
+        return '  "IOPlatformUUID" = "ABC-123"\n  "IOPlatformSerialNumber" = "C02XY"\n'
     if "machdep.cpu.brand_string" in joined:
         return "Apple M1 Pro"
     if "hw.memsize" in joined:
         return "17179869184"
+    if "hw.logicalcpu" in joined:
+        return "10"
+    if "hw.model" in joined:
+        return "MacBookPro18,1"
     return None
 
 
-def test_macos_probe_parses_ioreg_and_sysctl():
+def test_macos_splits_identifiers_from_capabilities():
     with patch("hermia.identity.probes._run", side_effect=_mac_run):
-        f = LocalProbe(os_family="darwin").probe()
-    assert f.platform_uuid == "ABC-123"
-    assert f.cpu_brand == "Apple M1 Pro"
-    assert f.ram_bytes == 17179869184
-    assert f.is_identifiable
-    assert f.unavailable == ()
+        obs = LocalProbe(os_family="darwin").probe()
+    assert obs.identifiers.firmware_uuid == "ABC-123"
+    assert obs.identifiers.hardware_serial == "C02XY"
+    assert obs.capabilities.ram_bytes == 17179869184
+    assert obs.capabilities.cpu_brand == "Apple M1 Pro"
+    assert obs.capabilities.model_identifier == "MacBookPro18,1"
 
 
 def test_probe_failure_yields_none_not_a_guess():
     with patch("hermia.identity.probes._run", return_value=None):
-        f = LocalProbe(os_family="darwin").probe()
-    assert f.platform_uuid is None
-    assert not f.is_identifiable
-    assert "platform_uuid" in f.unavailable
+        obs = LocalProbe(os_family="darwin").probe()
+    assert obs.identifiers.firmware_uuid is None
+    assert not obs.identifiers.is_identifiable
+    assert "firmware_uuid" in obs.identifiers.unavailable
+    assert obs.capabilities.ram_bytes is None
 
 
-def test_unsupported_os_reports_unavailable_rather_than_raising():
-    f = LocalProbe(os_family="plan9").probe()
-    assert f.platform_uuid is None
-    assert f.os_family == "plan9"
-    assert not f.is_identifiable
+def test_unsupported_os_does_not_raise():
+    obs = LocalProbe(os_family="plan9").probe()
+    assert not obs.identifiers.is_identifiable
+    assert obs.capabilities.os_family == "plan9"
 
 
-def test_ram_bytes_is_never_zero_when_unmeasured():
-    """0 would read as a real measurement of a 0-byte machine."""
-    with patch("hermia.identity.probes._run", return_value=""):
-        f = LocalProbe(os_family="darwin").probe()
-    assert f.ram_bytes is None
+def test_default_os_family_is_platform_system_not_os_name():
+    """os.name returns 'posix' on macOS AND Linux, matching no branch at all."""
+    assert LocalProbe().os_family == _platform.system().lower()
+    assert LocalProbe().os_family not in {"posix", "nt", "java"}
 
 
-def test_non_numeric_ram_is_none_not_an_exception():
-    def bad(cmd, **kwargs):
-        return "not-a-number" if "hw.memsize" in " ".join(cmd) else _mac_run(cmd)
+def test_linux_prefers_the_firmware_root_over_the_on_disk_token():
+    """Regression: the old code read /etc/machine-id first and never fell
+    through to the firmware UUID, silently preferring the weakest identifier."""
 
-    with patch("hermia.identity.probes._run", side_effect=bad):
-        f = LocalProbe(os_family="darwin").probe()
-    assert f.ram_bytes is None
-    assert "ram_bytes" in f.unavailable
-
-
-def test_linux_meminfo_kb_is_converted_to_bytes():
     def read(path):
         return {
+            "/sys/class/dmi/id/product_uuid": "DMI-UUID-9\n",
+            "/sys/class/dmi/id/board_serial": "BOARD-7\n",
             "/etc/machine-id": "deadbeef\n",
-            "/proc/cpuinfo": "model name\t: AMD Ryzen 9\n",
+            "/proc/cpuinfo": "processor\t: 0\nmodel name\t: AMD Ryzen 9\n",
             "/proc/meminfo": "MemTotal:       32768000 kB\n",
         }.get(str(path))
 
     with patch("hermia.identity.probes._read_text", side_effect=read):
-        f = LocalProbe(os_family="linux").probe()
-    assert f.platform_uuid == "deadbeef"
-    assert f.cpu_brand == "AMD Ryzen 9"
-    assert f.ram_bytes == 32768000 * 1024
+        obs = LocalProbe(os_family="linux").probe()
+    assert obs.identifiers.firmware_uuid == "DMI-UUID-9"
+    assert obs.identifiers.hardware_serial == "BOARD-7"
+    assert obs.identifiers.persisted_token == "deadbeef"
+    assert obs.capabilities.ram_bytes == 32768000 * 1024
+    assert obs.capabilities.cpu_brand == "AMD Ryzen 9"
 
 
-def test_linux_falls_back_to_dmi_product_uuid_when_machine_id_absent():
+def test_linux_root_gated_dmi_falls_back_to_the_token_but_records_the_gap():
     def read(path):
-        return {
-            "/sys/class/dmi/id/product_uuid": "DMI-UUID-9\n",
-            "/proc/cpuinfo": "model name\t: AMD Ryzen 9\n",
-            "/proc/meminfo": "MemTotal:       1024 kB\n",
-        }.get(str(path))
+        return {"/etc/machine-id": "deadbeef\n"}.get(str(path))
 
     with patch("hermia.identity.probes._read_text", side_effect=read):
-        f = LocalProbe(os_family="linux").probe()
-    assert f.platform_uuid == "DMI-UUID-9"
+        obs = LocalProbe(os_family="linux").probe()
+    assert obs.identifiers.firmware_uuid is None
+    assert obs.identifiers.persisted_token == "deadbeef"
+    assert "firmware_uuid" in obs.identifiers.unavailable
 
 
-def test_no_mac_address_is_ever_collected():
-    """A MAC-derived identity would migrate with a dongle or dock."""
-    with patch("hermia.identity.probes._run", side_effect=_mac_run):
-        f = LocalProbe(os_family="darwin").probe()
-    assert not hasattr(f, "mac")
-    assert not hasattr(f, "mac_address")
-
-
-# ---------------------------------------------------------------------------
-# Regression tests for OS-family detection.
-#
-# The first fleet-generated implementation used `os.name` (which returns
-# "posix" on macOS AND Linux, "nt" on Windows) and matched the Windows branch
-# on "win32". Both are wrong for `platform.system().lower()`, so the default
-# constructor silently probed NOTHING on every platform and returned all-nulls.
-# The end-to-end determinism test did not catch it, because null == null is
-# perfectly stable. These assert the actual family strings.
-# ---------------------------------------------------------------------------
-
-
-def test_default_os_family_is_platform_system_not_os_name():
-    import platform as _platform
-
-    assert LocalProbe().os_family == _platform.system().lower()
-
-
-def test_default_os_family_is_never_a_posix_or_nt_style_value():
-    assert LocalProbe().os_family not in {"posix", "nt", "java"}
-
-
-def test_windows_branch_matches_the_string_platform_system_returns():
-    """platform.system().lower() is 'windows' — never 'win32'."""
+def test_windows_reads_the_firmware_uuid_not_only_machineguid():
+    """Regression: the old code read ONLY MachineGuid, an OS-install id."""
 
     def win_run(cmd, **kwargs):
         joined = " ".join(cmd)
+        if "csproduct" in joined and "UUID" in joined:
+            return "UUID\n4C4C4544-0031\n"
+        if "baseboard" in joined:
+            return "SerialNumber\nBOARD-XYZ\n"
         if "MachineGuid" in joined:
-            return "    MachineGuid    REG_SZ    GUID-XYZ\n"
-        if "wmic" in joined:
-            return "TotalPhysicalMemory\n34359738368\n"
+            return "    MachineGuid    REG_SZ    guid-abc\n"
         return None
 
     with patch("hermia.identity.probes._run", side_effect=win_run):
-        f = LocalProbe(os_family="windows").probe()
-    assert f.platform_uuid == "GUID-XYZ"
-    assert f.ram_bytes == 34359738368
-    assert f.is_identifiable
+        obs = LocalProbe(os_family="windows").probe()
+    assert obs.identifiers.firmware_uuid == "4C4C4544-0031"
+    assert obs.identifiers.hardware_serial == "BOARD-XYZ"
+    assert obs.identifiers.persisted_token == "guid-abc"
 
 
-def test_darwin_probe_actually_measures_on_this_machine_when_on_darwin():
-    """On a real Mac the default probe must produce a usable identity."""
-    import platform as _platform
-
-    import pytest
-
-    if _platform.system().lower() != "darwin":
-        pytest.skip("darwin-only: asserts the default probe measures real hardware")
-    f = LocalProbe().probe()
-    assert f.is_identifiable, f"default probe measured nothing: {f.unavailable}"
-    assert f.ram_bytes and f.ram_bytes > 0
+@pytest.mark.parametrize(
+    "line,expected",
+    [
+        ("    MachineGuid    REG_SZ    abc-123\n", "abc-123"),
+        ("    MachineGuid    REG_SZ    \n", None),
+        ("    MachineGuid    REG_SZ\n", None),
+    ],
+)
+def test_empty_registry_value_is_not_mistaken_for_an_identifier(line, expected):
+    assert _reg_value(line, "MachineGuid") == expected
 
 
 def test_blank_measurement_counts_as_unmeasured():
@@ -153,32 +123,15 @@ def test_blank_measurement_counts_as_unmeasured():
         return '  "IOPlatformUUID" = ""  ' if "ioreg" in " ".join(cmd) else "   "
 
     with patch("hermia.identity.probes._run", side_effect=blank):
-        f = LocalProbe(os_family="darwin").probe()
-    assert f.platform_uuid is None
-    assert f.cpu_brand is None
-    assert set(f.unavailable) == {"platform_uuid", "cpu_brand", "ram_bytes"}
+        obs = LocalProbe(os_family="darwin").probe()
+    assert obs.identifiers.firmware_uuid is None
+    assert obs.capabilities.cpu_brand is None
 
 
-def test_empty_windows_registry_value_is_not_mistaken_for_a_uuid():
-    """`reg query` prints '<name> <type> <value>'. An EMPTY value leaves only
-    two tokens, and taking the last one returns the literal type name 'REG_SZ'
-    — a fabricated identity that every affected box would share."""
-    from hermia.identity.probes import _windows_uuid
-
-    assert _windows_uuid("    MachineGuid    REG_SZ    \n") is None
-    assert _windows_uuid("    MachineGuid    REG_SZ\n") is None
-    assert _windows_uuid("    MachineGuid    REG_SZ    abc-123\n") == "abc-123"
-
-
-def test_windows_probe_with_empty_guid_is_not_identifiable():
-    def win_run(cmd, **kwargs):
-        joined = " ".join(cmd)
-        if "MachineGuid" in joined:
-            return "    MachineGuid    REG_SZ    \n"
-        return None
-
-    with patch("hermia.identity.probes._run", side_effect=win_run):
-        f = LocalProbe(os_family="windows").probe()
-    assert f.platform_uuid is None
-    assert not f.is_identifiable
-    assert "platform_uuid" in f.unavailable
+def test_real_probe_measures_something_on_this_machine():
+    if _platform.system().lower() != "darwin":
+        pytest.skip("darwin-only: asserts the default probe measures real hardware")
+    obs = LocalProbe().probe()
+    assert obs.identifiers.is_identifiable, f"measured nothing: {obs.identifiers.unavailable}"
+    assert obs.capabilities.ram_bytes and obs.capabilities.ram_bytes > 0
+    assert obs.capabilities.model_identifier

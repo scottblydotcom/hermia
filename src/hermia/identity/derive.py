@@ -1,42 +1,65 @@
-"""Hardware facts + salt -> machine_id (hermia-cfqv). Pure function, no I/O."""
+"""Identifiers + salt -> machine_id (hermia-cfqv). Pure function, no I/O.
+
+Exact match on a strict preference order. No weighting, no threshold, no fuzzy
+comparison — see types.py for why that approach was removed rather than tuned.
+
+Capabilities are NEVER an input here. That is what makes a RAM upgrade a recorded
+fact instead of a new machine.
+"""
 from __future__ import annotations
 
 import hashlib
 import hmac
 import json
 
-from hermia.identity.types import HardwareFacts, MachineIdentity
+from hermia.identity.types import MachineIdentifiers, MachineIdentity
 
 ID_HEX_CHARS = 16
 
+# Strongest first. Both firmware values together beat either alone: vendors have
+# shipped batches with duplicate SMBIOS UUIDs, and a serial alone is weaker still.
+# The minted token ranks last because it lives on disk, so a cloned image carries
+# it to another machine.
+PREFERENCE: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("firmware-uuid+serial", ("firmware_uuid", "hardware_serial")),
+    ("firmware-uuid", ("firmware_uuid",)),
+    ("hardware-serial", ("hardware_serial",)),
+    ("persisted-token", ("persisted_token",)),
+)
 
-def derive_machine_id(facts: HardwareFacts, salt: bytes) -> MachineIdentity:
-    """Derive a salted, locally-unique machine id.
 
-    Returns ``machine_id=None`` with an explanatory ``basis`` whenever the
-    machine-bound identifier is missing. There is deliberately no partial or
-    fallback identity: a hash of CPU + RAM alone would collide across identical
-    laptops (identical laptop models are common in a fleet), and two
-    machines sharing an identity is precisely the defect this prevents.
-    Admitting "not known" is the safer failure.
+def select_source(identifiers: MachineIdentifiers) -> tuple[str, tuple[str, ...]] | None:
+    """Return the strongest available (source_name, fields), or None."""
+    usable = identifiers.usable
+    for source, fields in PREFERENCE:
+        if all(f in usable for f in fields):
+            return source, fields
+    return None
 
-    Only the derived digest is returned — never the salt, never a raw hardware
-    identifier.
+
+def derive_machine_id(
+    identifiers: MachineIdentifiers, salt: bytes
+) -> MachineIdentity:
+    """Derive an exact, salted machine id from non-transferable identifiers.
+
+    Returns ``machine_id=None`` with an explanatory ``basis`` when no usable
+    identifier exists. There is deliberately no partial identity: a value built
+    from CPU and memory would collide across identical laptops, and two machines
+    sharing an identity is exactly the defect this prevents. Admitting "not
+    known" is the safer failure — a null is visible, a wrong id is not.
+
+    Only the derived digest is returned: never the salt, never a raw identifier.
     """
-    if not facts.is_identifiable:
-        return MachineIdentity(None, "unavailable:no-platform-uuid", facts.os_family)
+    selected = select_source(identifiers)
+    if selected is None:
+        return MachineIdentity(None, "none", "unavailable:no-usable-identifier")
 
+    source, fields = selected
+    usable = identifiers.usable
     canonical = json.dumps(
-        {
-            "platform_uuid": facts.platform_uuid,
-            "cpu_brand": facts.cpu_brand,
-            "ram_bytes": facts.ram_bytes,
-            "os_family": facts.os_family,
-        },
+        {"source": source, **{f: usable[f] for f in fields}},
         sort_keys=True,
         separators=(",", ":"),
     )
     digest = hmac.new(salt, canonical.encode("utf-8"), hashlib.sha256).hexdigest()
-    return MachineIdentity(
-        digest[:ID_HEX_CHARS], "measured:platform-uuid+cpu+ram", facts.os_family
-    )
+    return MachineIdentity(digest[:ID_HEX_CHARS], source, f"measured:{source}")

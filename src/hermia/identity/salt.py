@@ -1,46 +1,79 @@
-"""Per-install salt for machine_id derivation (hermia-cfqv).
+"""Salt for machine_id derivation (hermia-cfqv).
 
-Stored in its OWN file, deliberately NOT in ``~/.hermia/config.toml``: that file
-is written with a whole-file overwrite by ``submit.load_or_create_install_id``,
-so a salt stored beside ``install_id`` would be silently destroyed the first
-time the install id is regenerated.
+FLEET-scoped by preference, per-install only as a fallback.
 
-The salt is what makes ``machine_id`` locally unique but globally meaningless.
-An UNSALTED hash of platform-uuid + cpu + ram is trivially confirmable: the
-candidate space is small enough that anyone holding a machine can hash it and
-confirm a match, re-identifying the box and leaking fleet composition. The
-tradeoff, stated explicitly: cross-install comparison becomes impossible. That
-is acceptable — the requirement is identifying machines WITHIN one fleet's data.
+An earlier version salted per client install. That silently broke the thing the
+identity is for: run an eval from one laptop and then from another, and the same
+fleet host derives two different ids, so one machine appears as two in the
+corpus. The salt has to be a property of the FLEET being measured, not of the
+workstation doing the measuring.
+
+Resolution order:
+  1. ``HERMIA_FLEET_SALT`` environment variable (hex or passphrase)
+  2. ``~/.hermia/fleet_salt``
+  3. ``~/.hermia/machine_salt`` — per-install fallback, scope recorded as such
+
+The scope is returned alongside the salt and must be recorded with any derived
+id: two ids are only comparable when their scopes match. Silently mixing scopes
+would reintroduce exactly the split-identity bug above.
+
+Salting at all is deliberate: an UNSALTED hash of a serial or UUID is trivially
+confirmable, because the candidate space is small enough to enumerate and match,
+re-identifying a machine and leaking fleet composition. Note the limit, stated
+plainly rather than assumed away — an adversary who obtains the salt AND holds a
+candidate machine can still confirm a match. The salt raises the cost of
+re-identification; it does not make it impossible.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import secrets
 import stat
+from dataclasses import dataclass
 from pathlib import Path
 
 SALT_BYTES = 32
-DEFAULT_SALT_PATH = Path.home() / ".hermia" / "machine_salt"
+CONFIG_DIR = Path.home() / ".hermia"
+FLEET_SALT_PATH = CONFIG_DIR / "fleet_salt"
+INSTALL_SALT_PATH = CONFIG_DIR / "machine_salt"
+FLEET_SALT_ENV = "HERMIA_FLEET_SALT"
 
 
-def load_or_create_salt(salt_path: Path | None = None) -> bytes:
-    """Return the per-install salt, creating and persisting it if absent.
+@dataclass(frozen=True)
+class SaltInfo:
+    """A salt plus the scope it identifies machines within."""
 
-    A missing, unreadable, malformed, or wrong-length file is regenerated. An
-    unwritable location yields an ephemeral salt for this process rather than
-    raising — the CLI keeps working, though ``machine_id`` will not then be
-    stable across runs.
+    salt: bytes
+    scope: str  # "fleet:env" | "fleet:file" | "install"
+
+
+def _harden(path: Path) -> None:
+    """Force owner-only permissions on a salt file.
+
+    Applied on READ as well as write: a salt restored from a backup or copied
+    between machines can already be world readable, and merely consuming it
+    would leave the secret exposed indefinitely.
     """
-    path = DEFAULT_SALT_PATH if salt_path is None else salt_path
+    try:
+        if stat.S_IMODE(path.stat().st_mode) != 0o600:
+            path.chmod(0o600)
+    except OSError:
+        pass
+
+
+def _read_salt(path: Path) -> bytes | None:
     try:
         raw = bytes.fromhex(path.read_text(encoding="utf-8").strip())
-        if len(raw) == SALT_BYTES:
-            _harden(path)
-            return raw
     except (OSError, ValueError):
-        pass  # absent, unreadable, or not hex — regenerate below
+        return None
+    if len(raw) != SALT_BYTES:
+        return None
+    _harden(path)
+    return raw
 
-    salt = secrets.token_bytes(SALT_BYTES)
+
+def _write_salt(path: Path, salt: bytes) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         # Create with 0600 ALREADY SET rather than write-then-chmod: under a
@@ -54,18 +87,47 @@ def load_or_create_salt(salt_path: Path | None = None) -> bytes:
         _harden(path)
     except OSError:
         pass  # read-only home: ephemeral for this process, do not crash
-    return salt
 
 
-def _harden(path: Path) -> None:
-    """Force owner-only permissions on an existing salt file.
+def load_salt(
+    fleet_salt_path: Path | None = None, install_salt_path: Path | None = None
+) -> SaltInfo:
+    """Return the salt to derive machine ids with, and the scope it applies to."""
+    env = os.environ.get(FLEET_SALT_ENV)
+    if env and env.strip():
+        raw = env.strip()
+        try:
+            material = bytes.fromhex(raw)
+            if len(material) != SALT_BYTES:
+                raise ValueError
+        except ValueError:
+            # Not hex — accept a passphrase, stretched to a fixed width so any
+            # operator-chosen string works without a silent length surprise.
+            material = hashlib.sha256(raw.encode("utf-8")).digest()
+        return SaltInfo(material, "fleet:env")
 
-    Applied on READ as well as write: a salt restored from a backup, copied
-    between machines, or written by an older build can already be world
-    readable, and simply consuming it would leave the secret exposed forever.
-    """
-    try:
-        if stat.S_IMODE(path.stat().st_mode) != 0o600:
-            path.chmod(0o600)
-    except OSError:
-        pass
+    fleet_path = FLEET_SALT_PATH if fleet_salt_path is None else fleet_salt_path
+    existing = _read_salt(fleet_path)
+    if existing is not None:
+        return SaltInfo(existing, "fleet:file")
+
+    install_path = INSTALL_SALT_PATH if install_salt_path is None else install_salt_path
+    existing = _read_salt(install_path)
+    if existing is not None:
+        return SaltInfo(existing, "install")
+
+    salt = secrets.token_bytes(SALT_BYTES)
+    _write_salt(install_path, salt)
+    return SaltInfo(salt, "install")
+
+
+def load_or_create_salt(salt_path: Path | None = None) -> bytes:
+    """Backwards-compatible accessor returning only the salt bytes."""
+    if salt_path is not None:
+        existing = _read_salt(salt_path)
+        if existing is not None:
+            return existing
+        salt = secrets.token_bytes(SALT_BYTES)
+        _write_salt(salt_path, salt)
+        return salt
+    return load_salt().salt

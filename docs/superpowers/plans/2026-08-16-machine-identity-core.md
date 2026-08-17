@@ -1,5 +1,28 @@
 # Machine Identity Core (hermia-cfqv) Implementation Plan
 
+> **STATUS 2026-08-16 — PARTLY SUPERSEDED. Read this box before the plan.**
+>
+> Two independent outside-family adversarial reviews (Antigravity, and gpt-oss:120b
+> run locally) rejected the identity model this plan implements, and a proposed
+> weighted-threshold successor, for the same reason:
+>
+> > Any threshold loose enough to tolerate a hardware repair merges two identical
+> > laptops; any threshold tight enough to keep them apart is just an exact match
+> > on the strongest identifier.
+>
+> What shipped instead is an **identifier / capability split**:
+> * IDENTITY comes only from non-transferable identifiers (firmware UUID, hardware
+>   serial, minted on-host token), matched EXACTLY in a fixed preference order.
+> * CAPABILITIES (CPU, memory, GPU, MAC) are recorded and never hashed, so a RAM
+>   upgrade is a visible fact rather than a new machine.
+> * The salt is FLEET-scoped, not per-install — a per-install salt made the same
+>   host derive different ids from different workstations.
+>
+> Tasks 1-7 below remain accurate for structure, file layout, and the
+> never-guess rule. The `HardwareFacts` type and the "platform_uuid REQUIRED,
+> else null" rule are superseded by `MachineIdentifiers` / `MachineCapabilities`
+> and the preference order in `derive.py`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Derive a salted, locally-unique `machine_id` from identifiers bound to the *machine* (not to a detachable network adapter), so a row's identity stops depending on an operator-typed name or a DHCP reservation.
