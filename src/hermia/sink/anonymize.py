@@ -125,3 +125,51 @@ def anonymize_row(row: dict[str, Any]) -> dict[str, Any]:
     out["hermia_version"] = __version__
     out["git_sha"] = __git_sha__
     return out
+
+
+# ---------------------------------------------------------------------------
+# machine_id pseudonymisation (hermia-cfqv)
+# ---------------------------------------------------------------------------
+
+
+def _pseudonym(index: int) -> str:
+    """``0 -> node-a`` … ``25 -> node-z``, ``26 -> node-aa``, spreadsheet-style."""
+    letters = ""
+    n = index
+    while True:
+        letters = chr(ord("a") + n % 26) + letters
+        n = n // 26 - 1
+        if n < 0:
+            break
+    return f"node-{letters}"
+
+
+def assign_machine_pseudonyms(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Replace ``machine_id`` with a dataset-stable ``machine_pseudonym``.
+
+    ``machine_id`` is a salted hash: locally unique, globally meaningless. It is
+    still not exported — it is replaced by ``node-a``, ``node-b``, … assigned in
+    first-appearance order, so a reader can tell rows apart by machine without
+    receiving any value that ties back to a box. Neither the salt nor this
+    mapping is ever written to output, and ``machine_id`` is deliberately absent
+    from ``SUBMIT_WHITELIST`` so it cannot leak through the normal path either.
+
+    A ``machine_id`` that is ``None`` or absent means NOT MEASURED, and yields a
+    ``None`` pseudonym rather than being pooled into a shared bucket — otherwise
+    every unidentified machine would look like one machine.
+
+    Input rows are never mutated; new dicts are returned.
+    """
+    assigned: dict[str, str] = {}
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        new = dict(row)
+        machine_id = new.pop("machine_id", None)
+        if isinstance(machine_id, str) and machine_id:
+            if machine_id not in assigned:
+                assigned[machine_id] = _pseudonym(len(assigned))
+            new["machine_pseudonym"] = assigned[machine_id]
+        else:
+            new["machine_pseudonym"] = None
+        out.append(new)
+    return out

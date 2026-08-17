@@ -285,3 +285,64 @@ def test_property_no_forbidden_key_or_value_leaks(
     assert set(out).issubset(_ALLOWED_OUTPUT_KEYS), (
         f"Non-whitelisted key in output: {set(out) - _ALLOWED_OUTPUT_KEYS}"
     )
+
+
+# ---------------------------------------------------------------------------
+# machine_id pseudonymisation (hermia-cfqv)
+# ---------------------------------------------------------------------------
+
+
+def test_machine_id_is_not_whitelisted():
+    """Default-deny must keep the salted hash out of community submissions."""
+    from hermia.sink.anonymize import SUBMIT_WHITELIST
+
+    assert "machine_id" not in SUBMIT_WHITELIST
+    assert "machine_id_basis" not in SUBMIT_WHITELIST
+
+
+def test_pseudonyms_are_stable_and_ordered_by_first_appearance():
+    from hermia.sink.anonymize import assign_machine_pseudonyms
+
+    rows = [{"machine_id": "bbbb"}, {"machine_id": "aaaa"}, {"machine_id": "bbbb"}]
+    got = assign_machine_pseudonyms(rows)
+    assert [r["machine_pseudonym"] for r in got] == ["node-a", "node-b", "node-a"]
+
+
+def test_null_machine_id_gets_null_pseudonym_not_a_node_name():
+    from hermia.sink.anonymize import assign_machine_pseudonyms
+
+    got = assign_machine_pseudonyms([{"machine_id": None}])
+    assert got[0]["machine_pseudonym"] is None
+
+
+def test_absent_machine_id_key_yields_null_pseudonym():
+    from hermia.sink.anonymize import assign_machine_pseudonyms
+
+    got = assign_machine_pseudonyms([{"model": "x"}])
+    assert got[0]["machine_pseudonym"] is None
+
+
+def test_original_machine_id_is_removed_from_the_output():
+    from hermia.sink.anonymize import assign_machine_pseudonyms
+
+    got = assign_machine_pseudonyms([{"machine_id": "aaaa"}])
+    assert "machine_id" not in got[0]
+
+
+def test_input_rows_are_not_mutated():
+    from hermia.sink.anonymize import assign_machine_pseudonyms
+
+    rows = [{"machine_id": "aaaa"}]
+    assign_machine_pseudonyms(rows)
+    assert rows[0]["machine_id"] == "aaaa"
+
+
+def test_pseudonyms_extend_past_z():
+    from hermia.sink.anonymize import assign_machine_pseudonyms
+
+    rows = [{"machine_id": f"id{i:03d}"} for i in range(28)]
+    got = assign_machine_pseudonyms(rows)
+    names = [r["machine_pseudonym"] for r in got]
+    assert names[0] == "node-a"
+    assert names[25] == "node-z"
+    assert len(set(names)) == 28
