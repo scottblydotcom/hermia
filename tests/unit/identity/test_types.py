@@ -1,4 +1,6 @@
 """Identifier/capability split (hermia-cfqv)."""
+from dataclasses import FrozenInstanceError
+
 import pytest
 
 from hermia.identity.types import (
@@ -11,7 +13,7 @@ from hermia.identity.types import (
 
 def test_identifiers_are_frozen():
     i = MachineIdentifiers(firmware_uuid="U")
-    with pytest.raises(Exception):
+    with pytest.raises(FrozenInstanceError):
         i.firmware_uuid = "other"  # type: ignore[misc]
 
 

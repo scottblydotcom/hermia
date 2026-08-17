@@ -70,7 +70,7 @@ def test_linux_prefers_the_firmware_root_over_the_on_disk_token():
         obs = LocalProbe(os_family="linux").probe()
     assert obs.identifiers.firmware_uuid == "DMI-UUID-9"
     assert obs.identifiers.hardware_serial == "BOARD-7"
-    assert obs.identifiers.persisted_token == "deadbeef"
+    assert obs.identifiers.persisted_token == "deadbeef"  # noqa: S105 - field name, not a credential
     assert obs.capabilities.ram_bytes == 32768000 * 1024
     assert obs.capabilities.cpu_brand == "AMD Ryzen 9"
 
@@ -82,7 +82,7 @@ def test_linux_root_gated_dmi_falls_back_to_the_token_but_records_the_gap():
     with patch("hermia.identity.probes._read_text", side_effect=read):
         obs = LocalProbe(os_family="linux").probe()
     assert obs.identifiers.firmware_uuid is None
-    assert obs.identifiers.persisted_token == "deadbeef"
+    assert obs.identifiers.persisted_token == "deadbeef"  # noqa: S105 - field name, not a credential
     assert "firmware_uuid" in obs.identifiers.unavailable
 
 
@@ -103,7 +103,7 @@ def test_windows_reads_the_firmware_uuid_not_only_machineguid():
         obs = LocalProbe(os_family="windows").probe()
     assert obs.identifiers.firmware_uuid == "4C4C4544-0031"
     assert obs.identifiers.hardware_serial == "BOARD-XYZ"
-    assert obs.identifiers.persisted_token == "guid-abc"
+    assert obs.identifiers.persisted_token == "guid-abc"  # noqa: S105 - field name, not a credential
 
 
 @pytest.mark.parametrize(

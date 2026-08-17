@@ -41,12 +41,12 @@ def test_preference_order_strongest_first():
     assert select_source(FULL)[0] == "firmware-uuid+serial"
     assert select_source(MachineIdentifiers(firmware_uuid="U"))[0] == "firmware-uuid"
     assert select_source(MachineIdentifiers(hardware_serial="S"))[0] == "hardware-serial"
-    assert select_source(MachineIdentifiers(persisted_token="T"))[0] == "persisted-token"
+    assert select_source(MachineIdentifiers(persisted_token="T"))[0] == "persisted-token"  # noqa: S106 - field name, not a credential
 
 
 def test_firmware_root_outranks_the_on_disk_token():
     """A cloned disk image duplicates the token; firmware survives reinstall."""
-    ident = MachineIdentifiers(firmware_uuid="U", persisted_token="T")
+    ident = MachineIdentifiers(firmware_uuid="U", persisted_token="T")  # noqa: S106 - field name, not a credential
     assert derive_machine_id(ident, SALT).source == "firmware-uuid"
 
 
@@ -76,6 +76,6 @@ def test_raw_identifiers_never_appear_in_the_result():
 def test_source_change_is_visible_rather_than_silent():
     """Losing the firmware root changes the id -- but the source says why."""
     strong = derive_machine_id(FULL, SALT)
-    weak = derive_machine_id(MachineIdentifiers(persisted_token="T"), SALT)
+    weak = derive_machine_id(MachineIdentifiers(persisted_token="T"), SALT)  # noqa: S106 - field name, not a credential
     assert strong.source != weak.source
     assert strong.machine_id != weak.machine_id
