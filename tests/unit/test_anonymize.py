@@ -285,3 +285,132 @@ def test_property_no_forbidden_key_or_value_leaks(
     assert set(out).issubset(_ALLOWED_OUTPUT_KEYS), (
         f"Non-whitelisted key in output: {set(out) - _ALLOWED_OUTPUT_KEYS}"
     )
+
+
+# ---------------------------------------------------------------------------
+# machine_id pseudonymisation (hermia-cfqv)
+# ---------------------------------------------------------------------------
+
+
+def test_machine_id_is_not_whitelisted():
+    """Default-deny must keep the salted hash out of community submissions."""
+    from hermia.sink.anonymize import SUBMIT_WHITELIST
+
+    assert "machine_id" not in SUBMIT_WHITELIST
+    assert "machine_id_basis" not in SUBMIT_WHITELIST
+
+
+def test_pseudonyms_are_stable_and_ordered_by_first_appearance():
+    from hermia.sink.anonymize import assign_machine_pseudonyms
+
+    rows = [{"machine_id": "bbbb"}, {"machine_id": "aaaa"}, {"machine_id": "bbbb"}]
+    got = assign_machine_pseudonyms(rows)
+    assert [r["machine_pseudonym"] for r in got] == ["node-a", "node-b", "node-a"]
+
+
+def test_null_machine_id_gets_null_pseudonym_not_a_node_name():
+    from hermia.sink.anonymize import assign_machine_pseudonyms
+
+    got = assign_machine_pseudonyms([{"machine_id": None}])
+    assert got[0]["machine_pseudonym"] is None
+
+
+def test_absent_machine_id_key_yields_null_pseudonym():
+    from hermia.sink.anonymize import assign_machine_pseudonyms
+
+    got = assign_machine_pseudonyms([{"model": "x"}])
+    assert got[0]["machine_pseudonym"] is None
+
+
+def test_original_machine_id_is_removed_from_the_output():
+    from hermia.sink.anonymize import assign_machine_pseudonyms
+
+    got = assign_machine_pseudonyms([{"machine_id": "aaaa"}])
+    assert "machine_id" not in got[0]
+
+
+def test_input_rows_are_not_mutated():
+    from hermia.sink.anonymize import assign_machine_pseudonyms
+
+    rows = [{"machine_id": "aaaa"}]
+    assign_machine_pseudonyms(rows)
+    assert rows[0]["machine_id"] == "aaaa"
+
+
+def test_pseudonyms_extend_past_z():
+    from hermia.sink.anonymize import assign_machine_pseudonyms
+
+    rows = [{"machine_id": f"id{i:03d}"} for i in range(28)]
+    got = assign_machine_pseudonyms(rows)
+    names = [r["machine_pseudonym"] for r in got]
+    assert names[0] == "node-a"
+    assert names[25] == "node-z"
+    assert names[26] == "node-aa"   # spreadsheet-style rollover
+    assert names[27] == "node-ab"
+    assert len(set(names)) == 28
+
+
+def test_machine_pseudonym_survives_the_default_deny_pass():
+    """Without a whitelist entry the pseudonym is silently dropped, and an
+    export carries no way to tell one machine's rows from another's."""
+    from hermia.sink.anonymize import (
+        SUBMIT_WHITELIST,
+        anonymize_row,
+        assign_machine_pseudonyms,
+    )
+
+    assert "machine_pseudonym" in SUBMIT_WHITELIST
+    assert "machine_id" not in SUBMIT_WHITELIST
+    rows = assign_machine_pseudonyms([{"model": "m", "machine_id": "aaaa"}])
+    assert anonymize_row(rows[0])["machine_pseudonym"] == "node-a"
+
+
+def test_applying_pseudonyms_twice_does_not_blank_them():
+    from hermia.sink.anonymize import assign_machine_pseudonyms
+
+    once = assign_machine_pseudonyms([{"machine_id": "aaaa"}])
+    twice = assign_machine_pseudonyms(once)
+    assert twice[0]["machine_pseudonym"] == "node-a"
+
+
+def test_unidentified_machines_are_not_pooled_into_one_bucket():
+    """Ten unidentified boxes exported as a single null read as ONE machine
+    that ran ten times."""
+    from hermia.sink.anonymize import assign_machine_pseudonyms
+
+    rows = [
+        {"machine_id": None, "fleet_host_name": "box-1"},
+        {"machine_id": None, "fleet_host_name": "box-2"},
+        {"machine_id": None, "fleet_host_name": "box-1"},
+    ]
+    got = assign_machine_pseudonyms(rows)
+    names = [r["machine_pseudonym"] for r in got]
+    assert names == ["unidentified-a", "unidentified-b", "unidentified-a"]
+    assert len(set(names)) == 2
+
+
+def test_the_grouping_key_itself_is_never_exported():
+    """Separating them must not leak the operator's host names."""
+    from hermia.sink.anonymize import SUBMIT_WHITELIST, anonymize_row, assign_machine_pseudonyms
+
+    assert "fleet_host_name" not in SUBMIT_WHITELIST
+    row = assign_machine_pseudonyms([{"machine_id": None, "fleet_host_name": "secret-box"}])[0]
+    out = anonymize_row(row)
+    assert out["machine_pseudonym"] == "unidentified-a"
+    assert "secret-box" not in str(out)
+
+
+def test_nothing_to_group_on_still_yields_null():
+    from hermia.sink.anonymize import assign_machine_pseudonyms
+
+    assert assign_machine_pseudonyms([{"machine_id": None}])[0]["machine_pseudonym"] is None
+
+
+def test_identified_and_unidentified_use_distinct_namespaces():
+    from hermia.sink.anonymize import assign_machine_pseudonyms
+
+    got = assign_machine_pseudonyms([
+        {"machine_id": "aaaa"}, {"machine_id": None, "host": "h1"},
+    ])
+    assert got[0]["machine_pseudonym"] == "node-a"
+    assert got[1]["machine_pseudonym"] == "unidentified-a"
