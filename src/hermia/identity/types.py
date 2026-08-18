@@ -118,11 +118,18 @@ class MachineIdentity:
     ``source`` names which identifier produced it, so a weak identity can never
     be silently read as a strong one, and a later change of source is visible
     rather than appearing as a brand-new machine.
+
+    ``salt_scope`` records WHICH salt produced the id. Two ids are comparable
+    only when their scopes match — an id derived under a per-install salt says
+    nothing about one derived under a fleet salt. Without this field the scope
+    that ``salt.load_salt`` computes is discarded at the moment of derivation,
+    and incomparable ids look identical in shape.
     """
 
     machine_id: str | None
     source: str
     basis: str
+    salt_scope: str = "unspecified"
 
 
 @dataclass(frozen=True)

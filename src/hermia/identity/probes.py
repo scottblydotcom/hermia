@@ -111,6 +111,23 @@ def _reg_value(output: str | None, name: str) -> str | None:
     return None
 
 
+def _cim(class_name: str, prop: str) -> str | None:
+    """Read one CIM property via PowerShell.
+
+    Preferred over `wmic`, which is removed by default from Windows 11 24H2 and
+    slated for full removal. When wmic vanishes the firmware UUID and board
+    serial vanish with it, and identity silently drops to the cloneable
+    MachineGuid — a downgrade with no outward sign, which is the exact class of
+    failure this package exists to stop.
+    """
+    return _clean(
+        _run([
+            "powershell", "-NoProfile", "-NonInteractive", "-Command",
+            f"(Get-CimInstance -ClassName {class_name}).{prop}",
+        ])
+    )
+
+
 def _wmic_value(output: str | None) -> str | None:
     """First non-header, non-blank line of `wmic ... get X` output."""
     if not output:
@@ -243,13 +260,15 @@ class LocalProbe:
         )
 
     def _windows(self) -> tuple[MachineIdentifiers, MachineCapabilities]:
-        model = _wmic_value(_run(["wmic", "csproduct", "get", "Name"]))
+        model = _cim("Win32_ComputerSystemProduct", "Name") or _wmic_value(
+            _run(["wmic", "csproduct", "get", "Name"])
+        )
         return (
             MachineIdentifiers(
-                firmware_uuid=_wmic_value(_run(["wmic", "csproduct", "get", "UUID"])),
-                hardware_serial=_wmic_value(
-                    _run(["wmic", "baseboard", "get", "SerialNumber"])
-                ),
+                firmware_uuid=_cim("Win32_ComputerSystemProduct", "UUID")
+                or _wmic_value(_run(["wmic", "csproduct", "get", "UUID"])),
+                hardware_serial=_cim("Win32_BaseBoard", "SerialNumber")
+                or _wmic_value(_run(["wmic", "baseboard", "get", "SerialNumber"])),
                 persisted_token=_reg_value(
                     _run(
                         [
@@ -267,7 +286,8 @@ class LocalProbe:
                 cpu_brand=_clean(os.environ.get("PROCESSOR_IDENTIFIER")),
                 logical_cores=_to_int(os.environ.get("NUMBER_OF_PROCESSORS")),
                 ram_bytes=_to_int(
-                    _wmic_value(
+                    _cim("Win32_ComputerSystem", "TotalPhysicalMemory")
+                    or _wmic_value(
                         _run(["wmic", "ComputerSystem", "get", "TotalPhysicalMemory"])
                     )
                 ),

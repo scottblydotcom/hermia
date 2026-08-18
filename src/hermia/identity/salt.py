@@ -30,6 +30,7 @@ import hashlib
 import os
 import secrets
 import stat
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -73,20 +74,55 @@ def _read_salt(path: Path) -> bytes | None:
     return raw
 
 
-def _write_salt(path: Path, salt: bytes) -> None:
+def _write_salt(path: Path, salt: bytes) -> bytes:
+    """Create the salt file exclusively; return whichever salt actually won.
+
+    Two processes starting for the first time together would otherwise each mint
+    a salt and the second would overwrite the first, so ids derived either side
+    of that moment would silently disagree.
+
+    Write-then-link, not create-then-write: creating the destination with O_EXCL
+    and filling it afterwards still leaves a window where the losing racer opens
+    a file that exists but is EMPTY, reads nothing usable, and falls back to its
+    own salt — the very divergence this is meant to stop. Building the content
+    in a private temp file and linking it into place makes the destination
+    appear only once it is complete. os.link fails if the target exists, so the
+    first linker wins and everyone else reads the winner's value.
+    """
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         # Create with 0600 ALREADY SET rather than write-then-chmod: under a
         # normal 022 umask the latter leaves the secret readable by every local
         # process for the window between the two calls.
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         try:
             os.write(fd, salt.hex().encode("ascii"))
         finally:
             os.close(fd)
-        _harden(path)
     except OSError:
-        pass  # read-only home: ephemeral for this process, do not crash
+        return salt  # read-only home: ephemeral for this process, do not crash
+
+    try:
+        os.link(tmp, path)
+        _harden(path)
+        return salt
+    except FileExistsError:
+        existing = _read_salt(path)
+        return existing if existing is not None else salt
+    except OSError:
+        # Filesystem without hard links: fall back to an exclusive create.
+        try:
+            os.replace(tmp, path)
+            _harden(path)
+            return salt
+        except OSError:
+            return salt
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
 
 
 def load_salt(
@@ -101,9 +137,19 @@ def load_salt(
             if len(material) != SALT_BYTES:
                 raise ValueError
         except ValueError:
-            # Not hex — accept a passphrase, stretched to a fixed width so any
-            # operator-chosen string works without a silent length surprise.
-            material = hashlib.sha256(raw.encode("utf-8")).digest()
+            # Not hex — accept a passphrase, stretched with a deliberately slow
+            # KDF. A single SHA-256 is far too cheap here: an operator-chosen
+            # phrase has low entropy, so a plain digest can be brute-forced to
+            # recover the salt, and recovering the salt is what makes derived
+            # ids confirmable against candidate hardware. The context string is
+            # fixed, not random, because every workstation must derive the SAME
+            # material from the same phrase — that is the entire point of a
+            # fleet-scoped salt.
+            material = hashlib.scrypt(
+                raw.encode("utf-8"),
+                salt=b"hermia-fleet-salt-v1",
+                n=2**14, r=8, p=1, dklen=SALT_BYTES,
+            )
         return SaltInfo(material, "fleet:env")
 
     fleet_path = FLEET_SALT_PATH if fleet_salt_path is None else fleet_salt_path
@@ -116,8 +162,7 @@ def load_salt(
     if existing is not None:
         return SaltInfo(existing, "install")
 
-    salt = secrets.token_bytes(SALT_BYTES)
-    _write_salt(install_path, salt)
+    salt = _write_salt(install_path, secrets.token_bytes(SALT_BYTES))
     return SaltInfo(salt, "install")
 
 
@@ -127,7 +172,5 @@ def load_or_create_salt(salt_path: Path | None = None) -> bytes:
         existing = _read_salt(salt_path)
         if existing is not None:
             return existing
-        salt = secrets.token_bytes(SALT_BYTES)
-        _write_salt(salt_path, salt)
-        return salt
+        return _write_salt(salt_path, secrets.token_bytes(SALT_BYTES))
     return load_salt().salt

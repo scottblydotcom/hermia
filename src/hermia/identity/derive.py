@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import json
 
+from hermia.identity.salt import SALT_BYTES, SaltInfo
 from hermia.identity.types import MachineIdentifiers, MachineIdentity
 
 ID_HEX_CHARS = 16
@@ -38,7 +39,7 @@ def select_source(identifiers: MachineIdentifiers) -> tuple[str, tuple[str, ...]
 
 
 def derive_machine_id(
-    identifiers: MachineIdentifiers, salt: bytes
+    identifiers: MachineIdentifiers, salt: bytes | SaltInfo
 ) -> MachineIdentity:
     """Derive an exact, salted machine id from non-transferable identifiers.
 
@@ -49,10 +50,28 @@ def derive_machine_id(
     known" is the safer failure — a null is visible, a wrong id is not.
 
     Only the derived digest is returned: never the salt, never a raw identifier.
+
+    Raises ``ValueError`` on a salt that is not exactly ``SALT_BYTES`` long. A
+    short or empty salt is a caller bug, not a measurement gap: HMAC accepts it
+    happily and returns a confident-looking id whose small keyspace makes the
+    underlying hardware identifier confirmable by brute force — defeating the
+    only thing the salt is there to do. It must fail loudly rather than return
+    a null that reads like "this machine could not be identified".
     """
+    scope = "unspecified"
+    if isinstance(salt, SaltInfo):
+        scope, salt = salt.scope, salt.salt
+    if not isinstance(salt, bytes) or len(salt) != SALT_BYTES:
+        raise ValueError(
+            f"salt must be exactly {SALT_BYTES} bytes; got "
+            f"{len(salt) if isinstance(salt, bytes) else type(salt).__name__}"
+        )
+
     selected = select_source(identifiers)
     if selected is None:
-        return MachineIdentity(None, "none", "unavailable:no-usable-identifier")
+        return MachineIdentity(
+            None, "none", "unavailable:no-usable-identifier", scope
+        )
 
     source, fields = selected
     usable = identifiers.usable
@@ -62,4 +81,6 @@ def derive_machine_id(
         separators=(",", ":"),
     )
     digest = hmac.new(salt, canonical.encode("utf-8"), hashlib.sha256).hexdigest()
-    return MachineIdentity(digest[:ID_HEX_CHARS], source, f"measured:{source}")
+    return MachineIdentity(
+        digest[:ID_HEX_CHARS], source, f"measured:{source}", scope
+    )

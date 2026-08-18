@@ -121,6 +121,31 @@ def _save(path: Path, data: _Ledger) -> None:
 
 
 def _bind(ledger: _Ledger, label: str, machine_id: str) -> None:
+    """Bind label<->machine, REMOVING whatever each side displaced.
+
+    The two indexes must stay mutually consistent. Writing only the new pair
+    leaves the old inverse entry behind, so the ledger simultaneously claims
+    `label -> new_id` and `old_id -> label`. A later sighting of old_id under a
+    different name then fires `machine_renamed` citing a binding that no longer
+    exists — a warning about nothing, which is how operators learn to ignore
+    warnings.
+    """
+    displaced_id = ledger["label_to_id"].get(label)
+    if (
+        displaced_id is not None
+        and displaced_id != machine_id
+        and ledger["id_to_label"].get(displaced_id) == label
+    ):
+        del ledger["id_to_label"][displaced_id]
+
+    displaced_label = ledger["id_to_label"].get(machine_id)
+    if (
+        displaced_label is not None
+        and displaced_label != label
+        and ledger["label_to_id"].get(displaced_label) == machine_id
+    ):
+        del ledger["label_to_id"][displaced_label]
+
     ledger["label_to_id"][label] = machine_id
     ledger["id_to_label"][machine_id] = label
     ledger["conflicts"].pop(label, None)
@@ -172,6 +197,12 @@ def check_identity_consistency(
     self-bootstrapping. A CONFLICTING pairing is recorded as a conflict and keeps
     warning on every run until ``resolve_conflict`` is called — never silently
     absorbed on the second run, and never permanently stuck either.
+
+    An OPEN conflict keeps warning even once the original pairing reappears. A
+    box swapped in for one run and swapped back out would otherwise clear itself
+    on the next run, leaving no trace that anything moved — which is precisely
+    the silent absorption this exists to prevent. Only ``resolve_conflict``
+    closes it.
     """
     if machine_id is None:
         return []
@@ -208,11 +239,27 @@ def check_identity_consistency(
                 )
             )
 
+        open_conflict = ledger["conflicts"].get(label)
         if warnings:
             ledger["conflicts"][label] = {
                 "observed": machine_id,
                 "expected": previous_id,
             }
+        elif isinstance(open_conflict, dict):
+            # Pairing looks fine again, but nobody adjudicated the earlier
+            # disagreement. Keep reporting it; do NOT rebind.
+            warnings.append(
+                IdentityWarning(
+                    kind="unresolved_conflict",
+                    message=(
+                        f"Host label '{label}' currently identifies "
+                        f"'{machine_id}', but an earlier disagreement on this "
+                        f"label (observed '{open_conflict.get('observed')}') "
+                        f"was never resolved. Resolve it explicitly to clear "
+                        f"this warning."
+                    ),
+                )
+            )
         else:
             _bind(ledger, label, machine_id)
         _save(path, ledger)

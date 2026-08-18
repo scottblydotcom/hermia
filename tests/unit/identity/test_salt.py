@@ -100,3 +100,42 @@ def test_install_scope_is_not_silently_equivalent_to_fleet(tmp_path, monkeypatch
     b = load_salt(tmp_path / "nf2", tmp_path / "i2")
     assert a.scope == b.scope == "install"
     assert a.salt != b.salt
+
+
+# --- CodeRabbit: deterministic write-failure + creation race -------------
+
+
+def test_write_failure_returns_an_ephemeral_salt_without_persisting(tmp_path, monkeypatch):
+    """chmod 0500 does not stop a privileged process, so the directory-based
+    test proves nothing when CI runs as root. Force the failure instead."""
+    def boom(*a, **k):
+        raise PermissionError("read-only")
+
+    monkeypatch.setattr("hermia.identity.salt.os.open", boom)
+    p = tmp_path / "machine_salt"
+    assert len(load_or_create_salt(p)) == 32
+    assert not p.exists()
+
+
+def test_concurrent_first_creation_agrees_on_one_salt(tmp_path):
+    """Two processes starting together must not each mint a salt and have the
+    second clobber the first — ids either side of that would disagree."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    p = tmp_path / "machine_salt"
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        salts = list(pool.map(lambda _: load_or_create_salt(p), range(8)))
+    assert len({s.hex() for s in salts}) == 1, "racing writers minted different salts"
+    assert salts[0] == load_or_create_salt(p)
+
+
+def test_passphrase_uses_a_slow_kdf_not_a_bare_digest(tmp_path, monkeypatch):
+    import hashlib
+
+    monkeypatch.setenv("HERMIA_FLEET_SALT", "a shared team phrase")
+    info = load_salt(tmp_path / "f", tmp_path / "i")
+    assert info.salt != hashlib.sha256(b"a shared team phrase").digest()
+    assert info.salt == hashlib.scrypt(
+        b"a shared team phrase", salt=b"hermia-fleet-salt-v1",
+        n=2**14, r=8, p=1, dklen=32,
+    )

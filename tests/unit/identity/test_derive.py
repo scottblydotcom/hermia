@@ -1,5 +1,8 @@
 """Exact identity derivation (hermia-cfqv)."""
+import pytest
+
 from hermia.identity.derive import derive_machine_id, select_source
+from hermia.identity.salt import SaltInfo
 from hermia.identity.types import MachineIdentifiers
 
 SALT = b"\x01" * 32
@@ -79,3 +82,33 @@ def test_source_change_is_visible_rather_than_silent():
     weak = derive_machine_id(MachineIdentifiers(persisted_token="T"), SALT)  # noqa: S106 - field name, not a credential
     assert strong.source != weak.source
     assert strong.machine_id != weak.machine_id
+
+
+# --- CodeRabbit: a degenerate salt must fail loudly ----------------------
+
+
+@pytest.mark.parametrize("bad", [b"", b"x", b"\x00" * 31, b"\x00" * 33, "notbytes"])
+def test_invalid_salt_is_rejected(bad):
+    """An empty/short salt yields a confident id with a tiny keyspace, which
+    makes the underlying hardware identifier confirmable by brute force."""
+    with pytest.raises(ValueError, match="32 bytes"):
+        derive_machine_id(FULL, bad)
+
+
+def test_salt_scope_is_carried_onto_the_identity():
+    """salt.py requires the scope be recorded with any derived id; without this
+    an install-scoped id and a fleet-scoped id look identical in shape."""
+    info = SaltInfo(SALT, "fleet:env")
+    got = derive_machine_id(FULL, info)
+    assert got.salt_scope == "fleet:env"
+    assert got.machine_id is not None
+
+
+def test_scope_is_carried_even_when_nothing_is_identifiable():
+    got = derive_machine_id(MachineIdentifiers(), SaltInfo(SALT, "install"))
+    assert got.machine_id is None
+    assert got.salt_scope == "install"
+
+
+def test_bare_bytes_salt_reports_an_unspecified_scope():
+    assert derive_machine_id(FULL, SALT).salt_scope == "unspecified"

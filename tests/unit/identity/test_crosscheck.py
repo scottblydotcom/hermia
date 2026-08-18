@@ -138,3 +138,57 @@ def test_no_temp_files_left_behind(tmp_path):
     record_observation("host-a", "1111000000000000", led)
     leftovers = sorted(p.name for p in tmp_path.iterdir() if p.name.endswith(".tmp"))
     assert leftovers == []
+
+
+# --- CodeRabbit: ledger index consistency + conflict persistence ---------
+
+
+def test_rebinding_a_label_removes_the_displaced_inverse_entry(tmp_path):
+    """Writing only the new pair leaves the ledger claiming BOTH
+    'host-a -> id-b' and 'id-a -> host-a' — mutually contradictory."""
+    led = tmp_path / "l.json"
+    record_observation("host-a", "id-a", led)
+    resolve_conflict("host-a", "id-b", led)
+    data = json.loads(led.read_text())
+    assert data["label_to_id"] == {"host-a": "id-b"}
+    assert "id-a" not in data["id_to_label"], "stale inverse entry survived"
+
+
+def test_no_phantom_rename_warning_after_a_rebind(tmp_path):
+    """A stale inverse entry makes a later sighting of the old machine fire
+    machine_renamed against a binding that no longer exists."""
+    led = tmp_path / "l.json"
+    record_observation("host-a", "id-a", led)
+    resolve_conflict("host-a", "id-b", led)
+    assert check_identity_consistency("host-c", "id-a", led) == []
+
+
+def test_rebinding_a_machine_removes_the_displaced_forward_entry(tmp_path):
+    led = tmp_path / "l.json"
+    record_observation("host-a", "id-a", led)
+    record_observation("host-b", "id-a", led)
+    data = json.loads(led.read_text())
+    assert data["id_to_label"] == {"id-a": "host-b"}
+    assert "host-a" not in data["label_to_id"]
+
+
+def test_an_open_conflict_survives_the_original_pairing_returning(tmp_path):
+    """A box swapped in for one run and swapped back would otherwise clear the
+    conflict on the next run, leaving no trace that anything ever moved."""
+    led = tmp_path / "l.json"
+    record_observation("host-a", "id-a", led)
+    assert [w.kind for w in check_identity_consistency("host-a", "id-b", led)] == [
+        "label_moved_machine"
+    ]
+    warns = check_identity_consistency("host-a", "id-a", led)
+    assert [w.kind for w in warns] == ["unresolved_conflict"]
+    assert "host-a" in pending_conflicts(led)
+
+
+def test_only_resolve_conflict_closes_an_open_conflict(tmp_path):
+    led = tmp_path / "l.json"
+    record_observation("host-a", "id-a", led)
+    check_identity_consistency("host-a", "id-b", led)
+    resolve_conflict("host-a", "id-a", led)
+    assert pending_conflicts(led) == {}
+    assert check_identity_consistency("host-a", "id-a", led) == []

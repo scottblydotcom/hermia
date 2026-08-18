@@ -345,4 +345,6 @@ def test_pseudonyms_extend_past_z():
     names = [r["machine_pseudonym"] for r in got]
     assert names[0] == "node-a"
     assert names[25] == "node-z"
+    assert names[26] == "node-aa"   # spreadsheet-style rollover
+    assert names[27] == "node-ab"
     assert len(set(names)) == 28
