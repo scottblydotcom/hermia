@@ -46,7 +46,12 @@ class SaltInfo:
     """A salt plus the scope it identifies machines within."""
 
     salt: bytes
-    scope: str  # "fleet:env" | "fleet:file" | "install"
+    scope: str  # "fleet:env" | "fleet:file" | "install" | "ephemeral"
+
+    @property
+    def is_stable(self) -> bool:
+        """False when the salt could not be persisted, so ids change each run."""
+        return self.scope != "ephemeral"
 
 
 def _harden(path: Path) -> None:
@@ -74,7 +79,7 @@ def _read_salt(path: Path) -> bytes | None:
     return raw
 
 
-def _write_salt(path: Path, salt: bytes) -> bytes:
+def _write_salt(path: Path, salt: bytes) -> tuple[bytes, bool]:
     """Create the salt file exclusively; return whichever salt actually won.
 
     Two processes starting for the first time together would otherwise each mint
@@ -101,7 +106,7 @@ def _write_salt(path: Path, salt: bytes) -> bytes:
         finally:
             os.close(fd)
     except OSError:
-        return salt  # read-only home: ephemeral for this process, do not crash
+        return salt, False  # read-only home: ephemeral, but SAY so
 
     try:
         try:
@@ -120,11 +125,11 @@ def _write_salt(path: Path, salt: bytes) -> bytes:
             finally:
                 os.close(fd)
         _harden(path)
-        return salt
+        return salt, True
     except FileExistsError:
         existing = _read_salt(path)
         if existing is not None:
-            return existing
+            return existing, True
         # The file exists but is EMPTY or malformed — a process killed
         # mid-write, or a truncated restore. Left alone it is never repaired,
         # so every future run mints a throwaway salt and the machine gets a
@@ -134,10 +139,10 @@ def _write_salt(path: Path, salt: bytes) -> bytes:
             os.replace(tmp, path)
             _harden(path)
         except OSError:
-            pass
-        return salt
+            return salt, False
+        return salt, True
     except OSError:
-        return salt
+        return salt, False
     finally:
         try:
             os.unlink(tmp)
@@ -182,8 +187,12 @@ def load_salt(
     if existing is not None:
         return SaltInfo(existing, "install")
 
-    salt = _write_salt(install_path, secrets.token_bytes(SALT_BYTES))
-    return SaltInfo(salt, "install")
+    salt, persisted = _write_salt(install_path, secrets.token_bytes(SALT_BYTES))
+    # A salt that could not be written is regenerated on every invocation, so
+    # every run derives a DIFFERENT machine_id for the same box and the ledger
+    # sees a brand new machine each time. Report that plainly rather than
+    # labelling it "install" and letting the instability look like real churn.
+    return SaltInfo(salt, "install" if persisted else "ephemeral")
 
 
 def load_or_create_salt(salt_path: Path | None = None) -> bytes:
@@ -192,5 +201,5 @@ def load_or_create_salt(salt_path: Path | None = None) -> bytes:
         existing = _read_salt(salt_path)
         if existing is not None:
             return existing
-        return _write_salt(salt_path, secrets.token_bytes(SALT_BYTES))
+        return _write_salt(salt_path, secrets.token_bytes(SALT_BYTES))[0]
     return load_salt().salt

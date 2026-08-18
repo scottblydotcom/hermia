@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -57,18 +58,42 @@ def _empty() -> _Ledger:
     return {"label_to_id": {}, "id_to_label": {}, "conflicts": {}}
 
 
+_LOCK_ATTEMPTS = 50
+_LOCK_SLEEP_SEC = 0.02
+
+
 @contextmanager
 def _locked(path: Path) -> Iterator[None]:
-    """Serialise ledger access across threads AND processes."""
+    """Serialise ledger access across threads AND processes — without blocking.
+
+    The lock is acquired NON-blocking and retried briefly. A plain blocking
+    flock would park the run behind whichever process holds the lock, and if
+    that process is wedged the benchmark hangs with no output and no
+    explanation — this module is advisory and must never stall a run.
+
+    If the lock cannot be taken within about a second we proceed anyway.
+    Writes are atomic via os.replace, so the worst case degrades to
+    last-writer-wins on the ledger rather than a hung or corrupted run.
+    """
     with _LEDGER_LOCK:
         handle = None
         if fcntl is not None:
             try:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 handle = open(path.with_name(path.name + ".lock"), "w")  # noqa: SIM115
-                fcntl.flock(handle, fcntl.LOCK_EX)
             except OSError:
                 handle = None
+        if handle is not None:
+            for attempt in range(_LOCK_ATTEMPTS):
+                try:
+                    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except OSError:
+                    if attempt == _LOCK_ATTEMPTS - 1:
+                        handle.close()
+                        handle = None
+                        break
+                    time.sleep(_LOCK_SLEEP_SEC)
         try:
             yield
         finally:
@@ -87,8 +112,16 @@ def _load(path: Path) -> _Ledger:
     caller. Testing only malformed JSON would miss that entirely.
     """
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        raw_text = path.read_text(encoding="utf-8")
+    except OSError:
+        return _empty()
+    try:
+        data = json.loads(raw_text)
     except Exception:  # noqa: BLE001 - advisory only, never raise
+        # Every recorded pairing is about to be discarded, and afterwards every
+        # host looks brand new. Keep the unreadable file so an operator can see
+        # what was lost instead of it vanishing without trace.
+        _quarantine(path)
         return _empty()
     if not isinstance(data, dict):
         return _empty()
@@ -105,6 +138,16 @@ def _load(path: Path) -> _Ledger:
             k: v for k, v in raw_conflicts.items() if isinstance(k, str)
         }
     return out
+
+
+def _quarantine(path: Path) -> None:
+    """Preserve an unreadable ledger alongside itself, once."""
+    try:
+        broken = path.with_name(path.name + ".corrupt")
+        if not broken.exists():
+            broken.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
+    except OSError:
+        pass
 
 
 def _save(path: Path, data: _Ledger) -> None:

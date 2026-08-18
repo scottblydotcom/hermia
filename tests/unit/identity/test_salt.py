@@ -169,3 +169,31 @@ def test_a_good_salt_is_never_clobbered_when_hard_links_are_unavailable(tmp_path
 
     monkeypatch.setattr("hermia.identity.salt.os.link", no_links)
     assert load_or_create_salt(p) == original
+
+
+# --- gpt-oss: an unpersistable salt must announce itself -----------------
+
+
+def test_unpersistable_salt_is_reported_as_ephemeral(tmp_path, monkeypatch):
+    """A salt that cannot be written is regenerated every invocation, so every
+    run derives a DIFFERENT id for the same box. Labelling that 'install' hides
+    real instability behind a scope that implies stability."""
+    monkeypatch.delenv("HERMIA_FLEET_SALT", raising=False)
+    d = tmp_path / "ro"
+    d.mkdir()
+    d.chmod(0o500)
+    try:
+        info = load_salt(d / "fleet", d / "install")
+        assert info.scope == "ephemeral"
+        assert not info.is_stable
+        assert len(info.salt) == 32
+    finally:
+        d.chmod(0o700)
+
+
+def test_a_persisted_salt_reports_a_stable_scope(tmp_path, monkeypatch):
+    monkeypatch.delenv("HERMIA_FLEET_SALT", raising=False)
+    info = load_salt(tmp_path / "fleet", tmp_path / "install")
+    assert info.scope == "install"
+    assert info.is_stable
+    assert load_salt(tmp_path / "fleet", tmp_path / "install").salt == info.salt

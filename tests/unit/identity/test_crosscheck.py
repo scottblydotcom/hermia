@@ -216,3 +216,36 @@ def test_a_swapped_and_swapped_back_box_still_reports(tmp_path):
     assert [w.kind for w in check_identity_consistency("host-a", "id-a", led)] == [
         "unresolved_conflict"
     ]
+
+
+# --- gpt-oss: an advisory module must never block a run -------------------
+
+
+def test_ledger_access_does_not_block_behind_a_held_lock(tmp_path):
+    """A plain blocking flock parks the run behind whoever holds the lock; if
+    that process is wedged the benchmark hangs with no output at all."""
+    import fcntl
+    import time
+
+    led = tmp_path / "l.json"
+    led.parent.mkdir(parents=True, exist_ok=True)
+    holder = open(led.with_name(led.name + ".lock"), "w")
+    fcntl.flock(holder, fcntl.LOCK_EX)
+    try:
+        start = time.monotonic()
+        record_observation("host-a", "id-a", led)          # must not hang
+        assert check_identity_consistency("host-a", "id-a", led) == []
+        assert time.monotonic() - start < 10, "ledger access blocked on a held lock"
+    finally:
+        fcntl.flock(holder, fcntl.LOCK_UN)
+        holder.close()
+
+
+def test_a_corrupt_ledger_is_preserved_not_silently_discarded(tmp_path):
+    """Every recorded pairing is about to be dropped; leave the evidence."""
+    led = tmp_path / "l.json"
+    led.write_text('{"label_to_id": {"host-a": "id-a"}  <<<broken')
+    assert check_identity_consistency("host-b", "id-b", led) == []
+    corrupt = led.with_name(led.name + ".corrupt")
+    assert corrupt.exists()
+    assert "host-a" in corrupt.read_text()
