@@ -58,10 +58,13 @@ def test_valid_json_of_the_wrong_shape_never_raises(tmp_path, payload):
     record_observation("host-a", "aaaa000000000000", led)
 
 
-def test_corrupt_ledger_degrades_silently(tmp_path):
+def test_corrupt_ledger_degrades_without_raising_but_does_not_stay_silent(tmp_path):
+    """It must not raise — but silence here was the defect: a wiped ledger
+    disarms every open conflict, so the loss has to be reported."""
     led = tmp_path / "l.json"
     led.write_text("{not json")
-    assert check_identity_consistency("host-a", "eeee444444444444", led) == []
+    warns = check_identity_consistency("host-a", "eeee444444444444", led)
+    assert [w.kind for w in warns] == ["ledger_history_lost"]
 
 
 def test_unwritable_location_does_not_raise(tmp_path):
@@ -245,7 +248,27 @@ def test_a_corrupt_ledger_is_preserved_not_silently_discarded(tmp_path):
     """Every recorded pairing is about to be dropped; leave the evidence."""
     led = tmp_path / "l.json"
     led.write_text('{"label_to_id": {"host-a": "id-a"}  <<<broken')
-    assert check_identity_consistency("host-b", "id-b", led) == []
+    warns = check_identity_consistency("host-b", "id-b", led)
+    assert [w.kind for w in warns] == ["ledger_history_lost"]
     corrupt = led.with_name(led.name + ".corrupt")
     assert corrupt.exists()
     assert "host-a" in corrupt.read_text()
+
+
+def test_a_reset_ledger_announces_that_history_was_lost(tmp_path):
+    """Preserving the corrupt file is not enough: every open conflict is gone,
+    so a swap that was already flagged stops being flagged."""
+    led = tmp_path / "l.json"
+    led.write_text("{not json at all")
+    warns = check_identity_consistency("host-a", "id-a", led)
+    assert [w.kind for w in warns] == ["ledger_history_lost"]
+    assert "corrupt" in warns[0].message
+    assert led.with_name(led.name + ".corrupt").exists()
+
+
+def test_the_lost_history_warning_stops_once_hosts_are_re_observed(tmp_path):
+    led = tmp_path / "l.json"
+    led.write_text("{not json at all")
+    check_identity_consistency("host-a", "id-a", led)
+    record_observation("host-a", "id-a", led)
+    assert check_identity_consistency("host-a", "id-a", led) == []

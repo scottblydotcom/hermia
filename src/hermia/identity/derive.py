@@ -81,6 +81,13 @@ def derive_machine_id(
         separators=(",", ":"),
     )
     digest = hmac.new(salt, canonical.encode("utf-8"), hashlib.sha256).hexdigest()
+    # Name the weakness IN the basis: the basis is what gets written down and
+    # read later, long after the object with its properties is gone.
+    suffix = (
+        " (transferable: a disk clone reproduces this id)"
+        if source in MachineIdentity.TRANSFERABLE_SOURCES
+        else ""
+    )
     return MachineIdentity(
-        digest[:ID_HEX_CHARS], source, f"measured:{source}", scope
+        digest[:ID_HEX_CHARS], source, f"measured:{source}{suffix}", scope
     )

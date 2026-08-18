@@ -371,3 +371,46 @@ def test_applying_pseudonyms_twice_does_not_blank_them():
     once = assign_machine_pseudonyms([{"machine_id": "aaaa"}])
     twice = assign_machine_pseudonyms(once)
     assert twice[0]["machine_pseudonym"] == "node-a"
+
+
+def test_unidentified_machines_are_not_pooled_into_one_bucket():
+    """Ten unidentified boxes exported as a single null read as ONE machine
+    that ran ten times."""
+    from hermia.sink.anonymize import assign_machine_pseudonyms
+
+    rows = [
+        {"machine_id": None, "fleet_host_name": "box-1"},
+        {"machine_id": None, "fleet_host_name": "box-2"},
+        {"machine_id": None, "fleet_host_name": "box-1"},
+    ]
+    got = assign_machine_pseudonyms(rows)
+    names = [r["machine_pseudonym"] for r in got]
+    assert names == ["unidentified-a", "unidentified-b", "unidentified-a"]
+    assert len(set(names)) == 2
+
+
+def test_the_grouping_key_itself_is_never_exported():
+    """Separating them must not leak the operator's host names."""
+    from hermia.sink.anonymize import SUBMIT_WHITELIST, anonymize_row, assign_machine_pseudonyms
+
+    assert "fleet_host_name" not in SUBMIT_WHITELIST
+    row = assign_machine_pseudonyms([{"machine_id": None, "fleet_host_name": "secret-box"}])[0]
+    out = anonymize_row(row)
+    assert out["machine_pseudonym"] == "unidentified-a"
+    assert "secret-box" not in str(out)
+
+
+def test_nothing_to_group_on_still_yields_null():
+    from hermia.sink.anonymize import assign_machine_pseudonyms
+
+    assert assign_machine_pseudonyms([{"machine_id": None}])[0]["machine_pseudonym"] is None
+
+
+def test_identified_and_unidentified_use_distinct_namespaces():
+    from hermia.sink.anonymize import assign_machine_pseudonyms
+
+    got = assign_machine_pseudonyms([
+        {"machine_id": "aaaa"}, {"machine_id": None, "host": "h1"},
+    ])
+    assert got[0]["machine_pseudonym"] == "node-a"
+    assert got[1]["machine_pseudonym"] == "unidentified-a"

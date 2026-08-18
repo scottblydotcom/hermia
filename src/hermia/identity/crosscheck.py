@@ -150,6 +150,21 @@ def _quarantine(path: Path) -> None:
         pass
 
 
+def _history_was_lost(path: Path) -> bool:
+    """True when a quarantined ledger sits beside this one.
+
+    Preserving the corrupt file is not enough on its own. Every recorded pairing
+    AND every open conflict is gone, so a host that was previously warning about
+    a swap now binds cleanly and reports nothing — the alarm is silently
+    disarmed by a single file corruption. The operator has to be told the
+    history went, not merely be able to find it afterwards.
+    """
+    try:
+        return path.with_name(path.name + ".corrupt").exists()
+    except OSError:
+        return False
+
+
 def _save(path: Path, data: _Ledger) -> None:
     """Atomic write: temp file in the same dir, then os.replace.
 
@@ -277,6 +292,20 @@ def check_identity_consistency(
     with _locked(path):
         ledger = _load(path)
         warnings: list[IdentityWarning] = []
+
+        if _history_was_lost(path) and not ledger["label_to_id"]:
+            warnings.append(
+                IdentityWarning(
+                    kind="ledger_history_lost",
+                    message=(
+                        f"The machine ledger was unreadable and has been reset; "
+                        f"the previous contents are kept at {path.name}.corrupt. "
+                        f"Every prior label/machine pairing and any open conflict "
+                        f"are gone, so swaps that were already flagged will not "
+                        f"be flagged again until each host is re-observed."
+                    ),
+                )
+            )
 
         previous_id = ledger["label_to_id"].get(label)
         if previous_id is not None and previous_id != machine_id:

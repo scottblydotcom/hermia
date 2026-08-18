@@ -124,3 +124,40 @@ def test_same_machine_reported_in_different_case_gives_one_id():
 def test_filler_serial_yields_no_identity_rather_than_a_shared_one():
     ident = MachineIdentifiers(hardware_serial="To Be Filled By O.E.M")
     assert derive_machine_id(ident, SALT).machine_id is None
+
+
+# --- qwen3.5: a clone-vulnerable identity must say so -------------------
+
+
+def test_a_cloned_vm_derives_the_same_id_but_is_flagged_transferable():
+    """Two VMs from one image share /etc/machine-id, so they share an id. That
+    is unavoidable — what is not acceptable is failing to SAY so."""
+    a = MachineIdentifiers(persisted_token="deadbeefcafe1234")  # noqa: S106 - field name, not a credential
+    b = MachineIdentifiers(persisted_token="deadbeefcafe1234")  # noqa: S106 - field name, not a credential
+    ia, ib = derive_machine_id(a, SALT), derive_machine_id(b, SALT)
+    assert ia.machine_id == ib.machine_id
+    assert ia.is_transferable
+    assert "transferable" in ia.basis
+    assert "clone" in ia.basis
+
+
+def test_a_firmware_rooted_identity_is_not_transferable():
+    got = derive_machine_id(FULL, SALT)
+    assert not got.is_transferable
+    assert "transferable" not in got.basis
+
+
+def test_an_unscoped_id_is_not_comparable():
+    """Bare bytes carry no scope, so the id must not be matched against a
+    scoped one — same shape, different namespace."""
+    bare = derive_machine_id(FULL, SALT)
+    scoped = derive_machine_id(FULL, SaltInfo(SALT, "fleet:file"))
+    assert bare.salt_scope == "unspecified"
+    assert not bare.is_comparable
+    assert scoped.is_comparable
+    assert bare.machine_id == scoped.machine_id  # identical value...
+    assert bare.is_comparable != scoped.is_comparable  # ...but not interchangeable
+
+
+def test_a_null_identity_is_never_comparable():
+    assert not derive_machine_id(MachineIdentifiers(), SaltInfo(SALT, "fleet:env")).is_comparable

@@ -196,7 +196,12 @@ def load_salt(
 
 
 def load_or_create_salt(salt_path: Path | None = None) -> bytes:
-    """Backwards-compatible accessor returning only the salt bytes."""
+    """Bytes-only accessor. PREFER ``load_salt``, which carries the scope.
+
+    An id derived from bare bytes has ``salt_scope="unspecified"`` and is not
+    safely comparable with a scoped one — same shape, different namespace. This
+    exists for tests and for callers that genuinely only need key material.
+    """
     if salt_path is not None:
         existing = _read_salt(salt_path)
         if existing is not None:

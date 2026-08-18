@@ -25,7 +25,7 @@ computer — the original defect. A MAC is still recorded, but as a capability.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import ClassVar, Protocol
 
 # Firmware placeholder values that are NOT unique and must never be accepted as
 # an identity. Vendors ship these in volume: all-zero/all-FF SMBIOS UUIDs come
@@ -167,6 +167,32 @@ class MachineIdentity:
     source: str
     basis: str
     salt_scope: str = "unspecified"
+
+    #: Sources that a disk clone duplicates. An id derived from one of these is
+    #: NOT unique to a machine, and two cloned VMs derive the same value.
+    TRANSFERABLE_SOURCES: ClassVar[frozenset[str]] = frozenset({"persisted-token"})
+
+    @property
+    def is_transferable(self) -> bool:
+        """True when a disk clone would reproduce this exact id elsewhere.
+
+        The firmware root is bound to the board; the minted token is a file. In a
+        VM — where firmware identifiers are routinely absent — identity falls
+        back to that file, and cloning the image clones the identity. The id is
+        still the best available, but callers must be able to SEE that it is
+        clone-vulnerable rather than reading it as machine-unique.
+        """
+        return self.source in self.TRANSFERABLE_SOURCES
+
+    @property
+    def is_comparable(self) -> bool:
+        """False when the salt scope is unknown, so this id must not be matched.
+
+        Ids are only comparable within one salt scope. A caller that took bare
+        bytes (rather than SaltInfo) has no scope, and an unscoped id looks
+        exactly like a scoped one — so comparing them silently mixes namespaces.
+        """
+        return self.machine_id is not None and self.salt_scope != "unspecified"
 
 
 @dataclass(frozen=True)

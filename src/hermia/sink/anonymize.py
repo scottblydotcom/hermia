@@ -137,8 +137,8 @@ def anonymize_row(row: dict[str, Any]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _pseudonym(index: int) -> str:
-    """``0 -> node-a`` … ``25 -> node-z``, ``26 -> node-aa``, spreadsheet-style."""
+def _letters(index: int) -> str:
+    """``0 -> a`` … ``25 -> z``, ``26 -> aa``, spreadsheet-style."""
     letters = ""
     n = index
     while True:
@@ -146,7 +146,12 @@ def _pseudonym(index: int) -> str:
         n = n // 26 - 1
         if n < 0:
             break
-    return f"node-{letters}"
+    return letters
+
+
+def _pseudonym(index: int) -> str:
+    """``0 -> node-a`` … ``25 -> node-z``, ``26 -> node-aa``, spreadsheet-style."""
+    return f"node-{_letters(index)}"
 
 
 def assign_machine_pseudonyms(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -166,6 +171,7 @@ def assign_machine_pseudonyms(rows: list[dict[str, Any]]) -> list[dict[str, Any]
     Input rows are never mutated; new dicts are returned.
     """
     assigned: dict[str, str] = {}
+    unidentified: dict[str, str] = {}
     out: list[dict[str, Any]] = []
     for row in rows:
         new = dict(row)
@@ -174,10 +180,21 @@ def assign_machine_pseudonyms(rows: list[dict[str, Any]]) -> list[dict[str, Any]
             if machine_id not in assigned:
                 assigned[machine_id] = _pseudonym(len(assigned))
             new["machine_pseudonym"] = assigned[machine_id]
-        elif "machine_pseudonym" not in new:
-            # Only claim "not identified" when nothing has been assigned yet.
-            # Rows that already carry a pseudonym (this ran after anonymisation,
-            # or is being applied twice) must not be blanked wholesale.
-            new["machine_pseudonym"] = None
+        elif "machine_pseudonym" in new:
+            pass  # already assigned; applying twice must not blank it
+        else:
+            # An id we could not derive is NOT the same as "one unknown
+            # machine". Emitting None for all of them pools ten unidentified
+            # boxes into a single bucket, and a reader sees one machine with ten
+            # runs. Separate them using the operator's own grouping key — which
+            # is dropped from the export either way, so nothing leaks — and fall
+            # back to None only when there is genuinely nothing to group on.
+            key = row.get("fleet_host_name") or row.get("host")
+            if isinstance(key, str) and key:
+                if key not in unidentified:
+                    unidentified[key] = f"unidentified-{_letters(len(unidentified))}"
+                new["machine_pseudonym"] = unidentified[key]
+            else:
+                new["machine_pseudonym"] = None
         out.append(new)
     return out
