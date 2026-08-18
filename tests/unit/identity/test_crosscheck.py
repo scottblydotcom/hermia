@@ -192,3 +192,27 @@ def test_only_resolve_conflict_closes_an_open_conflict(tmp_path):
     resolve_conflict("host-a", "id-a", led)
     assert pending_conflicts(led) == {}
     assert check_identity_consistency("host-a", "id-a", led) == []
+
+
+def test_a_renamed_machine_does_not_poison_the_new_label_forever(tmp_path):
+    """host-2 first sees M1 (which belongs to host-1) -> machine_renamed. The
+    operator then points host-2 at its own hardware. It must be able to bind."""
+    led = tmp_path / "l.json"
+    record_observation("host-1", "M1", led)
+    assert [w.kind for w in check_identity_consistency("host-2", "M1", led)] == [
+        "machine_renamed"
+    ]
+    assert check_identity_consistency("host-2", "M2", led) == []
+    assert pending_conflicts(led) == {}
+    assert json.loads(led.read_text())["label_to_id"]["host-2"] == "M2"
+
+
+def test_a_swapped_and_swapped_back_box_still_reports(tmp_path):
+    """The other conflict shape must KEEP warning — this is the case where the
+    label had a real prior binding."""
+    led = tmp_path / "l.json"
+    record_observation("host-a", "id-a", led)
+    check_identity_consistency("host-a", "id-b", led)
+    assert [w.kind for w in check_identity_consistency("host-a", "id-a", led)] == [
+        "unresolved_conflict"
+    ]

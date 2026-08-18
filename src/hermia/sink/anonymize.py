@@ -46,6 +46,11 @@ SUBMIT_WHITELIST: frozenset[str] = frozenset(
         "cold_warm_delta_tps",
         "signals",
         "corpus_sha256",
+        # Dataset-stable pseudonym (node-a, node-b). Safe to export BY DESIGN and
+        # the reason machine_id itself stays out: without this entry the
+        # default-deny pass silently drops the pseudonym, and an export carries
+        # no way to tell one machine's rows from another's.
+        "machine_pseudonym",
     }
 )
 
@@ -169,7 +174,10 @@ def assign_machine_pseudonyms(rows: list[dict[str, Any]]) -> list[dict[str, Any]
             if machine_id not in assigned:
                 assigned[machine_id] = _pseudonym(len(assigned))
             new["machine_pseudonym"] = assigned[machine_id]
-        else:
+        elif "machine_pseudonym" not in new:
+            # Only claim "not identified" when nothing has been assigned yet.
+            # Rows that already carry a pseudonym (this ran after anonymisation,
+            # or is being applied twice) must not be blanked wholesale.
             new["machine_pseudonym"] = None
         out.append(new)
     return out

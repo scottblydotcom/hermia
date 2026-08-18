@@ -7,7 +7,7 @@ from hermia.identity.types import MachineIdentifiers
 
 SALT = b"\x01" * 32
 OTHER = b"\x02" * 32
-FULL = MachineIdentifiers(firmware_uuid="UUID-1", hardware_serial="SER-1")
+FULL = MachineIdentifiers(firmware_uuid="UUID-0001-AAAA", hardware_serial="SERIAL-0001")
 
 
 def test_id_is_16_hex_and_deterministic():
@@ -22,8 +22,8 @@ def test_different_salt_gives_different_id():
 
 
 def test_two_machines_same_model_do_not_collide():
-    a = MachineIdentifiers(firmware_uuid="UUID-A", hardware_serial="SER-A")
-    b = MachineIdentifiers(firmware_uuid="UUID-B", hardware_serial="SER-B")
+    a = MachineIdentifiers(firmware_uuid="UUID-000A-AAAA", hardware_serial="SERIAL-000A")
+    b = MachineIdentifiers(firmware_uuid="UUID-000B-BBBB", hardware_serial="SERIAL-000B")
     assert derive_machine_id(a, SALT).machine_id != derive_machine_id(b, SALT).machine_id
 
 
@@ -42,14 +42,14 @@ def test_placeholder_identifiers_do_not_produce_an_identity():
 
 def test_preference_order_strongest_first():
     assert select_source(FULL)[0] == "firmware-uuid+serial"
-    assert select_source(MachineIdentifiers(firmware_uuid="U"))[0] == "firmware-uuid"
-    assert select_source(MachineIdentifiers(hardware_serial="S"))[0] == "hardware-serial"
-    assert select_source(MachineIdentifiers(persisted_token="T"))[0] == "persisted-token"  # noqa: S106 - field name, not a credential
+    assert select_source(MachineIdentifiers(firmware_uuid="UUID-0001-AAAA"))[0] == "firmware-uuid"
+    assert select_source(MachineIdentifiers(hardware_serial="SERIAL-0001"))[0] == "hardware-serial"
+    assert select_source(MachineIdentifiers(persisted_token="TOKEN-0001"))[0] == "persisted-token"  # noqa: S106 - field name, not a credential
 
 
 def test_firmware_root_outranks_the_on_disk_token():
     """A cloned disk image duplicates the token; firmware survives reinstall."""
-    ident = MachineIdentifiers(firmware_uuid="U", persisted_token="T")  # noqa: S106 - field name, not a credential
+    ident = MachineIdentifiers(firmware_uuid="UUID-0001-AAAA", persisted_token="TOKEN-0001")  # noqa: S106 - field name, not a credential
     assert derive_machine_id(ident, SALT).source == "firmware-uuid"
 
 
@@ -65,7 +65,7 @@ def test_capabilities_cannot_change_the_identity():
     before = derive_machine_id(FULL, SALT)
     # There is deliberately no way to pass capabilities in at all.
     after = derive_machine_id(
-        MachineIdentifiers(firmware_uuid="UUID-1", hardware_serial="SER-1"), SALT
+        MachineIdentifiers(firmware_uuid="UUID-0001-AAAA", hardware_serial="SERIAL-0001"), SALT
     )
     assert before.machine_id == after.machine_id
 
@@ -73,13 +73,13 @@ def test_capabilities_cannot_change_the_identity():
 def test_raw_identifiers_never_appear_in_the_result():
     got = derive_machine_id(FULL, SALT)
     blob = f"{got.machine_id}{got.source}{got.basis}"
-    assert "UUID-1" not in blob and "SER-1" not in blob
+    assert "UUID-0001-AAAA" not in blob and "SERIAL-0001" not in blob
 
 
 def test_source_change_is_visible_rather_than_silent():
     """Losing the firmware root changes the id -- but the source says why."""
     strong = derive_machine_id(FULL, SALT)
-    weak = derive_machine_id(MachineIdentifiers(persisted_token="T"), SALT)  # noqa: S106 - field name, not a credential
+    weak = derive_machine_id(MachineIdentifiers(persisted_token="TOKEN-0001"), SALT)  # noqa: S106 - field name, not a credential
     assert strong.source != weak.source
     assert strong.machine_id != weak.machine_id
 
@@ -112,3 +112,15 @@ def test_scope_is_carried_even_when_nothing_is_identifiable():
 
 def test_bare_bytes_salt_reports_an_unspecified_scope():
     assert derive_machine_id(FULL, SALT).salt_scope == "unspecified"
+
+
+def test_same_machine_reported_in_different_case_gives_one_id():
+    """Punctuation must not fork a physical machine into two identities."""
+    lower = MachineIdentifiers(firmware_uuid="4c4c4544-0031-104d-8032-b8c04f4a3633")
+    upper = MachineIdentifiers(firmware_uuid="4C4C4544-0031-104D-8032-B8C04F4A3633")
+    assert derive_machine_id(lower, SALT).machine_id == derive_machine_id(upper, SALT).machine_id
+
+
+def test_filler_serial_yields_no_identity_rather_than_a_shared_one():
+    ident = MachineIdentifiers(hardware_serial="To Be Filled By O.E.M")
+    assert derive_machine_id(ident, SALT).machine_id is None

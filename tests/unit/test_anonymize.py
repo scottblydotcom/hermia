@@ -348,3 +348,26 @@ def test_pseudonyms_extend_past_z():
     assert names[26] == "node-aa"   # spreadsheet-style rollover
     assert names[27] == "node-ab"
     assert len(set(names)) == 28
+
+
+def test_machine_pseudonym_survives_the_default_deny_pass():
+    """Without a whitelist entry the pseudonym is silently dropped, and an
+    export carries no way to tell one machine's rows from another's."""
+    from hermia.sink.anonymize import (
+        SUBMIT_WHITELIST,
+        anonymize_row,
+        assign_machine_pseudonyms,
+    )
+
+    assert "machine_pseudonym" in SUBMIT_WHITELIST
+    assert "machine_id" not in SUBMIT_WHITELIST
+    rows = assign_machine_pseudonyms([{"model": "m", "machine_id": "aaaa"}])
+    assert anonymize_row(rows[0])["machine_pseudonym"] == "node-a"
+
+
+def test_applying_pseudonyms_twice_does_not_blank_them():
+    from hermia.sink.anonymize import assign_machine_pseudonyms
+
+    once = assign_machine_pseudonyms([{"machine_id": "aaaa"}])
+    twice = assign_machine_pseudonyms(once)
+    assert twice[0]["machine_pseudonym"] == "node-a"

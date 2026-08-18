@@ -29,6 +29,7 @@ from hermia.identity.types import (
     MachineCapabilities,
     MachineIdentifiers,
     MachineObservation,
+    is_usable_identifier,
 )
 
 _TIMEOUT_SEC = 5
@@ -69,6 +70,21 @@ def _clean(value: str | None) -> str | None:
     return value.strip() or None
 
 
+def _first_usable(*values: str | None) -> str | None:
+    """First value that is present AND not a vendor placeholder.
+
+    A plain `a or b` fallback is wrong here: DMI board_serial is frequently the
+    non-empty string "None" or "Default string", which is truthy, so it masks a
+    perfectly good product_serial. The placeholder is discarded later, leaving
+    NO serial at all — and the machine's id silently changes depending on which
+    of the two files happened to be readable on a given run.
+    """
+    for value in values:
+        if is_usable_identifier(value):
+            return _clean(value)
+    return None
+
+
 def _to_int(value: str | None) -> int | None:
     if value is None:
         return None
@@ -103,7 +119,9 @@ def _reg_value(output: str | None, name: str) -> str | None:
             continue
         parts = line.split()
         if len(parts) < 3:
-            return None
+            # A path header can also contain the value name. Keep scanning
+            # rather than aborting, or the real line below is never reached.
+            continue
         value = _clean(parts[-1])
         if value is None or value.upper().startswith("REG_"):
             return None
@@ -111,21 +129,43 @@ def _reg_value(output: str | None, name: str) -> str | None:
     return None
 
 
-def _cim(class_name: str, prop: str) -> str | None:
-    """Read one CIM property via PowerShell.
+_CIM_FIELDS: tuple[tuple[str, str, str], ...] = (
+    ("uuid", "Win32_ComputerSystemProduct", "UUID"),
+    ("name", "Win32_ComputerSystemProduct", "Name"),
+    ("serial", "Win32_BaseBoard", "SerialNumber"),
+    ("ram", "Win32_ComputerSystem", "TotalPhysicalMemory"),
+)
+_CIM_TIMEOUT_SEC = 45
 
-    Preferred over `wmic`, which is removed by default from Windows 11 24H2 and
-    slated for full removal. When wmic vanishes the firmware UUID and board
-    serial vanish with it, and identity silently drops to the cloneable
-    MachineGuid — a downgrade with no outward sign, which is the exact class of
-    failure this package exists to stop.
+
+def _cim_all() -> dict[str, str | None]:
+    """Read every needed CIM property in ONE PowerShell invocation.
+
+    Preferred over `wmic`, which is removed by default from Windows 11 24H2.
+    When wmic vanishes the firmware UUID and board serial vanish with it and
+    identity silently drops to the cloneable MachineGuid — a downgrade with no
+    outward sign.
+
+    One invocation, not four: PowerShell cold-starts in seconds, so four
+    sequential calls against the default 5s timeout would intermittently drop
+    whichever property happened to be slow. Losing just the UUID silently
+    demotes the machine to a weaker identifier and makes its id flap between
+    runs, which looks exactly like hardware being swapped.
     """
-    return _clean(
-        _run([
-            "powershell", "-NoProfile", "-NonInteractive", "-Command",
-            f"(Get-CimInstance -ClassName {class_name}).{prop}",
-        ])
+    script = "; ".join(
+        f'"{key}=" + [string](Get-CimInstance -ClassName {cls}).{prop}'
+        for key, cls, prop in _CIM_FIELDS
     )
+    out = _run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+        timeout=_CIM_TIMEOUT_SEC,
+    )
+    parsed: dict[str, str | None] = {key: None for key, _, _ in _CIM_FIELDS}
+    for line in (out or "").splitlines():
+        key, sep, value = line.partition("=")
+        if sep and key.strip() in parsed:
+            parsed[key.strip()] = _clean(value)
+    return parsed
 
 
 def _wmic_value(output: str | None) -> str | None:
@@ -241,8 +281,10 @@ class LocalProbe:
         return (
             MachineIdentifiers(
                 firmware_uuid=_clean(_read_text("/sys/class/dmi/id/product_uuid")),
-                hardware_serial=_clean(_read_text("/sys/class/dmi/id/board_serial"))
-                or _clean(_read_text("/sys/class/dmi/id/product_serial")),
+                hardware_serial=_first_usable(
+                    _read_text("/sys/class/dmi/id/board_serial"),
+                    _read_text("/sys/class/dmi/id/product_serial"),
+                ),
                 persisted_token=_clean(_read_text("/etc/machine-id")),
             ),
             MachineCapabilities(
@@ -260,15 +302,18 @@ class LocalProbe:
         )
 
     def _windows(self) -> tuple[MachineIdentifiers, MachineCapabilities]:
-        model = _cim("Win32_ComputerSystemProduct", "Name") or _wmic_value(
-            _run(["wmic", "csproduct", "get", "Name"])
-        )
+        cim = _cim_all()
+        model = cim["name"] or _wmic_value(_run(["wmic", "csproduct", "get", "Name"]))
         return (
             MachineIdentifiers(
-                firmware_uuid=_cim("Win32_ComputerSystemProduct", "UUID")
-                or _wmic_value(_run(["wmic", "csproduct", "get", "UUID"])),
-                hardware_serial=_cim("Win32_BaseBoard", "SerialNumber")
-                or _wmic_value(_run(["wmic", "baseboard", "get", "SerialNumber"])),
+                firmware_uuid=_first_usable(
+                    cim["uuid"],
+                    _wmic_value(_run(["wmic", "csproduct", "get", "UUID"])),
+                ),
+                hardware_serial=_first_usable(
+                    cim["serial"],
+                    _wmic_value(_run(["wmic", "baseboard", "get", "SerialNumber"])),
+                ),
                 persisted_token=_reg_value(
                     _run(
                         [
@@ -286,7 +331,7 @@ class LocalProbe:
                 cpu_brand=_clean(os.environ.get("PROCESSOR_IDENTIFIER")),
                 logical_cores=_to_int(os.environ.get("NUMBER_OF_PROCESSORS")),
                 ram_bytes=_to_int(
-                    _cim("Win32_ComputerSystem", "TotalPhysicalMemory")
+                    cim["ram"]
                     or _wmic_value(
                         _run(["wmic", "ComputerSystem", "get", "TotalPhysicalMemory"])
                     )

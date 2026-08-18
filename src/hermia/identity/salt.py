@@ -104,20 +104,40 @@ def _write_salt(path: Path, salt: bytes) -> bytes:
         return salt  # read-only home: ephemeral for this process, do not crash
 
     try:
-        os.link(tmp, path)
+        try:
+            os.link(tmp, path)
+        except OSError as exc:
+            if isinstance(exc, FileExistsError):
+                raise
+            # Filesystem without hard links (exFAT, some network and container
+            # mounts). Fall back to an EXCLUSIVE create, never os.replace:
+            # replace is an unconditional overwrite, so two first-run processes
+            # would each install their own salt and every id derived either
+            # side of that moment would disagree.
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            try:
+                os.write(fd, salt.hex().encode("ascii"))
+            finally:
+                os.close(fd)
         _harden(path)
         return salt
     except FileExistsError:
         existing = _read_salt(path)
-        return existing if existing is not None else salt
-    except OSError:
-        # Filesystem without hard links: fall back to an exclusive create.
+        if existing is not None:
+            return existing
+        # The file exists but is EMPTY or malformed — a process killed
+        # mid-write, or a truncated restore. Left alone it is never repaired,
+        # so every future run mints a throwaway salt and the machine gets a
+        # brand new id every single time, silently and forever. Overwriting is
+        # correct here precisely because nothing usable is being destroyed.
         try:
             os.replace(tmp, path)
             _harden(path)
-            return salt
         except OSError:
-            return salt
+            pass
+        return salt
+    except OSError:
+        return salt
     finally:
         try:
             os.unlink(tmp)

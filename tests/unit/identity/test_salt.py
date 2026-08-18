@@ -139,3 +139,33 @@ def test_passphrase_uses_a_slow_kdf_not_a_bare_digest(tmp_path, monkeypatch):
         b"a shared team phrase", salt=b"hermia-fleet-salt-v1",
         n=2**14, r=8, p=1, dklen=32,
     )
+
+
+def test_a_zero_byte_salt_file_is_repaired_not_re_minted_forever(tmp_path):
+    """Left unrepaired, every run mints a throwaway salt and the machine gets a
+    brand new id every single time, silently and forever."""
+    p = tmp_path / "machine_salt"
+    p.write_text("")
+    first = load_or_create_salt(p)
+    assert p.stat().st_size > 0, "corrupt salt file was never repaired"
+    assert load_or_create_salt(p) == first
+
+
+def test_a_truncated_salt_file_is_repaired(tmp_path):
+    p = tmp_path / "machine_salt"
+    p.write_text("abcd")
+    first = load_or_create_salt(p)
+    assert load_or_create_salt(p) == first
+    assert len(first) == 32
+
+
+def test_a_good_salt_is_never_clobbered_when_hard_links_are_unavailable(tmp_path, monkeypatch):
+    """The no-hardlink fallback must not become an unconditional overwrite."""
+    p = tmp_path / "machine_salt"
+    original = load_or_create_salt(p)
+
+    def no_links(*a, **k):
+        raise OSError("hard links unsupported")
+
+    monkeypatch.setattr("hermia.identity.salt.os.link", no_links)
+    assert load_or_create_salt(p) == original

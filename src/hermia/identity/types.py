@@ -33,27 +33,63 @@ from typing import Protocol
 # an unfilled template string.
 KNOWN_BAD_IDENTIFIERS: frozenset[str] = frozenset(
     {
-        "00000000-0000-0000-0000-000000000000",
-        "ffffffff-ffff-ffff-ffff-ffffffffffff",
-        "03000200-0400-0500-0006-000700080009",  # mass-duplicated vendor UUID
-        "to be filled by o.e.m.",
-        "to be filled by oem",
-        "system serial number",
-        "default string",
-        "not specified",
+        # mass-duplicated vendor UUID, in canonical (alnum-folded) form
+        "03000200040005000006000700080009",
+        "tobefilledbyoem",
+        "systemserialnumber",
+        "baseboardserialnumber",
+        "chassisserialnumber",
+        "defaultstring",
+        "notspecified",
+        "notapplicable",
         "none",
+        "null",
         "unknown",
-        "0",
+        "oem",
+        "na",
+        "invalid",
+        "serialnumber",
+        "filledbyoem",
     }
 )
 
+# Minimum length for a value to be plausibly unique. Vendors ship short filler
+# like "0", "123", "NA"; a real UUID or serial is comfortably longer.
+_MIN_IDENTIFIER_LEN = 6
+
+
+def canonical_identifier(value: str | None) -> str | None:
+    """Canonical form used for BOTH the placeholder screen and hashing.
+
+    Case and hyphenation are formatting, not identity: Linux reports a firmware
+    UUID lowercase while Windows and macOS report it uppercase, and the same
+    UUID appears hyphenated in one place and bare in another. Hashing the raw
+    string makes one physical motherboard produce different ids depending on
+    which OS asked — a split identity created purely by punctuation.
+    """
+    if value is None:
+        return None
+    folded = "".join(ch for ch in value.strip().lower() if ch.isalnum())
+    return folded or None
+
 
 def is_usable_identifier(value: str | None) -> bool:
-    """True when a value is present and not a known non-unique placeholder."""
-    if value is None:
+    """True when a value is present and not a known non-unique placeholder.
+
+    Screening happens on the CANONICAL form, so "To Be Filled By O.E.M",
+    "to be filled by o.e.m." and "TO_BE_FILLED_BY_OEM" are all caught by one
+    entry. Exact-string matching missed every variant a vendor happened to
+    punctuate differently, and two DIY boxes sharing a filler serial then
+    derived the SAME machine id.
+    """
+    canon = canonical_identifier(value)
+    if canon is None or len(canon) < _MIN_IDENTIFIER_LEN:
         return False
-    cleaned = value.strip()
-    return bool(cleaned) and cleaned.lower() not in KNOWN_BAD_IDENTIFIERS
+    if canon in KNOWN_BAD_IDENTIFIERS:
+        return False
+    if len(set(canon)) == 1:  # "000000...", "ffffff...", "xxxxxx..."
+        return False
+    return not canon.isdigit() or len(set(canon)) > 2
 
 
 @dataclass(frozen=True)
@@ -80,11 +116,12 @@ class MachineIdentifiers:
             "hardware_serial": self.hardware_serial,
             "persisted_token": self.persisted_token,
         }
-        return {
-            k: v.strip()
-            for k, v in candidates.items()
-            if v is not None and is_usable_identifier(v)
-        }
+        out: dict[str, str] = {}
+        for k, v in candidates.items():
+            canon = canonical_identifier(v) if is_usable_identifier(v) else None
+            if canon is not None:
+                out[k] = canon
+        return out
 
     @property
     def is_identifiable(self) -> bool:

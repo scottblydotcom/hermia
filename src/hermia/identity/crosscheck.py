@@ -40,7 +40,9 @@ except ImportError:  # pragma: no cover - platform dependent
 DEFAULT_LEDGER_PATH = Path.home() / ".hermia" / "machine_ledger.json"
 
 _Ledger = dict[str, Any]
-_LEDGER_LOCK = threading.Lock()
+# Reentrant: a caller reaching this module again from inside a logging handler
+# or error path would otherwise self-deadlock rather than merely misbehave.
+_LEDGER_LOCK = threading.RLock()
 
 
 @dataclass(frozen=True)
@@ -118,6 +120,27 @@ def _save(path: Path, data: _Ledger) -> None:
         os.replace(tmp, path)
     except OSError:
         pass  # read-only home: skip persistence, never crash the run
+
+
+def _still_disputed(conflict: dict[str, Any], machine_id: str) -> bool:
+    """Is a recorded conflict still live for the machine now being observed?
+
+    Two different situations get recorded as a conflict, and only one of them
+    should keep blocking:
+
+    * The label HAD a binding and something else answered to it. The dispute is
+      about this label, so it stays open even once the original machine returns
+      — otherwise a box swapped in for one run and swapped back out clears
+      itself and leaves no trace that anything moved.
+    * The label had NO binding and the conflict came from the machine already
+      answering to another name. Once this label settles on a different,
+      unclaimed machine that dispute is moot FOR THIS LABEL. Keeping it open
+      would permanently block a freshly renamed host from ever binding, while
+      warning forever about a machine no longer involved.
+    """
+    if conflict.get("expected") is not None:
+        return True
+    return conflict.get("observed") == machine_id
 
 
 def _bind(ledger: _Ledger, label: str, machine_id: str) -> None:
@@ -245,7 +268,9 @@ def check_identity_consistency(
                 "observed": machine_id,
                 "expected": previous_id,
             }
-        elif isinstance(open_conflict, dict):
+        elif isinstance(open_conflict, dict) and _still_disputed(
+            open_conflict, machine_id
+        ):
             # Pairing looks fine again, but nobody adjudicated the earlier
             # disagreement. Keep reporting it; do NOT rebind.
             warnings.append(
