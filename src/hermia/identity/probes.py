@@ -437,14 +437,12 @@ def _spdisplays_chipset(output: str | None) -> str | None:
 
 
 def _spdisplays_vram_bytes(output: str | None) -> int | None:
-    """Extract VRAM in bytes from system_profiler output (Apple M-series)."""
-    if not output:
-        return None
-    for line in output.splitlines():
-        if "Total Number of Cores" in line or "Memory" in line:
-            # Apple Silicon reports unified memory, not discrete VRAM
-            # For now, return None as we cannot reliably extract GPU-specific VRAM
-            pass
+    """Discrete VRAM from system_profiler — always None on Apple Silicon.
+
+    Apple Silicon reports UNIFIED memory, not a discrete VRAM figure, so there
+    is nothing to extract. Kept as a named seam for a future discrete-GPU Mac;
+    the VRAM sanity-bound cross-check reads 'unchecked' when this is None.
+    """
     return None
 
 
@@ -485,7 +483,7 @@ class SSHProbe:
 
     def _detect_os(self) -> str | None:
         """Detect OS family via uname -s."""
-        if self.os_family:
+        if self.os_family is not None:
             return self.os_family
         output = self._ssh(["uname", "-s"])
         if not output:

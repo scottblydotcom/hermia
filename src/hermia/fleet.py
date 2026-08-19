@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from hermia.identity import IdentityCache
+    from hermia.identity.salt import SaltInfo
 
 import yaml
 
@@ -196,6 +197,7 @@ def _run_host_eval(
     verbosity: int,
     test_timeout: int | None = None,
     identity_cache: "IdentityCache | None" = None,
+    identity_salt: "SaltInfo | None" = None,
 ) -> bool:
     """Evaluate every (model, test, repeat) for one fleet host. Writes rows as it goes.
 
@@ -219,7 +221,10 @@ def _run_host_eval(
     from hermia.results import append_result
     from hermia.robustness import compute_reproducibility, score_rows
     _identity_transport = parse_identity_transport(entry)
-    _identity_salt = load_salt()
+    # Salt is loaded ONCE per run (in run_fleet) and shared: in the ephemeral
+    # fallback load_salt() returns a fresh random salt each call, so a per-host
+    # call would derive incomparable ids for the same machine within one run.
+    _identity_salt = identity_salt if identity_salt is not None else load_salt()
     _id_cache = identity_cache or IdentityCache()
     from hermia.runner import (
         TEST_TIMEOUT,
@@ -453,8 +458,9 @@ def run_fleet(
     groups = _group_entries_by_host(entries)
     workers = max(1, min(max_concurrency, len(groups)))
 
-    from hermia.identity import IdentityCache
+    from hermia.identity import IdentityCache, load_salt
     _shared_identity_cache = IdentityCache()
+    _shared_identity_salt = load_salt()
 
     def run_group(group: list[dict[str, Any]]) -> tuple[int, int]:
         # Returns (evaluated, skipped). Counts are returned (not shared mutable
@@ -467,6 +473,7 @@ def run_fleet(
                 print_lock, print_fn, stderr_fn, verbosity,
                 test_timeout=test_timeout,
                 identity_cache=_shared_identity_cache,
+                identity_salt=_shared_identity_salt,
             ):
                 evaluated += 1
             else:
