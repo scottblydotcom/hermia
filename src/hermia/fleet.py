@@ -6,7 +6,10 @@ import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from hermia.identity import IdentityCache
 
 import yaml
 
@@ -192,6 +195,7 @@ def _run_host_eval(
     stderr_fn: Callable[[str], None],
     verbosity: int,
     test_timeout: int | None = None,
+    identity_cache: "IdentityCache | None" = None,
 ) -> bool:
     """Evaluate every (model, test, repeat) for one fleet host. Writes rows as it goes.
 
@@ -206,9 +210,17 @@ def _run_host_eval(
 
     from hermia.backend import resolve_stack
     from hermia.fingerprint import FingerprintCache
+    from hermia.identity import (
+        IdentityCache,
+        load_salt,
+        parse_identity_transport,
+    )
     from hermia.metrics import MetricsSampler
     from hermia.results import append_result
     from hermia.robustness import compute_reproducibility, score_rows
+    _identity_transport = parse_identity_transport(entry)
+    _identity_salt = load_salt()
+    _id_cache = identity_cache or IdentityCache()
     from hermia.runner import (
         TEST_TIMEOUT,
         _normalize_host,
@@ -345,6 +357,9 @@ def _run_host_eval(
                     host=host_url, headers=headers, transport=host_transport,
                     locality="remote", fp_cache=fp_cache,
                     test_timeout=effective_timeout,
+                    identity_transport=_identity_transport,
+                    identity_salt=_identity_salt,
+                    identity_cache=_id_cache,
                 )
                 result["run_id"] = run_id
                 result["run_timestamp"] = datetime.now(UTC).isoformat()
@@ -438,6 +453,9 @@ def run_fleet(
     groups = _group_entries_by_host(entries)
     workers = max(1, min(max_concurrency, len(groups)))
 
+    from hermia.identity import IdentityCache
+    _shared_identity_cache = IdentityCache()
+
     def run_group(group: list[dict[str, Any]]) -> tuple[int, int]:
         # Returns (evaluated, skipped). Counts are returned (not shared mutable
         # state) so concurrent groups stay thread-safe.
@@ -448,6 +466,7 @@ def run_fleet(
                 entry, repeat, run_id, jsonl_path, csv_path,
                 print_lock, print_fn, stderr_fn, verbosity,
                 test_timeout=test_timeout,
+                identity_cache=_shared_identity_cache,
             ):
                 evaluated += 1
             else:
