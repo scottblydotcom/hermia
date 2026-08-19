@@ -372,6 +372,8 @@ def _mark_caps(caps: MachineCapabilities) -> MachineCapabilities:
             ("ram_bytes", caps.ram_bytes),
             ("model_identifier", caps.model_identifier),
             ("nic_mac", caps.nic_mac),
+            ("gpu_description", caps.gpu_description),
+            ("vram_bytes", caps.vram_bytes),
         )
         if value is None
     )
@@ -383,6 +385,8 @@ def _mark_caps(caps: MachineCapabilities) -> MachineCapabilities:
         os_family=caps.os_family,
         os_version=caps.os_version,
         nic_mac=caps.nic_mac,
+        gpu_description=caps.gpu_description,
+        vram_bytes=caps.vram_bytes,
         is_virtual=caps.is_virtual,
         unavailable=missing,
     )

@@ -127,3 +127,17 @@ def test_case_and_hyphenation_are_formatting_not_identity():
     upper = MachineIdentifiers(firmware_uuid="4C4C4544-0031-104D-8032-B8C04F4A3633")
     bare = MachineIdentifiers(firmware_uuid="4c4c45440031104d8032b8c04f4a3633")
     assert lower.usable == upper.usable == bare.usable
+
+
+def test_capabilities_carry_vram_and_gpu_fields():
+    from hermia.identity.types import MachineCapabilities
+    caps = MachineCapabilities(vram_bytes=34359738368, gpu_description="NVIDIA GeForce RTX 5090")
+    assert caps.vram_bytes == 34359738368
+    assert caps.gpu_description == "NVIDIA GeForce RTX 5090"
+
+
+def test_capabilities_vram_gpu_default_none():
+    from hermia.identity.types import MachineCapabilities
+    caps = MachineCapabilities()
+    assert caps.vram_bytes is None
+    assert caps.gpu_description is None
