@@ -20,8 +20,10 @@ from __future__ import annotations
 import os
 import platform
 import re
+import shlex
 import subprocess
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -390,3 +392,189 @@ def _mark_caps(caps: MachineCapabilities) -> MachineCapabilities:
         is_virtual=caps.is_virtual,
         unavailable=missing,
     )
+
+
+SSHExec = Callable[[str, list[str]], str | None]
+
+
+def _ssh_exec(target: str, argv: list[str]) -> str | None:
+    """Execute a command over ssh; return stripped stdout or None on any failure."""
+    try:
+        remote_cmd = shlex.join(argv)
+        result = subprocess.run(  # noqa: S603
+            [
+                "ssh",
+                "-o",
+                "BatchMode=yes",
+                "-o",
+                f"ConnectTimeout={_TIMEOUT_SEC}",
+                target,
+                remote_cmd,
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=_TIMEOUT_SEC * 2,
+            check=False,
+        )
+    except Exception:  # noqa: BLE001 - probing must never raise
+        return None
+    if result.returncode != 0:
+        return None
+    out: str = result.stdout
+    return out.strip()
+
+
+def _spdisplays_chipset(output: str | None) -> str | None:
+    """Extract GPU chipset model from system_profiler output."""
+    if not output:
+        return None
+    for line in output.splitlines():
+        if "Chipset Model:" in line:
+            _, _, value = line.partition("Chipset Model:")
+            return _clean(value.strip())
+    return None
+
+
+def _spdisplays_vram_bytes(output: str | None) -> int | None:
+    """Extract VRAM in bytes from system_profiler output (Apple M-series)."""
+    if not output:
+        return None
+    for line in output.splitlines():
+        if "Total Number of Cores" in line or "Memory" in line:
+            # Apple Silicon reports unified memory, not discrete VRAM
+            # For now, return None as we cannot reliably extract GPU-specific VRAM
+            pass
+    return None
+
+
+def _nvidia_gpu(output: str | None) -> tuple[str | None, int | None]:
+    """(name, total VRAM bytes) from ``nvidia-smi --query-gpu=name,memory.total``.
+
+    Invoked with ``--format=csv,noheader,nounits``, so a line is ``NAME, MIB``.
+    Only the first GPU is used. ``(None, None)`` when nvidia-smi is absent
+    (AMD/CPU host) — the VRAM sanity-bound cross-check then reads 'unchecked'.
+    """
+    if not output:
+        return None, None
+    first = output.splitlines()[0]
+    if "," not in first:
+        return None, None
+    name, _, mib = first.partition(",")
+    total_mib = _to_int(mib)
+    vram = total_mib * 1024 * 1024 if total_mib is not None else None
+    return _clean(name), vram
+
+
+class SSHProbe:
+    """Measures a remote machine over ssh."""
+
+    def __init__(
+        self,
+        target: str,
+        os_family: str | None = None,
+        exec_fn: SSHExec | None = None,
+    ) -> None:
+        self.target = target
+        self.os_family = os_family
+        self._exec_fn = exec_fn or _ssh_exec
+
+    def _ssh(self, argv: list[str]) -> str | None:
+        """Execute a command over ssh."""
+        return self._exec_fn(self.target, argv)
+
+    def _detect_os(self) -> str | None:
+        """Detect OS family via uname -s."""
+        if self.os_family:
+            return self.os_family
+        output = self._ssh(["uname", "-s"])
+        if not output:
+            return None
+        uname = output.strip().lower()
+        if "linux" in uname:
+            return "linux"
+        if "darwin" in uname:
+            return "darwin"
+        # Windows and others are not supported for remote probing yet
+        return None
+
+    def _darwin(self) -> tuple[MachineIdentifiers, MachineCapabilities]:
+        ioreg = self._ssh(["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"])
+        model = _clean(self._ssh(["sysctl", "-n", "hw.model"]))
+        sys_profiler = self._ssh(
+            ["system_profiler", "SPDisplaysDataType"]
+        )
+
+        return (
+            MachineIdentifiers(
+                firmware_uuid=_ioreg_field(ioreg, "IOPlatformUUID"),
+                hardware_serial=_ioreg_field(ioreg, "IOPlatformSerialNumber"),
+            ),
+            MachineCapabilities(
+                cpu_brand=_clean(self._ssh(["sysctl", "-n", "machdep.cpu.brand_string"])),
+                logical_cores=_to_int(self._ssh(["sysctl", "-n", "hw.logicalcpu"])),
+                ram_bytes=_to_int(self._ssh(["sysctl", "-n", "hw.memsize"])),
+                model_identifier=model,
+                os_family="darwin",
+                os_version=_clean(self._ssh(["sw_vers", "-productVersion"])),
+                gpu_description=_spdisplays_chipset(sys_profiler),
+                vram_bytes=_spdisplays_vram_bytes(sys_profiler),
+            ),
+        )
+
+    def _linux(self) -> tuple[MachineIdentifiers, MachineCapabilities]:
+        product_name = _clean(
+            self._ssh(["cat", "/sys/class/dmi/id/product_name"])
+        )
+        cpuinfo = self._ssh(["cat", "/proc/cpuinfo"])
+        cores = len(re.findall(r"^processor\s*:", cpuinfo or "", re.M)) if cpuinfo else 0
+
+        gpu_desc, vram_bytes = _nvidia_gpu(
+            self._ssh(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=name,memory.total",
+                    "--format=csv,noheader,nounits",
+                ]
+            )
+        )
+
+        return (
+            MachineIdentifiers(
+                firmware_uuid=_clean(self._ssh(["cat", "/sys/class/dmi/id/product_uuid"])),
+                hardware_serial=_first_usable(
+                    self._ssh(["cat", "/sys/class/dmi/id/board_serial"]),
+                    self._ssh(["cat", "/sys/class/dmi/id/product_serial"]),
+                ),
+                persisted_token=_clean(self._ssh(["cat", "/etc/machine-id"])),
+            ),
+            MachineCapabilities(
+                cpu_brand=_proc_field(cpuinfo, "model name"),
+                logical_cores=cores or None,
+                ram_bytes=_meminfo_bytes(self._ssh(["cat", "/proc/meminfo"])),
+                model_identifier=product_name,
+                os_family="linux",
+                os_version=_clean(self._ssh(["uname", "-r"])),
+                gpu_description=gpu_desc,
+                vram_bytes=vram_bytes,
+            ),
+        )
+
+    def probe(self) -> MachineObservation:
+        try:
+            detected_os = self._detect_os()
+            if detected_os == "darwin":
+                ident, caps = self._darwin()
+            elif detected_os == "linux":
+                ident, caps = self._linux()
+            else:
+                # Unknown or unsupported OS (including Windows) -> null identity
+                ident, caps = MachineIdentifiers(), MachineCapabilities(
+                    os_family=detected_os
+                )
+        except Exception:  # noqa: BLE001 - probing must never raise
+            ident, caps = MachineIdentifiers(), MachineCapabilities()
+
+        return MachineObservation(
+            identifiers=_mark_identifiers(ident), capabilities=_mark_caps(caps)
+        )

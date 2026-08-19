@@ -13,6 +13,7 @@ remote host while hermia runs locally, so stamping the LOCAL machine onto a
 remote row would manufacture exactly the misattribution this package exists to
 prevent. Row wiring lands with the remote-probe transport decision.
 """
+from hermia.identity.cache import IdentityCache
 from hermia.identity.crosscheck import (
     IdentityWarning,
     check_identity_consistency,
@@ -21,8 +22,9 @@ from hermia.identity.crosscheck import (
     resolve_conflict,
 )
 from hermia.identity.derive import derive_machine_id, select_source
-from hermia.identity.probes import LocalProbe
+from hermia.identity.probes import LocalProbe, SSHProbe
 from hermia.identity.salt import SaltInfo, load_or_create_salt, load_salt
+from hermia.identity.transport_config import IdentityTransport, parse_identity_transport
 from hermia.identity.types import (
     HardwareProbe,
     MachineCapabilities,
@@ -31,8 +33,14 @@ from hermia.identity.types import (
     MachineObservation,
     is_usable_identifier,
 )
+from hermia.identity.vram_check import vram_sanity_check
 
 __all__ = [
+    "vram_sanity_check",
+    "parse_identity_transport",
+    "SSHProbe",
+    "IdentityTransport",
+    "IdentityCache",
     "HardwareProbe",
     "IdentityWarning",
     "LocalProbe",
