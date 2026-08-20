@@ -51,6 +51,11 @@ def _tui_fleet_to_entries(data: dict[str, Any]) -> list[dict[str, Any]]:
             entry["models"] = h["models"]
         if h.get("stack"):
             entry["stack"] = h["stack"]
+        if h.get("identity") is not None:
+            # Carry identity through so a TUI-format YAML honors it headlessly
+            # (Fable review H2). load_fleet_config then validates it like any
+            # fleet[] entry — a malformed block fails fast, a valid one stamps.
+            entry["identity"] = h["identity"]
         entries.append(entry)
     return entries
 
@@ -477,6 +482,12 @@ def run_fleet(
     # an api-only fleet must not create the salt file as a side effect.
     _needs_identity = any(parse_identity_transport(e).kind == "ssh" for e in entries)
     _shared_identity_salt = load_salt() if _needs_identity else None
+    if _shared_identity_salt is not None and not _shared_identity_salt.is_stable:
+        stderr_fn(
+            "  WARNING: machine-identity salt is EPHEMERAL (could not persist "
+            "~/.hermia salt) — machine_fingerprints will differ every run and are "
+            "not comparable across runs. Set HERMIA_FLEET_SALT to stabilize."
+        )
 
     def run_group(group: list[dict[str, Any]]) -> tuple[int, int]:
         # Returns (evaluated, skipped). Counts are returned (not shared mutable

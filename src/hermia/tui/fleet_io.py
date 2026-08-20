@@ -21,6 +21,7 @@ from the environment.
 """
 from __future__ import annotations
 
+import warnings
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -76,6 +77,16 @@ def _headless_host(d: Any) -> Host:
         raise TypeError("Fleet entry must be a dictionary")
     if not d.get("name"):
         raise KeyError("Fleet entry missing required field: 'name'")
+    if d.get("identity") is not None:
+        # The interactive TUI does not yet stamp machine identity (hermia-cfqv
+        # TUI arm is a follow-up). Never drop it SILENTLY — warn so the operator
+        # knows rows will carry null identity and can use the headless CLI.
+        warnings.warn(
+            f"Host {d.get('name')!r}: 'identity' is set but the TUI does not yet "
+            "stamp machine identity; rows will be null. Run headless "
+            "(hermia --fleet ...) to stamp identity.",
+            stacklevel=2,
+        )
     if not d.get("host"):
         raise KeyError("Fleet entry missing required field: 'host'")
     raw_models = d.get("models")

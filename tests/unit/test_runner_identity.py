@@ -46,6 +46,8 @@ def test_ssh_transport_stamps_remote_fingerprint():
     ).machine_id
     assert stamp["machine_fingerprint"] == expected_hash
     assert stamp["machine_fingerprint"] != "SN-REMOTE-1"
+    # H3: the salt scope must ride on the row so ids are only compared in-scope.
+    assert stamp["machine_id_scope"] == "fleet:test"
 
 
 def test_api_transport_stamps_explicit_null():
@@ -58,6 +60,7 @@ def test_api_transport_stamps_explicit_null():
     )
     assert stamp["machine_fingerprint"] is None
     assert stamp["machine_id_source"] == "none"
+    assert stamp["machine_id_scope"] is None  # api null carries no scope claim
     assert stamp["identity_crosscheck"] == "unchecked"
 
 

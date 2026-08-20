@@ -25,11 +25,16 @@ def parse_identity_transport(entry: dict[str, object]) -> IdentityTransport:
     identity_cfg: dict[str, object] = raw_cfg
     transport_kind = identity_cfg.get("transport")
 
-    if transport_kind is None:
-        # Absent block defaults to api null
-        return IdentityTransport("api", None)
-
-    if transport_kind == "api":
+    # A ssh target set without transport: ssh is almost always a forgotten
+    # "transport: ssh" line, not an intent to run api. Fail loudly instead of
+    # silently nulling the whole run (ultra/Fable review M1).
+    _has_ssh = identity_cfg.get("ssh") is not None or entry.get("ssh") is not None
+    if transport_kind in (None, "api"):
+        if _has_ssh:
+            raise ValueError(
+                "identity block sets 'ssh' but transport is not 'ssh' "
+                f"(add 'transport: ssh'); got transport={transport_kind!r}"
+            )
         return IdentityTransport("api", None)
 
     if transport_kind == "ssh":
@@ -38,7 +43,11 @@ def parse_identity_transport(entry: dict[str, object]) -> IdentityTransport:
             raise ValueError(
                 f"ssh transport requires a 'ssh' target string; got {entry!r}"
             )
-        target = str(ssh_target)
+        if not isinstance(ssh_target, str):
+            raise ValueError(
+                f"ssh target must be a string, got {type(ssh_target).__name__}"
+            )
+        target = ssh_target
         # A target beginning with "-" is read by the ssh CLI as an option, not a
         # host — the local option/command-injection vector. Reject at config time
         # with a clear error (the probe also passes "--").

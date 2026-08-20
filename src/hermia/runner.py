@@ -340,6 +340,7 @@ def build_identity_stamp(
         return {
             "machine_fingerprint": None,
             "machine_id_source": "none",
+            "machine_id_scope": None,
             "identity_crosscheck": "unchecked",
         }
     factory = probe_factory or (lambda t: SSHProbe(t).probe())
@@ -348,6 +349,7 @@ def build_identity_stamp(
     return {
         "machine_fingerprint": identity.machine_id,
         "machine_id_source": identity.source,
+        "machine_id_scope": identity.salt_scope,
         "identity_crosscheck": vram_sanity_check(
             obs.capabilities.vram_bytes, endpoint_size_vram_gb
         ),
@@ -555,5 +557,6 @@ def run_test(
         "_provenance": _prov,
         "machine_fingerprint": _identity_stamp["machine_fingerprint"],
         "machine_id_source": _identity_stamp["machine_id_source"],
+        "machine_id_scope": _identity_stamp["machine_id_scope"],
         "identity_crosscheck": _identity_stamp["identity_crosscheck"],
     }
