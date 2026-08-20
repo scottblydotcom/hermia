@@ -17,11 +17,12 @@ import yaml
 # Headless fleet[] schema only — TUI hosts[] uses different keys (url/engine),
 # converted to this schema by _tui_fleet_to_entries before entries reach load_fleet_config's checks.
 _FLEET_ENTRY_KEYS = frozenset(
-    {"name", "host", "transport", "auth", "models", "stack", "test_timeout"}
+    {"name", "host", "transport", "auth", "models", "stack", "test_timeout", "identity"}
 )
 _AUTH_KEYS = frozenset({"bearer"})
 _BEARER_KEYS = frozenset({"key_env"})
 _STACK_KEYS = frozenset({"gpu_arch", "runtime_version"})
+_IDENTITY_KEYS = frozenset({"transport", "ssh"})
 
 
 def _tui_fleet_to_entries(data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -137,6 +138,14 @@ def load_fleet_config(path: Path) -> list[dict[str, Any]]:
                     f"Fleet entry [{i}] 'models' must be a list of strings or 'auto'"
                 )
         _check_nested_dict(entry.get("stack"), "stack", _STACK_KEYS, i)
+        _check_nested_dict(entry.get("identity"), "identity", _IDENTITY_KEYS, i)
+        # Fail fast on a malformed identity block (bad transport, missing ssh
+        # target, arg-injection target, or a reserved wmi/agent transport) at
+        # load time, before any host is contacted — mirrors the test_timeout
+        # inline-validation pattern. Without this the SSH-identity feature was
+        # also unreachable: an unrecognized-key error rejected every identity block.
+        from hermia.identity import parse_identity_transport
+        parse_identity_transport(entry)
         auth = _check_nested_dict(entry.get("auth"), "auth", _AUTH_KEYS, i)
         if auth is not None:
             _check_nested_dict(auth.get("bearer"), "auth.bearer", _BEARER_KEYS, i)
@@ -220,12 +229,6 @@ def _run_host_eval(
     from hermia.metrics import MetricsSampler
     from hermia.results import append_result
     from hermia.robustness import compute_reproducibility, score_rows
-    _identity_transport = parse_identity_transport(entry)
-    # Salt is loaded ONCE per run (in run_fleet) and shared: in the ephemeral
-    # fallback load_salt() returns a fresh random salt each call, so a per-host
-    # call would derive incomparable ids for the same machine within one run.
-    _identity_salt = identity_salt if identity_salt is not None else load_salt()
-    _id_cache = identity_cache or IdentityCache()
     from hermia.runner import (
         TEST_TIMEOUT,
         _normalize_host,
@@ -235,6 +238,16 @@ def _run_host_eval(
     )
     from hermia.transport.ollama import OllamaTransport
     from hermia.transport.openai_compat import OpenAICompatTransport
+
+    _identity_transport = parse_identity_transport(entry)
+    # Salt is loaded ONCE per run (run_fleet) and shared; only ssh hosts need it,
+    # so an api host never mints ~/.hermia salt even inside a mixed fleet. In the
+    # ephemeral fallback load_salt() returns a fresh random salt each call, so a
+    # per-host call would derive incomparable ids for one machine within a run.
+    _identity_salt: SaltInfo | None = None
+    if _identity_transport.kind == "ssh":
+        _identity_salt = identity_salt if identity_salt is not None else load_salt()
+    _id_cache = identity_cache or IdentityCache()
 
     # Priority: caller-supplied (CLI flag) > per-host YAML key > module default.
     if test_timeout is not None:
@@ -458,9 +471,12 @@ def run_fleet(
     groups = _group_entries_by_host(entries)
     workers = max(1, min(max_concurrency, len(groups)))
 
-    from hermia.identity import IdentityCache, load_salt
+    from hermia.identity import IdentityCache, load_salt, parse_identity_transport
     _shared_identity_cache = IdentityCache()
-    _shared_identity_salt = load_salt()
+    # Only mint/read ~/.hermia salt when a host actually opts into ssh identity;
+    # an api-only fleet must not create the salt file as a side effect.
+    _needs_identity = any(parse_identity_transport(e).kind == "ssh" for e in entries)
+    _shared_identity_salt = load_salt() if _needs_identity else None
 
     def run_group(group: list[dict[str, Any]]) -> tuple[int, int]:
         # Returns (evaluated, skipped). Counts are returned (not shared mutable
