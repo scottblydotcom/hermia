@@ -115,3 +115,12 @@ def test_probe_never_raises_even_if_executor_throws():
         raise RuntimeError("ssh subprocess exploded")
 
     assert SSHProbe("h", exec_fn=boom).probe().identifiers.is_identifiable is False
+
+
+def test_nvidia_multi_gpu_vram_is_summed():
+    # Two GPUs -> pooled VRAM, so a model sharded across both is not a false mismatch.
+    from hermia.identity.probes import _nvidia_gpu
+    two_gpu = "NVIDIA GeForce RTX 3090, 24576\nNVIDIA GeForce RTX 3090, 24576\n"
+    name, vram = _nvidia_gpu(two_gpu)
+    assert name == "NVIDIA GeForce RTX 3090"
+    assert vram == (24576 + 24576) * 1024 * 1024

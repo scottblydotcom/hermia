@@ -408,6 +408,11 @@ def _ssh_exec(target: str, argv: list[str]) -> str | None:
                 "BatchMode=yes",
                 "-o",
                 f"ConnectTimeout={_TIMEOUT_SEC}",
+                # "--" terminates option parsing: a target like "-oProxyCommand=..."
+                # would otherwise be read by ssh as a LOCAL option and run a
+                # command on the orchestrator (arg injection). Paired with the
+                # transport_config guard that rejects a leading "-".
+                "--",
                 target,
                 remote_cmd,
             ],
@@ -447,21 +452,31 @@ def _spdisplays_vram_bytes(output: str | None) -> int | None:
 
 
 def _nvidia_gpu(output: str | None) -> tuple[str | None, int | None]:
-    """(name, total VRAM bytes) from ``nvidia-smi --query-gpu=name,memory.total``.
+    """(first GPU name, POOLED total VRAM bytes) from ``nvidia-smi``.
 
-    Invoked with ``--format=csv,noheader,nounits``, so a line is ``NAME, MIB``.
-    Only the first GPU is used. ``(None, None)`` when nvidia-smi is absent
-    (AMD/CPU host) — the VRAM sanity-bound cross-check then reads 'unchecked'.
+    Invoked with ``--query-gpu=name,memory.total --format=csv,noheader,nounits``,
+    so each line is ``NAME, MIB``. VRAM is SUMMED across all GPUs: the sanity
+    bound compares against the box's pooled VRAM, so a model sharded across two
+    cards must not read as a mismatch. ``(None, None)`` when nvidia-smi is absent
+    (AMD/CPU host) — the cross-check then reads 'unchecked'.
     """
     if not output:
         return None, None
-    first = output.splitlines()[0]
-    if "," not in first:
-        return None, None
-    name, _, mib = first.partition(",")
-    total_mib = _to_int(mib)
-    vram = total_mib * 1024 * 1024 if total_mib is not None else None
-    return _clean(name), vram
+    name: str | None = None
+    total_mib = 0
+    saw_vram = False
+    for line in output.splitlines():
+        if "," not in line:
+            continue
+        gpu_name, _, mib = line.partition(",")
+        if name is None:
+            name = _clean(gpu_name)
+        parsed = _to_int(mib)
+        if parsed is not None:
+            total_mib += parsed
+            saw_vram = True
+    vram = total_mib * 1024 * 1024 if saw_vram else None
+    return name, vram
 
 
 class SSHProbe:

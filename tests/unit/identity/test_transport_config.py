@@ -33,3 +33,11 @@ def test_wmi_and_agent_are_not_yet_implemented():
 def test_unknown_transport_is_error():
     with pytest.raises(ValueError, match="unknown identity transport"):
         parse_identity_transport({"identity": {"transport": "telepathy"}})
+
+
+def test_ssh_target_starting_with_dash_is_rejected():
+    # Arg-injection guard: a target like "-oProxyCommand=..." must not be accepted.
+    with pytest.raises(ValueError, match="arg-injection"):
+        parse_identity_transport(
+            {"identity": {"transport": "ssh", "ssh": "-oProxyCommand=touch /tmp/x"}}
+        )

@@ -38,7 +38,15 @@ def parse_identity_transport(entry: dict[str, object]) -> IdentityTransport:
             raise ValueError(
                 f"ssh transport requires a 'ssh' target string; got {entry!r}"
             )
-        return IdentityTransport("ssh", str(ssh_target))
+        target = str(ssh_target)
+        # A target beginning with "-" is read by the ssh CLI as an option, not a
+        # host — the local option/command-injection vector. Reject at config time
+        # with a clear error (the probe also passes "--").
+        if target.startswith("-"):
+            raise ValueError(
+                f"ssh target must not start with '-' (arg-injection risk): {target!r}"
+            )
+        return IdentityTransport("ssh", target)
 
     if transport_kind in ("wmi", "agent"):
         raise NotImplementedError(f"{transport_kind} identity transport not implemented")
