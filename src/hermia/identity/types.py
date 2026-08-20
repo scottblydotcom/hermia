@@ -144,6 +144,8 @@ class MachineCapabilities:
     os_family: str | None = None
     os_version: str | None = None
     nic_mac: str | None = None
+    gpu_description: str | None = None
+    vram_bytes: int | None = None
     is_virtual: bool | None = None
     unavailable: tuple[str, ...] = field(default=())
 

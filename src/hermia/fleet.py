@@ -6,18 +6,23 @@ import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from hermia.identity import IdentityCache
+    from hermia.identity.salt import SaltInfo
 
 import yaml
 
 # Headless fleet[] schema only — TUI hosts[] uses different keys (url/engine),
 # converted to this schema by _tui_fleet_to_entries before entries reach load_fleet_config's checks.
 _FLEET_ENTRY_KEYS = frozenset(
-    {"name", "host", "transport", "auth", "models", "stack", "test_timeout"}
+    {"name", "host", "transport", "auth", "models", "stack", "test_timeout", "identity"}
 )
 _AUTH_KEYS = frozenset({"bearer"})
 _BEARER_KEYS = frozenset({"key_env"})
 _STACK_KEYS = frozenset({"gpu_arch", "runtime_version"})
+_IDENTITY_KEYS = frozenset({"transport", "ssh"})
 
 
 def _tui_fleet_to_entries(data: dict[str, Any]) -> list[dict[str, Any]]:
@@ -46,6 +51,11 @@ def _tui_fleet_to_entries(data: dict[str, Any]) -> list[dict[str, Any]]:
             entry["models"] = h["models"]
         if h.get("stack"):
             entry["stack"] = h["stack"]
+        if h.get("identity") is not None:
+            # Carry identity through so a TUI-format YAML honors it headlessly
+            # (Fable review H2). load_fleet_config then validates it like any
+            # fleet[] entry — a malformed block fails fast, a valid one stamps.
+            entry["identity"] = h["identity"]
         entries.append(entry)
     return entries
 
@@ -133,6 +143,14 @@ def load_fleet_config(path: Path) -> list[dict[str, Any]]:
                     f"Fleet entry [{i}] 'models' must be a list of strings or 'auto'"
                 )
         _check_nested_dict(entry.get("stack"), "stack", _STACK_KEYS, i)
+        _check_nested_dict(entry.get("identity"), "identity", _IDENTITY_KEYS, i)
+        # Fail fast on a malformed identity block (bad transport, missing ssh
+        # target, arg-injection target, or a reserved wmi/agent transport) at
+        # load time, before any host is contacted — mirrors the test_timeout
+        # inline-validation pattern. Without this the SSH-identity feature was
+        # also unreachable: an unrecognized-key error rejected every identity block.
+        from hermia.identity import parse_identity_transport
+        parse_identity_transport(entry)
         auth = _check_nested_dict(entry.get("auth"), "auth", _AUTH_KEYS, i)
         if auth is not None:
             _check_nested_dict(auth.get("bearer"), "auth.bearer", _BEARER_KEYS, i)
@@ -192,6 +210,8 @@ def _run_host_eval(
     stderr_fn: Callable[[str], None],
     verbosity: int,
     test_timeout: int | None = None,
+    identity_cache: "IdentityCache | None" = None,
+    identity_salt: "SaltInfo | None" = None,
 ) -> bool:
     """Evaluate every (model, test, repeat) for one fleet host. Writes rows as it goes.
 
@@ -206,6 +226,11 @@ def _run_host_eval(
 
     from hermia.backend import resolve_stack
     from hermia.fingerprint import FingerprintCache
+    from hermia.identity import (
+        IdentityCache,
+        load_salt,
+        parse_identity_transport,
+    )
     from hermia.metrics import MetricsSampler
     from hermia.results import append_result
     from hermia.robustness import compute_reproducibility, score_rows
@@ -218,6 +243,16 @@ def _run_host_eval(
     )
     from hermia.transport.ollama import OllamaTransport
     from hermia.transport.openai_compat import OpenAICompatTransport
+
+    _identity_transport = parse_identity_transport(entry)
+    # Salt is loaded ONCE per run (run_fleet) and shared; only ssh hosts need it,
+    # so an api host never mints ~/.hermia salt even inside a mixed fleet. In the
+    # ephemeral fallback load_salt() returns a fresh random salt each call, so a
+    # per-host call would derive incomparable ids for one machine within a run.
+    _identity_salt: SaltInfo | None = None
+    if _identity_transport.kind == "ssh":
+        _identity_salt = identity_salt if identity_salt is not None else load_salt()
+    _id_cache = identity_cache or IdentityCache()
 
     # Priority: caller-supplied (CLI flag) > per-host YAML key > module default.
     if test_timeout is not None:
@@ -345,6 +380,9 @@ def _run_host_eval(
                     host=host_url, headers=headers, transport=host_transport,
                     locality="remote", fp_cache=fp_cache,
                     test_timeout=effective_timeout,
+                    identity_transport=_identity_transport,
+                    identity_salt=_identity_salt,
+                    identity_cache=_id_cache,
                 )
                 result["run_id"] = run_id
                 result["run_timestamp"] = datetime.now(UTC).isoformat()
@@ -438,6 +476,19 @@ def run_fleet(
     groups = _group_entries_by_host(entries)
     workers = max(1, min(max_concurrency, len(groups)))
 
+    from hermia.identity import IdentityCache, load_salt, parse_identity_transport
+    _shared_identity_cache = IdentityCache()
+    # Only mint/read ~/.hermia salt when a host actually opts into ssh identity;
+    # an api-only fleet must not create the salt file as a side effect.
+    _needs_identity = any(parse_identity_transport(e).kind == "ssh" for e in entries)
+    _shared_identity_salt = load_salt() if _needs_identity else None
+    if _shared_identity_salt is not None and not _shared_identity_salt.is_stable:
+        stderr_fn(
+            "  WARNING: machine-identity salt is EPHEMERAL (could not persist "
+            "~/.hermia salt) — machine_fingerprints will differ every run and are "
+            "not comparable across runs. Set HERMIA_FLEET_SALT to stabilize."
+        )
+
     def run_group(group: list[dict[str, Any]]) -> tuple[int, int]:
         # Returns (evaluated, skipped). Counts are returned (not shared mutable
         # state) so concurrent groups stay thread-safe.
@@ -448,6 +499,8 @@ def run_fleet(
                 entry, repeat, run_id, jsonl_path, csv_path,
                 print_lock, print_fn, stderr_fn, verbosity,
                 test_timeout=test_timeout,
+                identity_cache=_shared_identity_cache,
+                identity_salt=_shared_identity_salt,
             ):
                 evaluated += 1
             else:

@@ -6,7 +6,7 @@ import os
 import threading
 import time
 import types
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlparse
@@ -15,6 +15,15 @@ import requests
 
 from hermia import __git_sha__, __version__
 from hermia.fingerprint.cache import FingerprintCache
+from hermia.identity import (
+    IdentityCache,
+    IdentityTransport,
+    SaltInfo,
+    SSHProbe,
+    derive_machine_id,
+    vram_sanity_check,
+)
+from hermia.identity.types import MachineObservation
 from hermia.metrics import MetricsSampler, get_gpu_stats
 from hermia.normalize import strip_fences
 from hermia.schemas import SCHEMA_CHECKS, SIGNAL_EXTRACTORS, raw_output_leaks
@@ -312,6 +321,41 @@ def _play_turns(
     )
 
 
+def build_identity_stamp(
+    transport: IdentityTransport,
+    salt: SaltInfo | None,
+    cache: IdentityCache,
+    endpoint_size_vram_gb: float | None,
+    probe_factory: Callable[[str], MachineObservation] | None = None,
+) -> dict[str, object]:
+    """Identity of the host that RAN the eval, for the result row (hermia-cfqv).
+
+    ``machine_fingerprint`` is the SALTED HASH (``derive_machine_id``), never a
+    raw identifier — a raw firmware UUID/serial on a row is the leak the salt
+    exists to prevent. Never emits a ``machine_id`` key (that is the downstream
+    human alias). ``api`` transport, a missing salt, or no ssh target yields an
+    explicit null stamp — never a guess, never the orchestrator's own identity.
+    """
+    if transport.kind != "ssh" or salt is None or transport.ssh_target is None:
+        return {
+            "machine_fingerprint": None,
+            "machine_id_source": "none",
+            "machine_id_scope": None,
+            "identity_crosscheck": "unchecked",
+        }
+    factory = probe_factory or (lambda t: SSHProbe(t).probe())
+    obs = cache.get_or_probe(transport.ssh_target, factory)
+    identity = derive_machine_id(obs.identifiers, salt)
+    return {
+        "machine_fingerprint": identity.machine_id,
+        "machine_id_source": identity.source,
+        "machine_id_scope": identity.salt_scope,
+        "identity_crosscheck": vram_sanity_check(
+            obs.capabilities.vram_bytes, endpoint_size_vram_gb
+        ),
+    }
+
+
 def run_test(
     model: str,
     test: dict[str, Any],
@@ -323,6 +367,9 @@ def run_test(
     locality: Literal["local", "remote"] | None = None,
     fp_cache: FingerprintCache | None = None,
     test_timeout: int | None = None,
+    identity_transport: IdentityTransport | None = None,
+    identity_salt: SaltInfo | None = None,
+    identity_cache: IdentityCache | None = None,
 ) -> dict[str, Any]:
     _timeout = test_timeout if test_timeout is not None else TEST_TIMEOUT
     _host = _normalize_host(host) if host is not None else get_ollama_host()
@@ -463,6 +510,12 @@ def run_test(
         _host, model, declared=None, engine_version=orchestration_version,
         headers=req_headers or None,
     )
+    _identity_stamp = build_identity_stamp(
+        transport=identity_transport or IdentityTransport(kind="api"),
+        salt=identity_salt,
+        cache=identity_cache or IdentityCache(),
+        endpoint_size_vram_gb=ps_data.get("vram_server_gb"),
+    )
     return {
         "model": model,
         "test_id": test["id"],
@@ -502,4 +555,8 @@ def run_test(
         "sampling": {k: _EVAL_SAMPLING.get(k) for k in _SAMPLING_SCHEMA_KEYS},
         "stack_fingerprint": _fp,
         "_provenance": _prov,
+        "machine_fingerprint": _identity_stamp["machine_fingerprint"],
+        "machine_id_source": _identity_stamp["machine_id_source"],
+        "machine_id_scope": _identity_stamp["machine_id_scope"],
+        "identity_crosscheck": _identity_stamp["identity_crosscheck"],
     }

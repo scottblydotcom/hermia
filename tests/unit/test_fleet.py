@@ -1845,7 +1845,8 @@ def test_run_fleet_passes_timeout_to_host_eval(
 
     def fake_run_host_eval(entry, repeat, run_id, jsonl_path, csv_path,
                            print_lock, print_fn, stderr_fn, verbosity,
-                           test_timeout=None):  # type: ignore[no-untyped-def]
+                           test_timeout=None, identity_cache=None,
+                           identity_salt=None):  # type: ignore[no-untyped-def]
         captured.append(test_timeout)
         return True
 
