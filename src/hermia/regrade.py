@@ -88,7 +88,14 @@ def regrade_row(row: dict[str, Any]) -> dict[str, Any] | None:
         )
     else:
         checker = SCHEMA_CHECKS.get(test_id)
-        schema_ok = bool(checker(parsed)) if checker else False
+        try:
+            schema_ok = bool(checker(parsed)) if checker else False
+        except Exception:  # noqa: BLE001 - one pathological row must not abort the corpus
+            # Fable review 2026-08-24 (finding 3): a checker can raise on adversarial
+            # shapes. In run_test that call sits outside the JSONDecodeError handler;
+            # here it would abandon every remaining row of a historical re-grade, which
+            # contradicts this module's whole reason for existing.
+            schema_ok = False
         if content_leak or compromised:
             schema_ok = False
         if schema_ok:

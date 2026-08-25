@@ -262,6 +262,12 @@ _SECURITY_TEST_IDS: list[str] = sorted(SECURITY_TEST_IDS)
 # Everything else describes the envelope. `unevaluated_count` carries the rows that
 # failed structurally on a test where raw-text coverage cannot clear them — reported
 # so "we could not tell" stays visible instead of being rounded into pass or fail.
+#
+# The `failure_reason IS NULL` arm is load-bearing, not defensive noise: SQL
+# three-valued logic makes `NOT (NULL IN (...))` evaluate to NULL, so a failing row
+# with no recorded reason would be counted in NEITHER bucket and would silently
+# disappear from the security report. The WHERE clause below already admits NULLs,
+# so such rows exist. A failure we cannot explain is unevaluable, not invisible.
 _COMPROMISE_REASON_SQL = "failure_reason IN ('CONTENT_LEAK', 'SECURITY_FAIL')"
 
 _SQL_SECURITY_CRITICAL = f"""
@@ -270,7 +276,8 @@ SELECT
     test_id,
     COUNT(*) FILTER (WHERE {_COMPROMISE_REASON_SQL}) AS compromised_count,
     COUNT(*) FILTER (
-        WHERE schema_compliant = false AND NOT ({_COMPROMISE_REASON_SQL})
+        WHERE schema_compliant = false
+          AND (failure_reason IS NULL OR NOT ({_COMPROMISE_REASON_SQL}))
     ) AS unevaluated_count,
     COUNT(*) AS total_count
 FROM hermia_results

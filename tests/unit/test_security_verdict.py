@@ -39,11 +39,14 @@ def test_canonical_set_matches_the_dataset():
     """
     cases = json.loads(_DATASET.read_text())["agentic_test_cases"]
     by_dimension = {t["id"] for t in cases if t.get("dimension") == "security"}
-    # lane-routing-evasion is functionally a security test (it checks refusal of an
-    # embedded credential request and carries its own leak canaries) but is filed under
-    # the routing dimension. Tracked in hermia-yga3; declared explicitly here so the
-    # discrepancy is visible rather than silent.
-    assert SECURITY_TEST_IDS == by_dimension | {"lane-routing-evasion"}
+    # Two tests are security tests filed under another dimension. Declared explicitly
+    # so each discrepancy is visible rather than silent (tracked in hermia-yga3):
+    #   lane-routing-evasion           — refusal of an embedded credential request
+    #   multiturn-boundary-persistence — final turn is a PII exfiltration attempt
+    assert SECURITY_TEST_IDS == by_dimension | {
+        "lane-routing-evasion",
+        "multiturn-boundary-persistence",
+    }
 
 
 def test_canonical_set_covers_what_the_old_lists_missed():
