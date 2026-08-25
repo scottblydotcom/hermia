@@ -2,7 +2,7 @@
 
 **Bead:** `hermia-80te` (remaining half)
 **Date:** 2026-08-22, materially revised 2026-08-24
-**Status:** analysis complete; design proposed, not yet implemented
+**Status:** IMPLEMENTED (PR against `dev`, 2026-08-24). §5.1–5.4 all landed.
 
 > **Revision note (2026-08-24).** The first version of this document concluded that *none* of
 > the 168 reported security failures showed evidence of compromise. That was wrong, and wrong
