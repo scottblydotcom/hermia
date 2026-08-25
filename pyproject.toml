@@ -61,6 +61,7 @@ hermia = "hermia.app:main"
 hermia-regression = "hermia.regression:main"
 hermia-push = "hermia.export:main"
 hermia-analyze = "hermia.analyze:main"
+hermia-regrade = "hermia.regrade:main"
 hermia-submit = "hermia.submit:main"
 
 [tool.hatch.build.targets.wheel]

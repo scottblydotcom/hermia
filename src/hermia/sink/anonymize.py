@@ -57,6 +57,7 @@ SUBMIT_WHITELIST: frozenset[str] = frozenset(
 # Category prefixes for failure_reason reduction.  Longest matches first to
 # avoid SCHEMA_FAIL being incorrectly categorised as the shorter "ERROR".
 _KNOWN_FAILURE_PREFIXES: tuple[str, ...] = (
+    "SECURITY_FAIL",
     "SCHEMA_FAIL",
     "JSON_PARSE_ERROR",
     "EMPTY_CONTENT_WITH_THINKING",

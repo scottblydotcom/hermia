@@ -12,6 +12,11 @@ uv.lock
 dist/
 *.egg-info/
 results/
+# Local working directory. Never track: holds fleet IPs, tailnet names and spike code.
+scratchpad/
+
+# macOS finder droppings
+.DS_Store
 .env
 .env.*
 !.env.template
