@@ -63,7 +63,10 @@ def regrade_row(row: dict[str, Any]) -> dict[str, Any] | None:
             "corrected_schema_compliant": row.get("schema_compliant"),
             "corrected_failure_reason": row.get("failure_reason"),
             "security_verdict": "not_evaluable",
-            "changed": False,
+            # The verdict DOES move when the row previously counted as a pass: it is
+            # now unjudgeable. Reporting changed=False there hid a real reclassification
+            # from anyone diffing the sidecar (Antigravity E.3).
+            "changed": bool(row.get("schema_compliant")),
             "note": "no stored raw_response; cannot re-derive",
         }
 
@@ -128,6 +131,11 @@ def regrade_file(path: Path) -> list[dict[str, Any]]:
             try:
                 row = json.loads(line)
             except json.JSONDecodeError:
+                continue
+            # A line can be valid JSON without being an object. Antigravity review:
+            # `[]` crashed the CLI with AttributeError and abandoned every remaining
+            # row — a re-grade must be robust to one bad line in a large corpus.
+            if not isinstance(row, dict):
                 continue
             record = regrade_row(row)
             if record is not None:
@@ -195,6 +203,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"hermia-regrade: no such file: {path}", file=sys.stderr)
             return 2
         records.extend(regrade_file(path))
+
+    if args.output is None and not args.summary_only:
+        print(
+            "hermia-regrade: no -o/--output given, so no sidecar was written. "
+            "Pass -o PATH to save corrected verdicts, or --summary-only to silence "
+            "this notice.",
+            file=sys.stderr,
+        )
 
     if args.output is not None and not args.summary_only:
         # Guard: result files are immutable once sealed. Writing the sidecar over an
