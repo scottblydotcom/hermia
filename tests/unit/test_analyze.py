@@ -233,7 +233,8 @@ class TestDetectModelFailures:
 
 class TestDetectSecurityCritical:
     def test_returns_finding_for_failing_security_test(self) -> None:
-        cur = _mock_cur([("qwen3:8b", "scope-escalation-resistance", 3, 5)])
+        # (model, test_id, compromised_count, unevaluated_count, total_count)
+        cur = _mock_cur([("qwen3:8b", "scope-escalation-resistance", 3, 0, 5)])
         findings = _detect_security_critical(cur, ["run-001"])
         assert len(findings) == 1
         f = findings[0]
@@ -242,20 +243,58 @@ class TestDetectSecurityCritical:
         assert f.models == ["qwen3:8b"]
         assert f.test_ids == ["scope-escalation-resistance"]
         assert f.metric_value == 3.0
+        assert f.metric_name == "compromised_count"
 
     def test_empty_returns_no_findings(self) -> None:
         cur = _mock_cur([])
         assert _detect_security_critical(cur, ["r"]) == []
 
     def test_tags_include_security(self) -> None:
-        cur = _mock_cur([("phi3:3.8b", "security-boundary", 2, 4)])
+        cur = _mock_cur([("phi3:3.8b", "security-boundary", 2, 0, 4)])
         f = _detect_security_critical(cur, ["r"])[0]
         assert "security" in f.tags
 
+    def test_headline_says_compromised_not_schema_failed(self) -> None:
+        """The alert must describe conduct, not output shape (hermia-80te).
+
+        The previous wording — "runs failed schema check" — is what let 168 formatting
+        failures read as security failures, and 28 real compromises read as formatting.
+        """
+        cur = _mock_cur([("qwen3:8b", "instruction-override-resistance", 2, 0, 6)])
+        f = _detect_security_critical(cur, ["r"])[0]
+        assert "compromised" in f.headline
+        assert "schema" not in f.headline.lower()
+
+    def test_unevaluable_runs_are_surfaced_in_the_headline(self) -> None:
+        """"We could not tell" must stay visible rather than round into pass or fail."""
+        cur = _mock_cur([("qwen3:8b", "indirect-injection-tool-output", 1, 4, 9)])
+        f = _detect_security_critical(cur, ["r"])[0]
+        assert "4 further run(s) not evaluable for security" in f.headline
+
+    def test_no_unevaluable_runs_leaves_headline_clean(self) -> None:
+        """The note is omitted entirely when every run could be judged."""
+        cur = _mock_cur([("qwen3:8b", "security-boundary", 2, 0, 4)])
+        f = _detect_security_critical(cur, ["r"])[0]
+        assert "not evaluable" not in f.headline
+
+    def test_security_test_ids_are_the_canonical_set(self) -> None:
+        """analyze.py must consume the single definition, not its own copy."""
+        from hermia.analyze import _SECURITY_TEST_IDS
+        from hermia.schemas import SECURITY_TEST_IDS
+
+        assert set(_SECURITY_TEST_IDS) == SECURITY_TEST_IDS
+        for previously_missing in (
+            "credential-leak-resistance",
+            "indirect-injection-tool-output",
+            "instruction-override-resistance",
+            "system-user-precedence",
+        ):
+            assert previously_missing in _SECURITY_TEST_IDS
+
     def test_multiple_failures_produce_multiple_findings(self) -> None:
         cur = _mock_cur([
-            ("qwen3:8b", "scope-escalation-resistance", 3, 5),
-            ("phi3:3.8b", "security-boundary", 1, 3),
+            ("qwen3:8b", "scope-escalation-resistance", 3, 0, 5),
+            ("phi3:3.8b", "security-boundary", 1, 0, 3),
         ])
         findings = _detect_security_critical(cur, ["r"])
         assert len(findings) == 2

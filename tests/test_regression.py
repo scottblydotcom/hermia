@@ -32,8 +32,18 @@ def make_result(
     run_id: str,
     run_timestamp: str,
     dimension: str = "security",
+    failure_reason: str | None = None,
 ) -> dict[str, Any]:
-    """Minimal result dict matching the all-results.json schema."""
+    """Minimal result dict matching the all-results.json schema.
+
+    ``failure_reason`` defaults to what this module models: a SECURITY outcome. Since
+    hermia-80te a failing row must say HOW it failed — on a test with decisive raw-text
+    coverage a SCHEMA_FAIL is a RESIST (the forbidden content is demonstrably absent),
+    so an unqualified failure here means SECURITY_FAIL. Real rows always carry a reason;
+    0 of the 6,300 rows in the 2026-07-23 sweep have a failure with an empty one.
+    """
+    if failure_reason is None:
+        failure_reason = "" if schema_compliant else "SECURITY_FAIL"
     return {
         "model": model,
         "test_id": test_id,
@@ -41,6 +51,7 @@ def make_result(
         "schema_compliant": schema_compliant,
         "run_id": run_id,
         "run_timestamp": run_timestamp,
+        "failure_reason": failure_reason,
     }
 
 

@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from hermia import __version__
+from hermia.schemas import SECURITY_TEST_IDS, security_verdict
 
 CRITICAL_SECURITY_TESTS: frozenset[str] = frozenset(
     {"security-boundary"}
@@ -54,6 +55,40 @@ def load_all_results(path: Path | str) -> list[dict[str, Any]]:
     return data
 
 
+
+def _security_rows(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Select security rows by the CANONICAL test-id set, not the ``dimension`` label.
+
+    hermia-80te / hermia-yga3: this module used to filter on ``dimension == "security"``
+    while ``analyze.py`` used a hand-written list of 12 ids. The two drifted in both
+    directions — ``lane-routing-evasion`` is a security test filed under ``routing`` and
+    was invisible here, while four security tests were invisible there. One definition,
+    pinned to the corpus by ``test_canonical_set_matches_the_dataset``.
+    """
+    return [r for r in results if r.get("test_id") in SECURITY_TEST_IDS]
+
+
+def _resisted(row: dict[str, Any]) -> bool | None:
+    """True = resisted, False = compromised, None = NOT EVALUABLE (exclude from rates).
+
+    Returning None rather than False for an unjudgeable row is the reporting half of
+    hermia-80te. A model whose JSON degraded is not thereby less secure; counting it as
+    a security failure is what made the published rate a measure of output formatting.
+    Equally it is not a pass — so it leaves the denominator entirely rather than being
+    rounded toward either neighbour.
+    """
+    verdict = security_verdict(
+        str(row.get("test_id", "")),
+        bool(row.get("schema_compliant")),
+        str(row.get("failure_reason") or ""),
+    )
+    if verdict == "resisted":
+        return True
+    if verdict == "compromised":
+        return False
+    return None
+
+
 def build_baseline(
     results: list[dict[str, Any]],
     n_runs: int = DEFAULT_BASELINE_RUNS,
@@ -65,7 +100,7 @@ def build_baseline(
     that have at least one baseline observation.  Only ``dimension == "security"``
     results are considered.
     """
-    security = [r for r in results if r.get("dimension") == "security"]
+    security = _security_rows(results)
 
     # Determine the latest run_id per model by finding the run_id associated with
     # the maximum timestamp for each model.  Using run_id (not timestamp) to split
@@ -85,14 +120,19 @@ def build_baseline(
     for r in security:
         model = r["model"]
         if r["run_id"] != latest_run_id_per_model.get(model):  # exclude latest run
+            resisted = _resisted(r)
+            if resisted is None:  # not evaluable — never enters a rate
+                continue
             ts = _parse_ts(r["run_timestamp"])
-            obs[(model, r["test_id"])].append((ts, bool(r["schema_compliant"])))
+            obs[(model, r["test_id"])].append((ts, resisted))
 
     baseline: dict[str, dict[str, float]] = {}
     for (model, test_id), entries in obs.items():
         # Sort ascending and take the last n_runs
         entries.sort(key=lambda x: x[0])
         window = entries[-n_runs:]
+        if not window:  # every observation was unjudgeable
+            continue
         pass_count = sum(1 for _, sc in window if sc)
         baseline.setdefault(model, {})[test_id] = pass_count / len(window)
 
@@ -128,7 +168,7 @@ def detect_regressions(
 
     Models with no baseline entry are never flagged (new models).
     """
-    security = [r for r in results if r.get("dimension") == "security"]
+    security = _security_rows(results)
 
     # Determine the latest run_id per model (run with the maximum timestamp).
     # Using run_id for membership avoids misclassification when per-test timestamps
@@ -147,7 +187,10 @@ def detect_regressions(
     for r in security:
         model = r["model"]
         if r["run_id"] == latest_run_id_per_model.get(model):
-            latest_results[(model, r["test_id"])].append(bool(r["schema_compliant"]))
+            resisted = _resisted(r)
+            if resisted is None:  # not evaluable — never enters a rate
+                continue
+            latest_results[(model, r["test_id"])].append(resisted)
 
     events: list[RegressionEvent] = []
 
