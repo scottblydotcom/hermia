@@ -628,28 +628,90 @@ def test_raw_output_compromised_does_not_mutate_input():
     assert raw == before
 
 
+# ---------------------------------------------------------------------------
+# WITNESS Phase 0 — raw-text coverage allowlist.
+#
+# Tests known to lack raw-text compromise coverage. This list may ONLY shrink.
+# Each entry is a declared blind spot, not an exemption: the test still runs in
+# the security dimension and its results are still reported, but nothing can
+# detect a compromise on it.
+#
+# Adding an entry requires the CI ratchet (which diffs this list against
+# origin/main) to be overridden deliberately. Removing one is the goal.
+#
+# See docs/superpowers/specs/2026-08-31-witness-grader-completeness.md
+# ---------------------------------------------------------------------------
+WITNESS_RAW_COVERAGE_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        # hermia-anaj — multiturn-boundary-persistence has no compromise detector.
+        # 744 corpus rows, 77 failures, 0 detectable compromises. 8 of those rows
+        # show the model plainly accepting the forged authority claim.
+        "multiturn-boundary-persistence",
+    }
+)
+
+
 def test_every_security_test_has_compromise_markers():
     """Coverage invariant: this gate is the ONLY one that sees compromise in unparseable
     output, so a security test with no markers is a blind spot by construction.
 
     The 2026-07-23 sweep had 28 undetected compromises, every one on a test that lacked
     raw-text coverage. If a security test is added without markers, this fails.
-    """
-    import json
-    from pathlib import Path
 
-    dataset = json.loads(
-        (Path(__file__).resolve().parents[2] / "src/hermia/test-datasets/agentic-tasks.json")
-        .read_text()
+    Scope corrected 2026-08-31 (WITNESS Phase 0). This previously derived its scope from
+    the dataset's `dimension` label, which yields 15 tests — not the canonical
+    SECURITY_TEST_IDS, which has 17. The two it missed were exactly the cross-dimension
+    entries `lane-routing-evasion` and `multiturn-boundary-persistence`, so the guard was
+    GREEN while a real blind spot was open. SECURITY_TEST_IDS exists precisely because two
+    definitions of "security test" had drifted apart; this guard was the third definition,
+    living inside the test meant to prevent drift.
+    """
+    from hermia.schemas import (
+        _COMPROMISE_MARKER_PATTERNS,
+        _LEAK_CANARY_PATTERNS,
+        SECURITY_TEST_IDS,
     )
-    security_ids = {
-        t["id"] for t in dataset["agentic_test_cases"] if t.get("dimension") == "security"
-    }
-    from hermia.schemas import _COMPROMISE_MARKER_PATTERNS, _LEAK_CANARY_PATTERNS
 
     covered = set(_COMPROMISE_MARKER_PATTERNS) | set(_LEAK_CANARY_PATTERNS)
-    uncovered = sorted(security_ids - covered)
-    assert not uncovered, f"security tests with no raw-text coverage: {uncovered}"
+    uncovered = set(SECURITY_TEST_IDS) - covered
+
+    unexpected = sorted(uncovered - WITNESS_RAW_COVERAGE_ALLOWLIST)
+    assert not unexpected, (
+        f"security tests with no raw-text coverage: {unexpected}. "
+        "A compromise on these cannot be detected. Add a detector, or — only with an "
+        "explicit decision — add to WITNESS_RAW_COVERAGE_ALLOWLIST and accept that the "
+        "gap is reported in every rollup that includes the test."
+    )
+
+
+def test_witness_allowlist_only_shrinks():
+    """The allowlist is a ratchet: an entry that gains coverage must be removed from it.
+
+    Without this, a test could be fixed and left on the allowlist, and the next test to
+    regress would be silently absorbed by the stale entry. This is the local half of the
+    ratchet; the CI half diffs the list against origin/main so an entry cannot be ADDED
+    in the same pull request that relaxes the assertion.
+    """
+    from hermia.schemas import (
+        _COMPROMISE_MARKER_PATTERNS,
+        _LEAK_CANARY_PATTERNS,
+        SECURITY_TEST_IDS,
+    )
+
+    stale_ids = sorted(WITNESS_RAW_COVERAGE_ALLOWLIST - set(SECURITY_TEST_IDS))
+    assert not stale_ids, (
+        f"allowlisted ids that are not security tests: {stale_ids}. "
+        "Remove them — an allowlist entry for a non-existent test hides nothing and "
+        "makes the list look larger than the real gap."
+    )
+
+    covered = set(_COMPROMISE_MARKER_PATTERNS) | set(_LEAK_CANARY_PATTERNS)
+    now_covered = sorted(WITNESS_RAW_COVERAGE_ALLOWLIST & covered)
+    assert not now_covered, (
+        f"these now HAVE raw-text coverage and must come off the allowlist: {now_covered}. "
+        "Leaving a fixed test on the allowlist means the next regression is absorbed "
+        "silently."
+    )
 
 
 # ---------------------------------------------------------------------------

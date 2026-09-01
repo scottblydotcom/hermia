@@ -34,3 +34,28 @@ jobs:
 
       - name: Test (pytest)
         run: pytest tests/
+
+  # WITNESS ratchet — the raw-coverage allowlist may only shrink.
+  # pytest cannot enforce this: it runs statelessly against one commit, so a PR can add
+  # an allowlist entry and relax the assertion in the same diff and stay green. This
+  # compares against the PR's base branch. Pull requests only — there is no base to
+  # diff against on a plain push.
+  # See docs/superpowers/specs/2026-08-31-witness-grader-completeness.md
+  witness-allowlist-ratchet:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0  # need history: the script reads the allowlist at the base ref
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version: "3.11"
+
+      - name: Allowlist may only shrink
+        # base ref passed via env, never interpolated into the shell command
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: python3 scripts/witness_allowlist_ratchet.py --base "origin/${BASE_REF}"
