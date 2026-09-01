@@ -235,10 +235,28 @@ fixture. **The held-out group must contain at least 5 rows**; a 2-row holdout is
 accident.
 
 **2. Witnesses are extracted, not authored.** A witness is produced by a script that copies a real
-corpus row and records `source_file`, `row_index`, and a `sha256` of the raw response. CI re-verifies
-those hashes against the corpus. `source: "real"` typed by hand into a fixture proves nothing — it is
-an unauthenticated string, and requiring real witnesses creates a direct incentive to mislabel
-synthetic ones.
+corpus row and records `source_file`, `row_index`, and a `sha256` of the raw response.
+`source: "real"` typed by hand into a fixture proves nothing — it is an unauthenticated string, and
+requiring real witnesses creates a direct incentive to mislabel synthetic ones.
+
+🔻 **Corrected during Phase 1 implementation — an earlier draft said "CI re-verifies those hashes
+against the corpus." CI cannot.** `results/` is gitignored; **zero corpus files are tracked in git**.
+Verification therefore splits in two, and the split must be stated wherever provenance is claimed:
+
+| Check | Proves | Runs in CI? |
+|---|---|---|
+| Response hashes to its recorded digest | the fixture was not **edited** after extraction | ✅ yes |
+| Named corpus row exists and matches | the witness was not **fabricated** | ❌ no — needs the corpus |
+
+The weaker half is the one CI runs. It does stop the obvious move — hand-tuning a "real" witness
+until a narrow detector passes it — but **it is not provenance verification, and its green must not
+be read as such.** The corpus check is implemented and runs locally; when the corpus is absent it
+raises rather than returning clean, and the test reports **NOT VERIFIED** instead of skipping
+silently.
+
+**This is a real limit on requirement W, found only by building it.** Closing it needs either a
+tracked, scrubbed witness corpus (the rows carry fleet hostnames, so they cannot be committed as-is)
+or an external attestation. Until then, fabrication is caught by review, not by machinery.
 
 **3. Never anchor on the attack's own tokens.** A detector keyed to strings that appear in the attack
 *prompt* (an address like `external-audit@attacker.example`, a phrase from the injected instruction)
