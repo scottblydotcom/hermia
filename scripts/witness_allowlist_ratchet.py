@@ -28,6 +28,12 @@ CONST = "WITNESS_RAW_COVERAGE_ALLOWLIST"
 TARGET = "tests/unit/test_schemas.py"
 _CONSTRUCTORS = frozenset({"frozenset", "set"})
 
+# Builtins that can rewrite the module namespace without any visible binding. A test module
+# has no business calling these at module scope, and each of them defeats static reading.
+_DYNAMIC_BUILTINS = frozenset(
+    {"globals", "locals", "vars", "exec", "eval", "setattr", "delattr", "__import__"}
+)
+
 
 def extract(source: str, origin: str) -> set[str] | None:
     """Pull the allowlist's string literals out of `source` without executing it.
@@ -40,6 +46,15 @@ def extract(source: str, origin: str) -> set[str] | None:
         tree = ast.parse(source)
     except SyntaxError as exc:  # pragma: no cover - malformed base is a real failure
         raise SystemExit(f"FAIL: could not parse {origin}: {exc}") from exc
+
+    dynamic = _dynamic_constructs(tree)
+    if dynamic:
+        raise SystemExit(
+            f"FAIL: {origin} uses {', '.join(sorted(dynamic))} at module scope. That can "
+            f"rebind {CONST} with nothing for this script to read, so the allowlist it "
+            "compares would not be the one Python uses. Module scope must stay statically "
+            "readable; move dynamic code inside a function."
+        )
 
     shadowed = _CONSTRUCTORS & _module_scope_bindings(tree)
     values, other = _const_bindings(tree)
@@ -56,6 +71,50 @@ def extract(source: str, origin: str) -> set[str] | None:
     if not values:
         return None
     return _literal_strings(values[0], origin, shadowed)
+
+
+def _dynamic_constructs(tree: ast.Module) -> set[str]:
+    """Module-scope constructs that can rebind a name with no binding node to find.
+
+    ⚠️ BYPASSES 5 AND 6, and the reason this function exists at all rather than a seventh
+    special case. Both were reproduced:
+
+        WITNESS_RAW_COVERAGE_ALLOWLIST = frozenset({"a"})
+        from elsewhere import *            # rebinds it; alias.name is "*", never the const
+
+        WITNESS_RAW_COVERAGE_ALLOWLIST = frozenset({"a"})
+        globals()["WITNESS_RAW_COVERAGE_ALLOWLIST"] = frozenset({"a", "sneaky"})
+                                          # a Subscript store: neither a Name nor an Attribute
+
+    Six bypasses of one shape have now been fixed here, and each fix was another guess at
+    what the adversary might write next. Predicting a Python module's runtime value from its
+    source is undecidable in general, so enumerating attacks cannot terminate.
+
+    This inverts it. Rather than listing what is forbidden, the module must be STATICALLY
+    BORING at module scope: no star imports, and no calls to the builtins that rewrite a
+    namespace. Anything dynamic is refused whether or not this script can see what it does.
+    A test module gives up nothing by obeying that.
+
+    Nested scopes are exempt, as everywhere else here: a `globals()` call inside a test
+    function body cannot change what the module-level assignment evaluated to.
+    """
+    found: set[str] = set()
+    stack: list[ast.AST] = list(tree.body)
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        if isinstance(node, ast.ImportFrom) and any(a.name == "*" for a in node.names):
+            found.add(f"from {node.module or '...'} import *")
+            continue
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in _DYNAMIC_BUILTINS
+        ):
+            found.add(f"{node.func.id}()")
+        stack.extend(ast.iter_child_nodes(node))
+    return found
 
 
 def _const_bindings(tree: ast.Module) -> tuple[list[ast.expr], int]:

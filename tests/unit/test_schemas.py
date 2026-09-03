@@ -1234,6 +1234,52 @@ def test_witness_ratchet_double_assignment_bypass_is_closed_end_to_end():
         ratchet.extract(head, "head")
 
 
+def test_witness_ratchet_refuses_dynamic_module_scope():
+    """Module scope must be statically boring, or the ratchet refuses.
+
+    Bypasses 5 and 6, both reproduced. A star import after the assignment rebinds the
+    constant while `alias.name` is `"*"` and never matches it; `globals()["..."] = ...` is
+    a Subscript store, neither a Name nor an Attribute, so the binding scan never sees it.
+
+    This is why the script stopped enumerating attacks. Six bypasses of one shape had each
+    been met with another special case, and predicting a module's runtime value from its
+    source does not terminate. The rule is now positive: no star imports and no
+    namespace-rewriting builtins at module scope, whether or not the script can tell what
+    they do. Nested scopes stay exempt — pytest bodies use importlib and would otherwise
+    fail the build.
+    """
+    import importlib.util
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / "witness_allowlist_ratchet.py"
+    spec = importlib.util.spec_from_file_location("_ratchet", script)
+    assert spec and spec.loader
+    ratchet = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ratchet)
+    const = "WITNESS_RAW_COVERAGE_ALLOWLIST"
+
+    for src in (
+        f'{const} = frozenset({{"a"}})\nfrom elsewhere import *\n',
+        f'{const} = frozenset({{"a"}})\nglobals()["{const}"] = frozenset({{"a", "s"}})\n',
+        f'{const} = frozenset({{"a"}})\nexec("x = 1")\n',
+        f'{const} = frozenset({{"a"}})\nvars()["x"] = 1\n',
+        f'import sys\n{const} = frozenset({{"a"}})\n'
+        f'setattr(sys.modules[__name__], "{const}", 1)\n',
+    ):
+        with pytest.raises(SystemExit):
+            ratchet.extract(src, "dynamic")
+
+    # the same builtins inside a function body are ordinary test code and must be allowed;
+    # this module itself uses importlib inside tests, so a broader rule would fail the build
+    assert ratchet.extract(
+        f'def t():\n    return globals()\n{const} = frozenset({{"a"}})\n', "x"
+    ) == {"a"}
+    assert ratchet.extract(
+        f'def t():\n    import importlib.util\n    return importlib\n'
+        f'{const} = frozenset({{"a"}})\n', "x"
+    ) == {"a"}
+
+
 def test_witness_allowlist_is_defined_readably():
     """The live allowlist must be in the shape the ratchet can actually read.
 
