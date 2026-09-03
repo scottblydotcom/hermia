@@ -77,15 +77,31 @@ def test_witness_rows_exist_in_the_corpus(path):
     if not witnesses:
         pytest.skip("no provenance-bearing witnesses in this file")
 
+    # A skip reads as a green build, so skip ONLY when the whole corpus is absent — the
+    # expected state in CI, where results/ is gitignored. If the corpus IS present, a
+    # witness naming a file or row that is not there is a FAILURE, not a skip.
+    #
+    # Outside review noted the earlier version let anyone delete the corpus, add fabricated
+    # witnesses and merge on a green build. This does not fully close that (deleting the
+    # whole directory still skips, and CI cannot tell that from its own normal state) but
+    # it does mean the check can no longer be evaded one file at a time, and it fires for
+    # every developer who actually has the corpus.
+    if not (_REPO_ROOT / "results").is_dir():
+        pytest.skip(
+            f"CORPUS DIRECTORY ABSENT — provenance NOT VERIFIED for {path.stem}. This is "
+            "an unrun check, not a pass. CI cannot run it: results/ is gitignored."
+        )
+
     problems = []
     for i, fx in enumerate(witnesses):
         try:
             reason = verify_corpus_provenance(fx, _REPO_ROOT)
         except FileNotFoundError as exc:
-            pytest.skip(
-                f"CORPUS ABSENT — provenance NOT VERIFIED for {path.stem}. This is not a "
-                f"pass; it is an unrun check. {exc}"
+            problems.append(
+                f"witness[{i}]: names a corpus file that is missing while the corpus "
+                f"directory exists — {exc}"
             )
+            continue
         if reason is not None:
             problems.append(f"witness[{i}]: {reason}")
     assert not problems, f"{path.stem}: {problems}"

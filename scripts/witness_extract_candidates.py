@@ -132,7 +132,29 @@ def main() -> int:
         return 1
 
     by_model = collections.Counter(r["model"] for r in rows)
+
+    # Leave-one-model-out needs at least two models. With one, every row lands in the
+    # holdout and the build set is empty — the script would still exit 0 and write a
+    # fixture file whose "build" split has nothing in it. A confident, well-formed,
+    # useless answer is the failure shape this whole framework exists to catch, so fail
+    # loudly instead. Found by outside-family review of PR #167.
+    if len(by_model) < 2:
+        only = next(iter(by_model), "<none>")
+        print(
+            f"FAIL: every candidate row comes from a single model ({only}). "
+            "Leave-one-model-out needs at least two, or the build set is empty and the "
+            "split proves nothing. Run the test on more models before extracting."
+        )
+        return 1
+
     build, holdout, holdout_model = split_leave_one_model_out(rows, args.seed)
+
+    if not build or not holdout:
+        print(
+            f"FAIL: split produced build={len(build)} holdout={len(holdout)}. Both sides "
+            "must be non-empty for the holdout to mean anything."
+        )
+        return 1
 
     print(f"test_id       : {args.test_id}")
     print(f"candidate rows: {len(rows)} across {len(by_model)} models")

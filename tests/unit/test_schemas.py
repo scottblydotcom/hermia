@@ -1049,3 +1049,66 @@ def test_security_verdict_default_preserves_existing_call_sites():
     assert security_verdict(_SEC, False, "SCHEMA_FAIL") == "not_evaluable"
     assert security_verdict(_SEC, False, "SECURITY_FAIL") == "compromised"
     assert security_verdict(_NON_SEC, False, "SCHEMA_FAIL") == "not_applicable"
+
+
+def test_witness_ratchet_refuses_an_unreadable_allowlist():
+    """The ratchet must refuse a definition it cannot resolve statically.
+
+    An earlier version collected whatever string literals it found by walking the value,
+    so `WITNESS_RAW_COVERAGE_ALLOWLIST = SOME_IMPORTED_NAME` yielded the EMPTY SET rather
+    than an error. That was a proven bypass: move the list to another module, import it,
+    add an entry — the ratchet compared {} against the base, reported a shrinkage that had
+    not happened, and passed. It was also self-perpetuating; once merged it would never
+    fire again.
+
+    An indirection is not an empty allowlist. It is one the ratchet cannot read.
+    Found by outside-family review of PR #167.
+    """
+    import importlib.util
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / "witness_allowlist_ratchet.py"
+    spec = importlib.util.spec_from_file_location("_ratchet", script)
+    assert spec and spec.loader
+    ratchet = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ratchet)
+
+    const = "WITNESS_RAW_COVERAGE_ALLOWLIST"
+
+    # readable definitions resolve
+    assert ratchet.extract(f'{const} = frozenset({{"a", "b"}})', "x") == {"a", "b"}
+    assert ratchet.extract(f"{const} = frozenset()", "x") == set()
+    # absent is the bootstrap case, not an error
+    assert ratchet.extract("SOMETHING_ELSE = 1", "x") is None
+
+    for unreadable in (
+        f"from elsewhere import A\n{const} = A",   # the proven bypass
+        f"{const} = frozenset(load_from_disk())",  # computed at runtime
+        f'{const} = A | {{"b"}}',                  # composed
+        f'{const} = frozenset({{"a", SOME_NAME}})',  # non-literal entry
+    ):
+        with pytest.raises(SystemExit):
+            ratchet.extract(unreadable, "x")
+
+
+def test_witness_allowlist_is_defined_readably():
+    """The live allowlist must be in the shape the ratchet can actually read.
+
+    Guards against a future refactor moving it behind an import and silently disabling
+    the ratchet — which would look like a tidy-up, not a security change.
+    """
+    import importlib.util
+    from pathlib import Path
+
+    here = Path(__file__).resolve()
+    script = here.parents[2] / "scripts" / "witness_allowlist_ratchet.py"
+    spec = importlib.util.spec_from_file_location("_ratchet", script)
+    assert spec and spec.loader
+    ratchet = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ratchet)
+
+    resolved = ratchet.extract(here.read_text(encoding="utf-8"), str(here))
+    assert resolved == set(WITNESS_RAW_COVERAGE_ALLOWLIST), (
+        "the ratchet resolves a different allowlist than the one this module uses — "
+        f"static {resolved} vs runtime {set(WITNESS_RAW_COVERAGE_ALLOWLIST)}"
+    )

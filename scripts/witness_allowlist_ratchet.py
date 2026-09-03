@@ -52,13 +52,59 @@ def extract(source: str, origin: str) -> set[str] | None:
             continue
         if node.value is None:
             break
-        literals: set[str] = set()
-        for sub in ast.walk(node.value):
-            if isinstance(sub, ast.Constant) and isinstance(sub.value, str):
-                literals.add(sub.value)
-        return literals
+        return _literal_strings(node.value, origin)
 
     return None
+
+
+def _literal_strings(value: ast.expr, origin: str) -> set[str]:
+    """Resolve a literal set/frozenset of string constants, or refuse.
+
+    ⚠️ THIS MUST REFUSE ANYTHING IT CANNOT SEE. An earlier version collected whatever
+    string constants it found by walking the value and returned whatever that produced —
+    including the EMPTY SET when the value was an alias like
+    `WITNESS_RAW_COVERAGE_ALLOWLIST = ALLOWLIST`.
+
+    That was an exploitable bypass, proven before this fix: move the real list into
+    another module, import it, add an entry. The ratchet extracted {} from HEAD, compared
+    it to the base, reported a shrinkage that never happened, and PASSED — while the
+    runtime allowlist grew. Worse, it was self-perpetuating: once merged, every later
+    change would extract {} on both sides and the ratchet would never fire again.
+
+    An indirection is not an empty allowlist. It is an allowlist this script cannot read,
+    and the only safe response is to stop. Found by outside-family review of PR #167.
+    """
+    inner: list[ast.expr] | None = None
+
+    if isinstance(value, ast.Set):                      # {"a", "b"}
+        inner = list(value.elts)
+    elif isinstance(value, ast.Call):                   # frozenset({...}) / frozenset([...])
+        func = value.func
+        if isinstance(func, ast.Name) and func.id in {"frozenset", "set"}:
+            if not value.args:
+                inner = []                              # frozenset() — genuinely empty
+            elif len(value.args) == 1 and isinstance(value.args[0], (ast.Set, ast.List, ast.Tuple)):
+                inner = list(value.args[0].elts)
+
+    if inner is None:
+        raise SystemExit(
+            f"FAIL: {CONST} in {origin} is not a literal set of strings, so this script "
+            "cannot read it statically. That is not an empty allowlist — it is an "
+            "unreadable one, and passing here would silently disable the ratchet forever. "
+            "Define it inline as a literal frozenset({...}) of string constants, or update "
+            "this script deliberately in the same change."
+        )
+
+    out: set[str] = set()
+    for element in inner:
+        if not (isinstance(element, ast.Constant) and isinstance(element.value, str)):
+            raise SystemExit(
+                f"FAIL: {CONST} in {origin} contains a non-literal entry "
+                f"({type(element).__name__}). Every entry must be a plain string constant "
+                "so the ratchet can compare it against the base ref."
+            )
+        out.add(element.value)
+    return out
 
 
 def main() -> int:
