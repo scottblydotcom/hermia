@@ -99,7 +99,24 @@ def verify_corpus_provenance(fixture: dict[str, Any], repo_root: Path) -> str | 
     if not isinstance(provenance, dict):
         return None
 
-    source = repo_root / str(provenance["source_file"])
+    # A witness may only cite a file inside the corpus directory. Without this, a
+    # fabricated fixture can point source_file at an absolute path or escape with "..",
+    # and this function would faithfully "verify" the witness against a file its author
+    # controls — a hole straight through the one check whose job is proving a witness is
+    # real. Caught by outside review on PR #167.
+    raw_source = provenance["source_file"]
+    if not isinstance(raw_source, str):
+        return f"provenance.source_file must be a string, got {type(raw_source).__name__}"
+    corpus_root = (repo_root / "results").resolve()
+    candidate = Path(raw_source)
+    if candidate.is_absolute():
+        return f"provenance.source_file must be relative to the repo, got {raw_source!r}"
+    source = (repo_root / candidate).resolve()
+    if source != corpus_root and corpus_root not in source.parents:
+        return (
+            f"provenance.source_file {raw_source!r} resolves outside the corpus directory. "
+            "A witness may only cite a row under results/."
+        )
     if not source.is_file():
         raise FileNotFoundError(
             f"corpus file {provenance['source_file']} is not present. Provenance was NOT "

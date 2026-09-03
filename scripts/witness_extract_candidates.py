@@ -43,6 +43,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from hermia.robustness import _is_pass  # noqa: E402  — path set above
+
 MIN_HOLDOUT = 5
 MIN_REAL_FOR_W = 10
 
@@ -67,7 +70,14 @@ def collect(repo: Path, test_id: str) -> list[dict[str, Any]]:
                     continue
                 if row.get("test_id") != test_id:
                     continue
-                if row.get("schema_compliant"):
+                # Use the canonical pass predicate, not a local re-statement of it.
+                # robustness._is_pass documents itself as the "single source of truth",
+                # and requires schema_compliant AND no failure_reason. Checking only
+                # schema_compliant was a FOURTH definition of "pass" in a repo whose
+                # WITNESS work exists because three definitions of "security test" had
+                # drifted. No corpus row currently diverges, which is precisely how such
+                # a drift stays invisible. Caught by outside review on PR #167.
+                if _is_pass(row):
                     continue
                 if _is_infrastructure(row):
                     continue

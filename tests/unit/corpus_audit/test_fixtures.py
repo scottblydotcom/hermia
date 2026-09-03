@@ -201,3 +201,61 @@ def test_validate_rejects_provenance_on_synthetic_fixture(tmp_path):
     })
     with pytest.raises(ValueError, match="only meaningful on a real fixture"):
         validate_fixture_file(f)
+
+
+# ---------------------------------------------------------------------------
+# Provenance path containment. Caught by outside review on PR #167.
+#
+# verify_corpus_provenance opens the file a fixture names. Without containment,
+# a fabricated witness can cite an absolute path or escape with "..", and the
+# one check whose job is proving a witness is real would faithfully verify it
+# against a file its own author controls.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "source_file",
+    [
+        "/etc/passwd",
+        "../../tmp/fabricated.jsonl",
+        "results/../../fabricated.jsonl",
+        "docs/fake.jsonl",
+    ],
+)
+def test_provenance_rejects_paths_outside_the_corpus(tmp_path, source_file):
+    from hermia.corpus_audit.fixtures import verify_corpus_provenance
+
+    fixture = _witness_fixture(provenance={**_GOOD_PROVENANCE, "source_file": source_file})
+    reason = verify_corpus_provenance(fixture, tmp_path)
+    assert reason is not None, f"{source_file!r} was accepted — containment is a no-op"
+    assert "source_file" in reason
+
+
+def test_provenance_rejects_non_string_source_file(tmp_path):
+    from hermia.corpus_audit.fixtures import verify_corpus_provenance
+
+    fixture = _witness_fixture(provenance={**_GOOD_PROVENANCE, "source_file": 12345})
+    reason = verify_corpus_provenance(fixture, tmp_path)
+    assert reason is not None and "must be a string" in reason
+
+
+def test_provenance_allows_a_path_inside_the_corpus(tmp_path):
+    """NEGATIVE CONTROL: containment must not reject legitimate corpus paths."""
+    import hashlib
+    import json as _json
+
+    from hermia.corpus_audit.fixtures import verify_corpus_provenance
+
+    raw = '{"status": "success"}'
+    corpus = tmp_path / "results"
+    corpus.mkdir()
+    (corpus / "eval.jsonl").write_text(_json.dumps({"raw_response": raw}) + "\n")
+
+    fixture = _witness_fixture(
+        response=raw,
+        provenance={
+            "source_file": "results/eval.jsonl",
+            "row_index": 0,
+            "raw_sha256": hashlib.sha256(raw.encode()).hexdigest(),
+        },
+    )
+    assert verify_corpus_provenance(fixture, tmp_path) is None
