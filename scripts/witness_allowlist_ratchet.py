@@ -47,6 +47,14 @@ def extract(source: str, origin: str) -> set[str] | None:
     except SyntaxError as exc:  # pragma: no cover - malformed base is a real failure
         raise SystemExit(f"FAIL: could not parse {origin}: {exc}") from exc
 
+    reaching_in = _namespace_writes_from_any_scope(tree)
+    if reaching_in:
+        raise SystemExit(
+            f"FAIL: {origin} rebinds the module namespace via {', '.join(sorted(reaching_in))}. "
+            f"That can change {CONST} from inside a function body, where this script "
+            "deliberately does not look, so what it reads would not be what Python uses."
+        )
+
     dynamic = _dynamic_constructs(tree)
     if dynamic:
         raise SystemExit(
@@ -114,6 +122,56 @@ def _dynamic_constructs(tree: ast.Module) -> set[str]:
         ):
             found.add(f"{node.func.id}()")
         stack.extend(ast.iter_child_nodes(node))
+    return found
+
+
+def _namespace_writes_from_any_scope(tree: ast.Module) -> set[str]:
+    """Rebindings of the module namespace reachable from INSIDE a function body.
+
+    ⚠️ BYPASSES 7 AND 8, found by outside-family review of the fix for 5 and 6. Every other
+    check here exempts nested scopes, because a name bound inside a function is a local and
+    this module's own tests legitimately call importlib and globals in their bodies. That
+    exemption was itself the hole:
+
+        def add():
+            global WITNESS_RAW_COVERAGE_ALLOWLIST
+            WITNESS_RAW_COVERAGE_ALLOWLIST = frozenset({"a", "sneaky"})
+        add()
+
+        def add():
+            globals()["WITNESS_RAW_COVERAGE_ALLOWLIST"] = frozenset({"a", "sneaky"})
+        add()
+
+    Both reproduced: ratchet read {"a"}, runtime was {"a", "sneaky"}. Note the call need not
+    even be at module scope — any test or fixture that runs before the coverage test would do.
+
+    So these two patterns are refused from ANY scope. They are named precisely rather than
+    by blanket-refusing nested code: `global` naming the constant or a constructor, and an
+    assignment through a `globals()`/`vars()` subscript. A bare `return globals()` stays
+    legal, because it rebinds nothing.
+    """
+    watched = {CONST} | _CONSTRUCTORS
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Global):
+            hit = watched.intersection(node.names)
+            if hit:
+                found.add(f"`global {', '.join(sorted(hit))}`")
+        targets: list[ast.expr] = []
+        if isinstance(node, ast.Assign):
+            targets = list(node.targets)
+        elif isinstance(node, (ast.AugAssign, ast.AnnAssign)):
+            targets = [node.target]
+        elif isinstance(node, ast.Delete):
+            targets = list(node.targets)
+        for target in targets:
+            if (
+                isinstance(target, ast.Subscript)
+                and isinstance(target.value, ast.Call)
+                and isinstance(target.value.func, ast.Name)
+                and target.value.func.id in {"globals", "vars"}
+            ):
+                found.add(f"assignment through {target.value.func.id}()")
     return found
 
 

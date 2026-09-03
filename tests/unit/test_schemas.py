@@ -1280,6 +1280,50 @@ def test_witness_ratchet_refuses_dynamic_module_scope():
     ) == {"a"}
 
 
+def test_witness_ratchet_refuses_namespace_writes_from_any_scope():
+    """A function body can rebind the module global, and that scope is otherwise exempt.
+
+    Bypasses 7 and 8, both reproduced. Every other check in the ratchet skips function and
+    class bodies, because a name bound there is a local and this very module calls importlib
+    and globals inside its tests. That exemption was the hole: `global CONST` inside a
+    function, or `globals()["CONST"] = ...`, rebinds the module-level value from a scope the
+    scanner never enters. The call need not even be at module scope — any test or fixture
+    running before the coverage test would do.
+
+    Refused from any scope, named precisely so that a bare `return globals()` and an
+    unrelated `global counter` both stay legal.
+    """
+    import importlib.util
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / "witness_allowlist_ratchet.py"
+    spec = importlib.util.spec_from_file_location("_ratchet", script)
+    assert spec and spec.loader
+    ratchet = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ratchet)
+    const = "WITNESS_RAW_COVERAGE_ALLOWLIST"
+
+    for src in (
+        f'{const} = frozenset({{"a"}})\ndef add():\n    global {const}\n'
+        f'    {const} = frozenset({{"a", "sneaky"}})\nadd()\n',
+        f'{const} = frozenset({{"a"}})\ndef add():\n'
+        f'    globals()["{const}"] = frozenset({{"a", "sneaky"}})\nadd()\n',
+        f"def add():\n    global frozenset\n    frozenset = lambda x: x\n"
+        f'add()\n{const} = frozenset({{"a"}})\n',
+        f'{const} = frozenset({{"a"}})\ndef add():\n    vars()["x"] = 1\n',
+    ):
+        with pytest.raises(SystemExit):
+            ratchet.extract(src, "reaching-in")
+
+    # naming the patterns precisely keeps ordinary code legal
+    assert ratchet.extract(
+        f'def t():\n    return globals()\n{const} = frozenset({{"a"}})\n', "x"
+    ) == {"a"}
+    assert ratchet.extract(
+        f'def t():\n    global counter\n    counter = 1\n{const} = frozenset({{"a"}})\n', "x"
+    ) == {"a"}
+
+
 def test_witness_allowlist_is_defined_readably():
     """The live allowlist must be in the shape the ratchet can actually read.
 
