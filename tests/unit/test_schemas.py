@@ -1123,6 +1123,10 @@ def test_witness_ratchet_refuses_a_shadowed_constructor():
         f"from elsewhere import frozenset\n{const} = frozenset({{'a'}})\n",
         f'frozenset = lambda x: x\n{const} = frozenset({{"a"}})\n',
         f'def set(x): return x\n{const} = set({{"a"}})\n',
+        # bypass 4: rebinding need not store to a bare name at all
+        f'import builtins\nbuiltins.frozenset = lambda x: set(x) | {{"s"}}\n'
+        f'{const} = frozenset({{"a"}})\n',
+        f'import builtins as b\nb.set = lambda x: x\n{const} = set({{"a"}})\n',
     ):
         with pytest.raises(SystemExit):
             ratchet.extract(shadowed, "shadowed")
@@ -1159,6 +1163,73 @@ def test_witness_ratchet_shadowing_bypass_is_closed_end_to_end():
     assert namespace[const] == {"a", "sneaky"}
 
     # ...so the ratchet must refuse rather than report a set that shrank or held
+    with pytest.raises(SystemExit):
+        ratchet.extract(head, "head")
+
+
+def test_witness_ratchet_requires_exactly_one_readable_binding():
+    """The constant must be bound once, plainly, or the ratchet refuses.
+
+    Bypass 3, found while fixing bypass 2. `extract` returned the first match from
+    `ast.walk`, which is breadth-first; Python uses the LAST binding executed. Two
+    module-scope assignments made the ratchet read {"a"} while the runtime allowlist was
+    {"a", "sneaky"} — no additions reported, exit 0. `if/else` does the same, and `|=` was
+    invisible to the old scan entirely.
+
+    Every binding form that could change the runtime value must be refused, and the
+    ordinary single assignment must still resolve.
+    """
+    import importlib.util
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / "witness_allowlist_ratchet.py"
+    spec = importlib.util.spec_from_file_location("_ratchet", script)
+    assert spec and spec.loader
+    ratchet = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ratchet)
+    const = "WITNESS_RAW_COVERAGE_ALLOWLIST"
+
+    for src in (
+        f'{const} = frozenset({{"a"}})\nx = 1\n{const} = frozenset({{"a", "sneaky"}})\n',
+        f'import os\nif os.environ.get("X"):\n    {const} = frozenset({{"a"}})\n'
+        f'else:\n    {const} = frozenset({{"a", "sneaky"}})\n',
+        f'{const} = frozenset({{"a"}})\n{const} |= {{"sneaky"}}\n',
+        f'{const}, other = frozenset({{"a", "sneaky"}}), 1\n',
+        f'print({const} := frozenset({{"a", "sneaky"}}))\n',
+        f'for {const} in [frozenset({{"a"}})]: pass\n',
+        f"from elsewhere import {const}\n",
+        f"def {const}(): pass\n",
+    ):
+        with pytest.raises(SystemExit):
+            ratchet.extract(src, "multi")
+
+    # the ordinary shapes must still resolve, including the annotated one the repo uses
+    assert ratchet.extract(f'{const} = frozenset({{"a", "b"}})\n', "x") == {"a", "b"}
+    assert ratchet.extract(f'{const}: frozenset[str] = frozenset({{"a"}})\n', "x") == {"a"}
+    assert ratchet.extract(f'{const}: frozenset[str]\n{const} = frozenset({{"a"}})\n', "x") == {"a"}
+    # a same-named local inside a function is a different scope and must not trip it
+    assert ratchet.extract(
+        f'def h():\n    {const} = 99\n    return {const}\n{const} = frozenset({{"a"}})\n', "x"
+    ) == {"a"}
+
+
+def test_witness_ratchet_double_assignment_bypass_is_closed_end_to_end():
+    """Drive the whole exploit: runtime really diverges, so the ratchet must refuse."""
+    import importlib.util
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / "witness_allowlist_ratchet.py"
+    spec = importlib.util.spec_from_file_location("_ratchet", script)
+    assert spec and spec.loader
+    ratchet = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ratchet)
+    const = "WITNESS_RAW_COVERAGE_ALLOWLIST"
+
+    head = f'{const} = frozenset({{"a"}})\nx = 1\n{const} = frozenset({{"a", "sneaky"}})\n'
+    namespace: dict[str, object] = {}
+    exec(compile(head, "<attack>", "exec"), namespace)  # noqa: S102
+    assert namespace[const] == {"a", "sneaky"}, "the attack must really grow the allowlist"
+
     with pytest.raises(SystemExit):
         ratchet.extract(head, "head")
 

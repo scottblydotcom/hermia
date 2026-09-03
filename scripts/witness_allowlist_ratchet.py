@@ -42,22 +42,75 @@ def extract(source: str, origin: str) -> set[str] | None:
         raise SystemExit(f"FAIL: could not parse {origin}: {exc}") from exc
 
     shadowed = _CONSTRUCTORS & _module_scope_bindings(tree)
+    values, other = _const_bindings(tree)
 
-    for node in ast.walk(tree):
-        targets = []
-        if isinstance(node, ast.Assign):
-            targets = node.targets
-        elif isinstance(node, ast.AnnAssign):
-            targets = [node.target]
-        else:
-            continue
-        if not any(isinstance(t, ast.Name) and t.id == CONST for t in targets):
-            continue
-        if node.value is None:
-            break
-        return _literal_strings(node.value, origin, shadowed)
+    if other or len(values) > 1:
+        raise SystemExit(
+            f"FAIL: {CONST} in {origin} is bound {len(values) + other} times at module "
+            "scope, or bound in a form this script cannot resolve. It must be assigned "
+            "exactly once, as a plain literal. Python uses the LAST binding executed while "
+            "this script would have to guess which one that is — and guessing wrong is how "
+            "a ratchet passes while the allowlist grows."
+        )
 
-    return None
+    if not values:
+        return None
+    return _literal_strings(values[0], origin, shadowed)
+
+
+def _const_bindings(tree: ast.Module) -> tuple[list[ast.expr], int]:
+    """Module-scope bindings of CONST: readable assigned values, and everything else.
+
+    ⚠️ BYPASS 3, found while fixing bypass 2. `extract` used to return the FIRST match from
+    `ast.walk`, which is breadth-first. Python, however, uses the LAST assignment executed.
+    So two module-scope assignments —
+
+        WITNESS_RAW_COVERAGE_ALLOWLIST = frozenset({"a"})
+        ...
+        WITNESS_RAW_COVERAGE_ALLOWLIST = frozenset({"a", "sneaky"})
+
+    — made the ratchet read {"a"} while the runtime allowlist was {"a", "sneaky"}. It
+    reported no additions and exited 0. Reproduced. An `if/else` pair does the same thing,
+    and `|=` was invisible to the old scan entirely because it only looked at Assign and
+    AnnAssign nodes.
+
+    The rule is therefore: CONST must be bound EXACTLY ONCE at module scope, by a plain
+    assignment. Augmented assignment, tuple unpacking, walrus, a loop target, an import
+    alias, a def or class of that name — each is a binding this script cannot resolve to a
+    single value, and every one of them is refused. Nested scopes are not counted: an
+    assignment inside a function body is a local and cannot change the module's value.
+    """
+    values: list[ast.expr] = []
+    other = 0
+    stack: list[ast.AST] = list(tree.body)
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            if node.name == CONST:
+                other += 1
+            continue  # a nested scope cannot rebind the module-level name
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                if (alias.asname or alias.name.split(".")[0]) == CONST:
+                    other += 1
+            continue
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == CONST for t in node.targets
+        ):
+            values.append(node.value)
+            continue
+        if (
+            isinstance(node, ast.AnnAssign)
+            and isinstance(node.target, ast.Name)
+            and node.target.id == CONST
+        ):
+            if node.value is not None:
+                values.append(node.value)
+            continue  # a bare annotation declares a type; it binds nothing
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store) and node.id == CONST:
+            other += 1  # |=, walrus, tuple unpacking, `for CONST in ...`, `with ... as CONST`
+        stack.extend(ast.iter_child_nodes(node))
+    return values, other
 
 
 def _module_scope_bindings(tree: ast.Module) -> set[str]:
@@ -81,6 +134,12 @@ def _module_scope_bindings(tree: ast.Module) -> set[str]:
             continue
         if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
             bound.add(node.id)
+        # `builtins.frozenset = ...` rebinds the constructor for the whole module without
+        # ever storing to a bare Name, so an attribute write counts too. BYPASS 4, found by
+        # outside-family review of the fix for bypass 2: the ratchet read {"a"} while the
+        # runtime allowlist was {"a", "sneaky"}. Reproduced before this line existed.
+        if isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store):
+            bound.add(node.attr)
         stack.extend(ast.iter_child_nodes(node))
     return bound
 
@@ -113,8 +172,13 @@ def _literal_strings(value: ast.expr, origin: str, shadowed: frozenset[str] | se
     the ratchet exists precisely because a pull request can neutralise a pytest check and
     add an entry in the SAME diff, which is exactly the two-step this permitted.
 
-    `shadowed` therefore carries any module-scope rebinding of those constructors, and a
-    call to a shadowed name is refused rather than read.
+    ⚠️ FOURTH BYPASS, found by outside-family review of the fix for the second: the rebinding
+    need not store to a bare name at all. `import builtins` followed by
+    `builtins.frozenset = lambda x: set(x) | {"sneaky"}` changes what the bare name resolves
+    to for the whole module, while the AST shows only an attribute write. Also reproduced.
+
+    `shadowed` therefore carries any module-scope rebinding of those constructors — by name
+    OR by attribute — and a call to a shadowed name is refused rather than read.
     """
     inner: list[ast.expr] | None = None
 
