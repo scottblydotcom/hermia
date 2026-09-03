@@ -1311,9 +1311,22 @@ def test_witness_ratchet_refuses_namespace_writes_from_any_scope():
         f"def add():\n    global frozenset\n    frozenset = lambda x: x\n"
         f'add()\n{const} = frozenset({{"a"}})\n',
         f'{const} = frozenset({{"a"}})\ndef add():\n    vars()["x"] = 1\n',
+        # bypasses 9 and 10: hand the module dict to exec/eval from inside a function
+        f'{const} = frozenset({{"a"}})\ndef f():\n    exec("x = 1", globals())\nf()\n',
+        f'{const} = frozenset({{"a"}})\n'
+        f'def f():\n    eval(compile("x = 1", "x", "exec"), globals())\n',
+        f'{const} = frozenset({{"a"}})\ndef f():\n    exec("x = 1", globals=globals())\n',
     ):
         with pytest.raises(SystemExit):
             ratchet.extract(src, "reaching-in")
+
+    # passing a FRESH dict is legal, and that distinction is load-bearing: the regression
+    # tests in this very module call exec(compile(...), namespace) to drive the attacks
+    assert ratchet.extract(
+        f'{const} = frozenset({{"a"}})\ndef t():\n    ns = {{}}\n'
+        f'    exec(compile("x = 1", "f", "exec"), ns)\n',
+        "x",
+    ) == {"a"}
 
     # naming the patterns precisely keeps ordinary code legal
     assert ratchet.extract(

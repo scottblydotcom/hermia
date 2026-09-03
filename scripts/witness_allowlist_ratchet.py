@@ -172,6 +172,23 @@ def _namespace_writes_from_any_scope(tree: ast.Module) -> set[str]:
                 and target.value.func.id in {"globals", "vars"}
             ):
                 found.add(f"assignment through {target.value.func.id}()")
+
+        # BYPASSES 9 AND 10. `exec` and `eval` are refused at module scope, but not inside a
+        # function body, where nothing is inspected:
+        #     def f(): exec("ALLOWLIST = frozenset({'a','sneaky'})", globals())
+        #     f()
+        # Both reproduced. The general move is handing the module dict to something that can
+        # write to it, so that is what is refused — from any scope, whatever the callee.
+        # Passing a fresh dict stays legal, which matters: this module's own regression tests
+        # call exec(compile(...), namespace) with a local dict to drive the attacks.
+        if isinstance(node, ast.Call):
+            for arg in [*node.args, *(kw.value for kw in node.keywords)]:
+                if (
+                    isinstance(arg, ast.Call)
+                    and isinstance(arg.func, ast.Name)
+                    and arg.func.id in {"globals", "vars"}
+                ):
+                    found.add(f"passing {arg.func.id}() into a call")
     return found
 
 
