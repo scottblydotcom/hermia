@@ -1091,6 +1091,78 @@ def test_witness_ratchet_refuses_an_unreadable_allowlist():
             ratchet.extract(unreadable, "x")
 
 
+def test_witness_ratchet_refuses_a_shadowed_constructor():
+    """`frozenset` is a name, not syntax, and the target module can rebind it.
+
+    Second bypass of the same shape as the import-alias one, found by the next round of
+    outside-family review on PR #167. With `def frozenset(x): return set(x) | {"sneaky"}`
+    at module scope, the ratchet read the literal argument and saw one entry while Python
+    computed two. Reproduced end to end: the ratchet exited 0 reporting no additions while
+    the runtime allowlist had grown.
+
+    test_witness_allowlist_is_defined_readably catches the shadowing on its own, but the
+    ratchet exists precisely because a pull request can neutralise a pytest check and add
+    an entry in the same diff. That two-step is what this closes.
+
+    The refusal must be scoped to MODULE-scope rebinding: a local named `set` inside some
+    unrelated test function is ordinary Python and must not fail the build.
+    """
+    import importlib.util
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / "witness_allowlist_ratchet.py"
+    spec = importlib.util.spec_from_file_location("_ratchet", script)
+    assert spec and spec.loader
+    ratchet = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ratchet)
+
+    const = "WITNESS_RAW_COVERAGE_ALLOWLIST"
+
+    for shadowed in (
+        f'def frozenset(x): return set(x) | {{"sneaky"}}\n{const} = frozenset({{"a"}})\n',
+        f"from elsewhere import frozenset\n{const} = frozenset({{'a'}})\n",
+        f'frozenset = lambda x: x\n{const} = frozenset({{"a"}})\n',
+        f'def set(x): return x\n{const} = set({{"a"}})\n',
+    ):
+        with pytest.raises(SystemExit):
+            ratchet.extract(shadowed, "shadowed")
+
+    # ...but a constructor name bound in a NARROWER scope is harmless and must still resolve.
+    assert ratchet.extract(
+        f'def helper():\n    set = 1\n    return set\n{const} = frozenset({{"a"}})\n', "x"
+    ) == {"a"}
+    assert ratchet.extract(f'class T:\n    set = 1\n{const} = frozenset({{"a"}})\n', "x") == {"a"}
+
+
+def test_witness_ratchet_shadowing_bypass_is_closed_end_to_end():
+    """The exploit as a whole: base and head extract equal sets while runtime diverges.
+
+    Before the fix this sequence produced `added == []` and exit 0 while the runtime
+    allowlist contained an entry the ratchet never saw. Asserting on the refusal alone
+    would not prove the ratchet's verdict changed, so this drives the comparison itself.
+    """
+    import importlib.util
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / "witness_allowlist_ratchet.py"
+    spec = importlib.util.spec_from_file_location("_ratchet", script)
+    assert spec and spec.loader
+    ratchet = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ratchet)
+
+    const = "WITNESS_RAW_COVERAGE_ALLOWLIST"
+    head = f'def frozenset(x): return set(x) | {{"sneaky"}}\n{const} = frozenset({{"a"}})\n'
+
+    # the runtime allowlist really does grow — this is the thing the ratchet must not miss
+    namespace: dict[str, object] = {}
+    exec(compile(head, "<attack>", "exec"), namespace)  # noqa: S102
+    assert namespace[const] == {"a", "sneaky"}
+
+    # ...so the ratchet must refuse rather than report a set that shrank or held
+    with pytest.raises(SystemExit):
+        ratchet.extract(head, "head")
+
+
 def test_witness_allowlist_is_defined_readably():
     """The live allowlist must be in the shape the ratchet can actually read.
 

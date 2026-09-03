@@ -26,6 +26,7 @@ from pathlib import Path
 
 CONST = "WITNESS_RAW_COVERAGE_ALLOWLIST"
 TARGET = "tests/unit/test_schemas.py"
+_CONSTRUCTORS = frozenset({"frozenset", "set"})
 
 
 def extract(source: str, origin: str) -> set[str] | None:
@@ -40,6 +41,8 @@ def extract(source: str, origin: str) -> set[str] | None:
     except SyntaxError as exc:  # pragma: no cover - malformed base is a real failure
         raise SystemExit(f"FAIL: could not parse {origin}: {exc}") from exc
 
+    shadowed = _CONSTRUCTORS & _module_scope_bindings(tree)
+
     for node in ast.walk(tree):
         targets = []
         if isinstance(node, ast.Assign):
@@ -52,12 +55,37 @@ def extract(source: str, origin: str) -> set[str] | None:
             continue
         if node.value is None:
             break
-        return _literal_strings(node.value, origin)
+        return _literal_strings(node.value, origin, shadowed)
 
     return None
 
 
-def _literal_strings(value: ast.expr, origin: str) -> set[str]:
+def _module_scope_bindings(tree: ast.Module) -> set[str]:
+    """Every name bound at MODULE scope, not descending into function or class bodies.
+
+    Module scope is the only scope that matters here. The allowlist assignment is evaluated
+    there, so only a module-level rebinding of `frozenset`/`set` can change what the call
+    actually returns at runtime. A name bound inside a function body cannot, and refusing on
+    those would reject ordinary test code that uses `set` as a local variable.
+    """
+    bound: set[str] = set()
+    stack: list[ast.AST] = list(tree.body)
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            bound.add(node.name)  # the definition binds a module-scope name
+            continue              # ...but its body is a different scope
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                bound.add(alias.asname or alias.name.split(".")[0])
+            continue
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            bound.add(node.id)
+        stack.extend(ast.iter_child_nodes(node))
+    return bound
+
+
+def _literal_strings(value: ast.expr, origin: str, shadowed: frozenset[str] | set[str]) -> set[str]:
     """Resolve a literal set/frozenset of string constants, or refuse.
 
     ⚠️ THIS MUST REFUSE ANYTHING IT CANNOT SEE. An earlier version collected whatever
@@ -73,6 +101,20 @@ def _literal_strings(value: ast.expr, origin: str) -> set[str]:
 
     An indirection is not an empty allowlist. It is an allowlist this script cannot read,
     and the only safe response is to stop. Found by outside-family review of PR #167.
+
+    ⚠️ SECOND BYPASS, same shape, found by the next outside-family review of the same PR:
+    `frozenset` and `set` are ordinary names, not syntax, so the target module can rebind
+    them. With `def frozenset(x): return set(x) | {"sneaky"}` at module scope, this script
+    reads the literal argument and sees one entry while Python computes two. Reproduced: the
+    ratchet exited 0 reporting no additions while the runtime allowlist had grown.
+
+    That defeats this script's whole reason to exist. The stateless pytest check
+    (test_witness_allowlist_is_defined_readably) does catch the shadowing on its own — but
+    the ratchet exists precisely because a pull request can neutralise a pytest check and
+    add an entry in the SAME diff, which is exactly the two-step this permitted.
+
+    `shadowed` therefore carries any module-scope rebinding of those constructors, and a
+    call to a shadowed name is refused rather than read.
     """
     inner: list[ast.expr] | None = None
 
@@ -80,7 +122,15 @@ def _literal_strings(value: ast.expr, origin: str) -> set[str]:
         inner = list(value.elts)
     elif isinstance(value, ast.Call):                   # frozenset({...}) / frozenset([...])
         func = value.func
-        if isinstance(func, ast.Name) and func.id in {"frozenset", "set"}:
+        if isinstance(func, ast.Name) and func.id in shadowed:
+            raise SystemExit(
+                f"FAIL: {CONST} in {origin} is built by calling {func.id!r}, but {func.id!r} "
+                "is rebound at module scope in that file, so it is not the builtin. This "
+                "script would read the literal argument while Python computes something "
+                "else — the ratchet would pass while the allowlist grew. Remove the "
+                "rebinding, or define the allowlist as a plain literal."
+            )
+        if isinstance(func, ast.Name) and func.id in _CONSTRUCTORS:
             if not value.args:
                 inner = []                              # frozenset() — genuinely empty
             elif len(value.args) == 1 and isinstance(value.args[0], (ast.Set, ast.List, ast.Tuple)):

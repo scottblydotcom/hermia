@@ -1,0 +1,40 @@
+name: WITNESS ratchet
+
+# Deliberately its own workflow, and pull_request ONLY.
+#
+# This job used to live in ci.yml behind `if: github.event_name == 'pull_request'`. Because
+# ci.yml also runs on push, a pull request produced TWO check runs under the one name
+# `witness-allowlist-ratchet`: SUCCESS from the pull_request run, and SKIPPED from the push
+# run where the `if` was false. Verified on PR #167.
+#
+# A required status check is matched by name. A check that reports SKIPPED has not run the
+# ratchet, so a required check satisfied by that run would be a gate that passes without
+# checking anything — the exact failure mode WITNESS exists to catch, in WITNESS's own
+# wiring. Splitting the workflow means the name only ever appears when the ratchet ran.
+#
+# See docs/superpowers/specs/2026-08-31-witness-grader-completeness.md
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - main
+
+jobs:
+  witness-allowlist-ratchet:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0  # need history: the script reads the allowlist at the base ref
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version: "3.11"
+
+      - name: Allowlist may only shrink
+        # base ref passed via env, never interpolated into the shell command
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: python3 scripts/witness_allowlist_ratchet.py --base "origin/${BASE_REF}"
