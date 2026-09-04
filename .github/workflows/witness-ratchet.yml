@@ -23,12 +23,16 @@ on:
 jobs:
   witness-allowlist-ratchet:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
           fetch-depth: 0  # need history: the script reads the allowlist at the base ref
+          # The gate runs no repository code — only AST parsing and git — but it does read
+          # pull-request-controlled files, so it keeps no credential it does not need.
+          persist-credentials: false
       - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:
           python-version: "3.11"
@@ -37,4 +41,6 @@ jobs:
         # base ref passed via env, never interpolated into the shell command
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
-        run: python3 scripts/witness_allowlist_ratchet.py --base "origin/${BASE_REF}"
+        # -P keeps scripts/ off sys.path, so a pull request adding scripts/ast.py cannot
+        # shadow a stdlib module this gate imports. Requires 3.11+, which is pinned above.
+        run: python3 -P scripts/witness_allowlist_ratchet.py --base "origin/${BASE_REF}"

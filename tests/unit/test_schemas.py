@@ -1389,6 +1389,110 @@ def test_witness_ratchet_refuses_attribute_writes_and_scans_definition_headers()
     ) == {"a"}
 
 
+def _load_ratchet():
+    import importlib.util
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / "witness_allowlist_ratchet.py"
+    spec = importlib.util.spec_from_file_location("_ratchet", script)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_witness_guards_are_alive_on_this_very_file():
+    """Positive control: the real tree must have NO liveness problems.
+
+    Without this, every liveness assertion below could pass against a checker that always
+    reports a problem, and a green suite would prove nothing.
+    """
+    import ast
+    from pathlib import Path
+
+    ratchet = _load_ratchet()
+    tree = ast.parse(Path(__file__).resolve().read_text(encoding="utf-8"))
+    assert ratchet._guard_liveness_problems(tree) == []
+
+
+def test_witness_guard_liveness_catches_deletion_and_evisceration():
+    """The guards must be undeletable by the diff they judge.
+
+    This is the inversion the whole gate now rests on. Eleven bypasses fitted through the
+    ratchet's attempt to PREDICT the module's runtime value, which is undecidable. The
+    decidable sensor already existed — test_witness_allowlist_is_defined_readably compares
+    the static read against what Python actually produces, inside the real pytest session —
+    and its only weakness was that a pull request could delete it in the same diff that
+    exploited it. So the gate stopped trying to out-parse the adversary and started making
+    that test undeletable instead.
+    """
+    import ast
+
+    ratchet = _load_ratchet()
+    guard = "test_witness_allowlist_is_defined_readably"
+
+    intact = (
+        f"def {guard}():\n"
+        f"    resolved = extract('x')\n"
+        f"    assert resolved == set(WITNESS_RAW_COVERAGE_ALLOWLIST)\n"
+    )
+    assert ratchet._guard_liveness_problems(ast.parse(intact)) == [] or True  # other guards absent
+
+    def problems_for(src):
+        return [p for p in ratchet._guard_liveness_problems(ast.parse(src)) if guard in p]
+
+    assert problems_for("") , "a deleted guard must be reported"
+    assert problems_for(f"def {guard}():\n    pass\n"), "a guard with no assert must be reported"
+    assert problems_for(f"def {guard}():\n    assert True\n"), (
+        "a guard that still asserts but no longer references what it guards must be reported"
+    )
+    assert not problems_for(intact), "an intact guard must not be reported"
+
+
+def test_witness_guard_fingerprint_ignores_prose_and_catches_behaviour():
+    """Rewording a docstring must be free; gutting a body must not be.
+
+    A fingerprint that tripped on prose would train people to route around the gate.
+    """
+    import ast
+
+    ratchet = _load_ratchet()
+
+    def fingerprint(src):
+        return ratchet._guard_fingerprint(ast.parse(src).body[0])
+
+    real = 'def g():\n    """Original wording."""\n    assert extract("x") == set(ALLOW)\n'
+    reworded = (
+        'def g():\n    """Completely different wording, same behaviour."""\n'
+        '    assert extract("x") == set(ALLOW)\n'
+    )
+    gutted = 'def g():\n    """Original wording."""\n    assert True\n'
+
+    assert fingerprint(real) == fingerprint(reworded)
+    assert fingerprint(real) != fingerprint(gutted)
+
+
+def test_security_test_ids_is_statically_readable_for_the_scope_ratchet():
+    """The scope ratchet needs SECURITY_TEST_IDS to be readable by the same machinery.
+
+    Removing an id from it hides a blind spot with the allowlist untouched and the coverage
+    guard green — the same shape as every allowlist bypass, one level up. That direction is
+    ratcheted too, so this asserts the constant stays in a shape the ratchet can read.
+    """
+    from pathlib import Path
+
+    from hermia.schemas import SECURITY_TEST_IDS
+
+    ratchet = _load_ratchet()
+    schemas = Path(__file__).resolve().parents[2] / "src" / "hermia" / "schemas.py"
+    resolved = ratchet.extract(
+        schemas.read_text(encoding="utf-8"), str(schemas), ratchet.SCOPE_CONST
+    )
+    assert resolved == set(SECURITY_TEST_IDS), (
+        f"static {resolved} vs runtime {set(SECURITY_TEST_IDS)}"
+    )
+
+
 def test_witness_allowlist_is_defined_readably():
     """The live allowlist must be in the shape the ratchet can actually read.
 

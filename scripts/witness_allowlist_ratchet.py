@@ -26,6 +26,27 @@ from pathlib import Path
 
 CONST = "WITNESS_RAW_COVERAGE_ALLOWLIST"
 TARGET = "tests/unit/test_schemas.py"
+
+# A SECOND ratchet, in the opposite direction. SECURITY_TEST_IDS is the coverage guard's
+# SCOPE: it computes `uncovered = set(SECURITY_TEST_IDS) - covered`. Remove an id from it and
+# the blind spot becomes invisible with the allowlist untouched, the guard green and this
+# ratchet green — the same shape as every bypass above, one level up. That is exactly the
+# drift SECURITY_TEST_IDS exists to prevent, and how the original GREEN-while-blind bug
+# happened. So: the allowlist may only shrink, and the scope may only grow.
+SCOPE_CONST = "SECURITY_TEST_IDS"
+SCOPE_TARGET = "src/hermia/schemas.py"
+
+WORKFLOW = ".github/workflows/witness-ratchet.yml"
+
+# Guards that live in TARGET and must stay alive. The equivalence guard is the load-bearing
+# one: it compares what this script reads statically against what Python actually produces,
+# inside the real pytest session. That is the only decidable sensor for the whole bypass
+# class, and it is deletable in the same diff — which is what these checks stop.
+GUARD_REFERENCES = {
+    "test_every_security_test_has_compromise_markers": (SCOPE_CONST, CONST),
+    "test_witness_allowlist_only_shrinks": (SCOPE_CONST, CONST),
+    "test_witness_allowlist_is_defined_readably": ("extract", CONST),
+}
 _CONSTRUCTORS = frozenset({"frozenset", "set"})
 
 # Builtins that can rewrite the module namespace without any visible binding. A test module
@@ -35,7 +56,7 @@ _DYNAMIC_BUILTINS = frozenset(
 )
 
 
-def extract(source: str, origin: str) -> set[str] | None:
+def extract(source: str, origin: str, const: str = CONST) -> set[str] | None:
     """Pull the allowlist's string literals out of `source` without executing it.
 
     Returns None when the constant is absent, which the caller distinguishes: absent on
@@ -47,11 +68,11 @@ def extract(source: str, origin: str) -> set[str] | None:
     except SyntaxError as exc:  # pragma: no cover - malformed base is a real failure
         raise SystemExit(f"FAIL: could not parse {origin}: {exc}") from exc
 
-    reaching_in = _namespace_writes_from_any_scope(tree)
+    reaching_in = _namespace_writes_from_any_scope(tree, const)
     if reaching_in:
         raise SystemExit(
             f"FAIL: {origin} rebinds the module namespace via {', '.join(sorted(reaching_in))}. "
-            f"That can change {CONST} from inside a function body, where this script "
+            f"That can change {const} from inside a function body, where this script "
             "deliberately does not look, so what it reads would not be what Python uses."
         )
 
@@ -59,17 +80,17 @@ def extract(source: str, origin: str) -> set[str] | None:
     if dynamic:
         raise SystemExit(
             f"FAIL: {origin} uses {', '.join(sorted(dynamic))} at module scope. That can "
-            f"rebind {CONST} with nothing for this script to read, so the allowlist it "
+            f"rebind {const} with nothing for this script to read, so the allowlist it "
             "compares would not be the one Python uses. Module scope must stay statically "
             "readable; move dynamic code inside a function."
         )
 
     shadowed = _CONSTRUCTORS & _module_scope_bindings(tree)
-    values, other = _const_bindings(tree)
+    values, other = _const_bindings(tree, const)
 
     if other or len(values) > 1:
         raise SystemExit(
-            f"FAIL: {CONST} in {origin} is bound {len(values) + other} times at module "
+            f"FAIL: {const} in {origin} is bound {len(values) + other} times at module "
             "scope, or bound in a form this script cannot resolve. It must be assigned "
             "exactly once, as a plain literal. Python uses the LAST binding executed while "
             "this script would have to guess which one that is — and guessing wrong is how "
@@ -78,7 +99,7 @@ def extract(source: str, origin: str) -> set[str] | None:
 
     if not values:
         return None
-    return _literal_strings(values[0], origin, shadowed)
+    return _literal_strings(values[0], origin, shadowed, const)
 
 
 def _dynamic_constructs(tree: ast.Module) -> set[str]:
@@ -153,7 +174,7 @@ def _definition_header_nodes(node: ast.AST) -> list[ast.AST]:
     return out
 
 
-def _namespace_writes_from_any_scope(tree: ast.Module) -> set[str]:
+def _namespace_writes_from_any_scope(tree: ast.Module, const: str) -> set[str]:
     """Rebindings of the module namespace reachable from INSIDE a function body.
 
     ⚠️ BYPASSES 7 AND 8, found by outside-family review of the fix for 5 and 6. Every other
@@ -178,7 +199,7 @@ def _namespace_writes_from_any_scope(tree: ast.Module) -> set[str]:
     assignment through a `globals()`/`vars()` subscript. A bare `return globals()` stays
     legal, because it rebinds nothing.
     """
-    watched = {CONST} | _CONSTRUCTORS
+    watched = {const} | _CONSTRUCTORS
     found: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Global):
@@ -226,7 +247,7 @@ def _namespace_writes_from_any_scope(tree: ast.Module) -> set[str]:
     return found
 
 
-def _const_bindings(tree: ast.Module) -> tuple[list[ast.expr], int]:
+def _const_bindings(tree: ast.Module, const: str) -> tuple[list[ast.expr], int]:
     """Module-scope bindings of CONST: readable assigned values, and everything else.
 
     ⚠️ BYPASS 3, found while fixing bypass 2. `extract` used to return the FIRST match from
@@ -254,29 +275,29 @@ def _const_bindings(tree: ast.Module) -> tuple[list[ast.expr], int]:
     while stack:
         node = stack.pop()
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            if node.name == CONST:
+            if node.name == const:
                 other += 1
             stack.extend(_definition_header_nodes(node))  # header runs in the enclosing scope
             continue  # ...but the BODY is a nested scope and cannot rebind the module name
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             for alias in node.names:
-                if (alias.asname or alias.name.split(".")[0]) == CONST:
+                if (alias.asname or alias.name.split(".")[0]) == const:
                     other += 1
             continue
         if isinstance(node, ast.Assign) and any(
-            isinstance(t, ast.Name) and t.id == CONST for t in node.targets
+            isinstance(t, ast.Name) and t.id == const for t in node.targets
         ):
             values.append(node.value)
             continue
         if (
             isinstance(node, ast.AnnAssign)
             and isinstance(node.target, ast.Name)
-            and node.target.id == CONST
+            and node.target.id == const
         ):
             if node.value is not None:
                 values.append(node.value)
             continue  # a bare annotation declares a type; it binds nothing
-        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store) and node.id == CONST:
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store) and node.id == const:
             other += 1  # |=, walrus, tuple unpacking, `for CONST in ...`, `with ... as CONST`
         stack.extend(ast.iter_child_nodes(node))
     return values, other
@@ -314,7 +335,9 @@ def _module_scope_bindings(tree: ast.Module) -> set[str]:
     return bound
 
 
-def _literal_strings(value: ast.expr, origin: str, shadowed: frozenset[str] | set[str]) -> set[str]:
+def _literal_strings(
+    value: ast.expr, origin: str, shadowed: frozenset[str] | set[str], const: str
+) -> set[str]:
     """Resolve a literal set/frozenset of string constants, or refuse.
 
     ⚠️ THIS MUST REFUSE ANYTHING IT CANNOT SEE. An earlier version collected whatever
@@ -358,7 +381,7 @@ def _literal_strings(value: ast.expr, origin: str, shadowed: frozenset[str] | se
         func = value.func
         if isinstance(func, ast.Name) and func.id in shadowed:
             raise SystemExit(
-                f"FAIL: {CONST} in {origin} is built by calling {func.id!r}, but {func.id!r} "
+                f"FAIL: {const} in {origin} is built by calling {func.id!r}, but {func.id!r} "
                 "is rebound at module scope in that file, so it is not the builtin. This "
                 "script would read the literal argument while Python computes something "
                 "else — the ratchet would pass while the allowlist grew. Remove the "
@@ -372,7 +395,7 @@ def _literal_strings(value: ast.expr, origin: str, shadowed: frozenset[str] | se
 
     if inner is None:
         raise SystemExit(
-            f"FAIL: {CONST} in {origin} is not a literal set of strings, so this script "
+            f"FAIL: {const} in {origin} is not a literal set of strings, so this script "
             "cannot read it statically. That is not an empty allowlist — it is an "
             "unreadable one, and passing here would silently disable the ratchet forever. "
             "Define it inline as a literal frozenset({...}) of string constants, or update "
@@ -383,7 +406,7 @@ def _literal_strings(value: ast.expr, origin: str, shadowed: frozenset[str] | se
     for element in inner:
         if not (isinstance(element, ast.Constant) and isinstance(element.value, str)):
             raise SystemExit(
-                f"FAIL: {CONST} in {origin} contains a non-literal entry "
+                f"FAIL: {const} in {origin} contains a non-literal entry "
                 f"({type(element).__name__}). Every entry must be a plain string constant "
                 "so the ratchet can compare it against the base ref."
             )
@@ -391,43 +414,228 @@ def _literal_strings(value: ast.expr, origin: str, shadowed: frozenset[str] | se
     return out
 
 
+def _git(repo: Path, *argv: str) -> subprocess.CompletedProcess[str]:
+    """Run git in the repo. The gate shells out to git and NOTHING else, ever."""
+    return subprocess.run(["git", *argv], cwd=repo, capture_output=True, text=True, check=False)
+
+
+def _exists_at_ref(repo: Path, ref: str, path: str) -> bool:
+    return _git(repo, "cat-file", "-e", f"{ref}:{path}").returncode == 0
+
+
+def _guard_nodes(tree: ast.Module) -> dict[str, ast.FunctionDef]:
+    return {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name in GUARD_REFERENCES
+    }
+
+
+def _guard_fingerprint(node: ast.FunctionDef) -> str:
+    """A guard's body with its docstring stripped, so prose edits are free and gutting is not."""
+    body = list(node.body)
+    if (
+        body
+        and isinstance(body[0], ast.Expr)
+        and isinstance(body[0].value, ast.Constant)
+        and isinstance(body[0].value.value, str)
+    ):
+        body = body[1:]
+    return ast.dump(ast.Module(body=body, type_ignores=[]))
+
+
+def _guard_liveness_problems(tree: ast.Module) -> list[str]:
+    """Each guard must still exist, still assert, and still mention what makes it a guard.
+
+    This proves a guard is ACTIVE. It does NOT prove it is EFFECTIVE — a guard can be made
+    useless while satisfying every check here. That is the WITNESS scope limit and it must not
+    drift; outside review has broken an overstated version of this claim twice.
+
+    Deliberately weak in one respect: it requires an `assert` somewhere in the body, not an
+    assert whose condition reaches the required names. The stronger form was prototyped and
+    FALSE-POSITIVED on the real, correct guards, which compute intermediates
+    (`unexpected = sorted(uncovered - ALLOWLIST)` then `assert not unexpected`). Rejected on
+    evidence rather than taste.
+    """
+    found = _guard_nodes(tree)
+    problems: list[str] = []
+    for name, required in GUARD_REFERENCES.items():
+        node = found.get(name)
+        if node is None:
+            problems.append(f"{name} is missing from {TARGET} (deleted or renamed)")
+            continue
+        if not any(isinstance(n, ast.Assert) for n in ast.walk(node)):
+            problems.append(f"{name} contains no assert — it can no longer fail")
+        names = {n.id for n in ast.walk(node) if isinstance(n, ast.Name)} | {
+            n.attr for n in ast.walk(node) if isinstance(n, ast.Attribute)
+        }
+        missing = [r for r in required if r not in names]
+        if missing:
+            problems.append(f"{name} no longer references {', '.join(missing)}")
+    return problems
+
+
+def _guard_change_problems(repo: Path, base: str, allowlist_changed: bool) -> list[str]:
+    """Refuse to move the allowlist in the same diff that changes what guards it.
+
+    Uses the MERGE BASE, not the branch tip: the question is "did THIS pull request touch the
+    guards", and a three-dot comparison is the only one that answers it without accusing the
+    branch of everything that landed on the base meanwhile. The allowlist comparison keeps
+    using the branch tip, because there the question is different — "is this re-introducing an
+    entry the base already removed" — and tip is what catches a stale branch. Two refs, two
+    questions, each picked for its failure direction.
+    """
+    if not allowlist_changed:
+        return []
+    merge_base = _git(repo, "merge-base", base, "HEAD").stdout.strip()
+    if not merge_base:
+        return [f"could not compute a merge base with {base}"]
+
+    problems: list[str] = []
+    changed = set(
+        _git(repo, "diff", "--name-only", f"{merge_base}...HEAD").stdout.split()
+    )
+    for path in (WORKFLOW, "scripts/witness_allowlist_ratchet.py"):
+        if path in changed:
+            problems.append(f"{path} is modified in the same change as the allowlist")
+
+    old = _git(repo, "show", f"{merge_base}:{TARGET}")
+    if old.returncode == 0:
+        try:
+            before = _guard_nodes(ast.parse(old.stdout))
+        except SyntaxError:
+            return [*problems, f"could not parse {TARGET} at {merge_base}"]
+        now = _guard_nodes(ast.parse((repo / TARGET).read_text(encoding="utf-8")))
+        for name, node in before.items():
+            fresh = now.get(name)
+            if fresh is None or _guard_fingerprint(fresh) != _guard_fingerprint(node):
+                problems.append(f"{name} is modified in the same change as the allowlist")
+    return problems
+
+
+def _read_const(
+    repo: Path, base: str, target: str, const: str
+) -> tuple[set[str] | None, set[str] | None]:
+    """(head, base) values of `const` in `target`. Raises SystemExit if the base is unreadable."""
+    head = extract((repo / target).read_text(encoding="utf-8"), "working tree", const)
+    shown = _git(repo, "show", f"{base}:{target}")
+    if shown.returncode != 0:
+        print(f"FAIL: could not read {target} at {base}: {shown.stderr.strip()}")
+        print("If the base ref is unavailable the ratchet has NOT run — this is not a pass.")
+        raise SystemExit(1)
+    return head, extract(shown.stdout, base, const)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--base", default="origin/main", help="base ref to compare against")
     args = ap.parse_args()
-
     repo = Path(__file__).resolve().parents[1]
-    head_src = (repo / TARGET).read_text(encoding="utf-8")
 
+    # ---- 1. The guards must be alive. Checked ALWAYS, bootstrap included.
+    #
+    # This is the centre of the design, and it is an inversion of what this script used to
+    # try to do. Predicting HEAD's runtime value from its source is undecidable, which is why
+    # eleven bypasses fitted through it. The decidable sensor already exists: the pytest test
+    # that compares this script's static read against the value Python actually produces,
+    # inside the real pytest session. Its only weakness was that it lives in the file it
+    # judges and could be deleted by the same diff that exploits it. So the gate no longer
+    # tries to out-parse the adversary; it makes that test undeletable.
     try:
-        base_src = subprocess.run(
-            ["git", "show", f"{args.base}:{TARGET}"],
-            cwd=repo, capture_output=True, text=True, check=True,
-        ).stdout
-    except subprocess.CalledProcessError as exc:
-        print(f"FAIL: could not read {TARGET} at {args.base}: {exc.stderr.strip()}")
-        print("If the base ref is unavailable the ratchet has NOT run — this is not a pass.")
+        head_tree = ast.parse((repo / TARGET).read_text(encoding="utf-8"))
+    except SyntaxError as exc:
+        print(f"FAIL: could not parse {TARGET}: {exc}")
+        print("The ratchet has NOT run — this is not a pass.")
         return 1
 
-    head = extract(head_src, "working tree")
-    base = extract(base_src, args.base)
+    problems = _guard_liveness_problems(head_tree)
+    if problems:
+        print(f"FAIL: the WITNESS guards in {TARGET} are not intact.")
+        for problem in problems:
+            print(f"  {problem}")
+        print()
+        print(
+            "These guards are what make the allowlist meaningful; the equivalence guard is "
+            "the only thing that detects this script reading a different allowlist than "
+            "Python uses. The ratchet has NOT run — this is not a pass. Restore them."
+        )
+        return 1
+
+    # ---- 2. Bootstrap is permitted only while this gate does not yet exist on the base.
+    #
+    # It used to be permitted whenever the constant was absent from the base, unconditionally,
+    # for a head of any size — so renaming the constant re-baselined the ratchet silently and
+    # forever. Anchoring it to the workflow's own presence means bootstrap can happen exactly
+    # once per base branch and can never recur.
+    bootstrapping = not _exists_at_ref(repo, args.base, WORKFLOW)
+
+    head, base = _read_const(repo, args.base, TARGET, CONST)
 
     if head is None:
         print(f"FAIL: {CONST} is missing from {TARGET} in the working tree.")
         print(
             "The ratchet cannot verify an allowlist that was deleted or renamed. If that "
-            "was deliberate, update this script in the same change — do not leave a "
-            "ratchet pointing at a constant that no longer exists."
+            "was deliberate, land that change on its own, reviewed, first."
         )
         return 1
 
+    if base is None and not bootstrapping:
+        print(f"FAIL: {CONST} is absent from {TARGET} at {args.base}, but this gate already "
+              f"runs there ({WORKFLOW} exists at the base).")
+        print(
+            "That is a rename or deletion, not a bootstrap, and treating it as one would "
+            "re-baseline the ratchet to whatever this change contains. The ratchet has NOT "
+            "run — this is not a pass."
+        )
+        return 1
+
+    # ---- 3. Guards and gate may not move in the same diff as the allowlist.
+    if not bootstrapping:
+        changed = base is None or head != base
+        guard_problems = _guard_change_problems(repo, args.base, changed)
+        if guard_problems:
+            print("FAIL: the allowlist moved in the same change as the machinery guarding it.")
+            for problem in guard_problems:
+                print(f"  {problem}")
+            print()
+            print(
+                "Changing a guard and the thing it guards in one diff is the two-step this "
+                "gate exists to defeat, whether or not it was meant that way. Land the guard "
+                "change on its own, reviewed, first. The ratchet has NOT run — this is not a "
+                "pass."
+            )
+            return 1
+
+    # ---- 4. The scope may only GROW, mirroring the allowlist rule.
+    scope_head, scope_base = _read_const(repo, args.base, SCOPE_TARGET, SCOPE_CONST)
+    if scope_head is None:
+        print(f"FAIL: {SCOPE_CONST} is missing from {SCOPE_TARGET} in the working tree.")
+        print("The ratchet has NOT run — this is not a pass.")
+        return 1
+    if scope_base is not None:
+        dropped = sorted(scope_base - scope_head)
+        if dropped:
+            print(f"FAIL: {SCOPE_CONST} may only grow.")
+            for identifier in dropped:
+                print(f"  REMOVED: {identifier}")
+            print()
+            print(
+                "Removing a security test from the guard's scope hides a blind spot without "
+                "touching the allowlist at all — the guard stays green because it never looks "
+                "at that test again. If a test genuinely is not a security test, that needs "
+                "an explicit decision recorded on the pull request."
+            )
+            return 1
+
+    # ---- 5. The allowlist itself may only shrink.
     if base is None:
-        print(f"BOOTSTRAP: {CONST} does not exist at {args.base}.")
-        print(f"This is the change that introduces it, with {len(head)} entr"
+        print(f"BOOTSTRAP: {CONST} does not exist at {args.base}, and neither does {WORKFLOW}.")
+        print(f"This is the change that introduces both, with {len(head)} entr"
               f"{'y' if len(head) == 1 else 'ies'}:")
-        for h in sorted(head):
-            print(f"  {h}")
-        print("Nothing to ratchet against yet. Subsequent changes are compared to this.")
+        for entry in sorted(head):
+            print(f"  {entry}")
+        print(f"Guards verified alive: {', '.join(sorted(GUARD_REFERENCES))}.")
+        print(f"{SCOPE_CONST}: {len(scope_head)} ids. Subsequent changes are compared to this.")
         return 0
 
     added = sorted(head - base)
@@ -435,14 +643,14 @@ def main() -> int:
 
     print(f"base ({args.base}): {len(base)} entr{'y' if len(base) == 1 else 'ies'}")
     print(f"head:              {len(head)} entr{'y' if len(head) == 1 else 'ies'}")
-    for r in removed:
-        print(f"  removed (good):  {r}")
+    for entry in removed:
+        print(f"  removed (good):  {entry}")
 
     if added:
         print()
         print("FAIL: the WITNESS raw-coverage allowlist may only shrink.")
-        for a in added:
-            print(f"  ADDED: {a}")
+        for entry in added:
+            print(f"  ADDED: {entry}")
         print()
         print(
             "Each entry is a security test on which a compromise cannot be detected. "
@@ -451,7 +659,7 @@ def main() -> int:
         )
         return 1
 
-    print("OK: allowlist shrank or held.")
+    print(f"OK: allowlist shrank or held; guards alive; {SCOPE_CONST} did not shrink.")
     return 0
 
 
