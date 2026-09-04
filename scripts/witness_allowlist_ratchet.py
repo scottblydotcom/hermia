@@ -111,6 +111,7 @@ def _dynamic_constructs(tree: ast.Module) -> set[str]:
     while stack:
         node = stack.pop()
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            stack.extend(_definition_header_nodes(node))  # header runs in the enclosing scope
             continue
         if isinstance(node, ast.ImportFrom) and any(a.name == "*" for a in node.names):
             found.add(f"from {node.module or '...'} import *")
@@ -123,6 +124,33 @@ def _dynamic_constructs(tree: ast.Module) -> set[str]:
             found.add(f"{node.func.id}()")
         stack.extend(ast.iter_child_nodes(node))
     return found
+
+
+def _definition_header_nodes(node: ast.AST) -> list[ast.AST]:
+    """Expressions in a def/class HEADER, which evaluate in the ENCLOSING scope.
+
+    Every traversal here skips function and class BODIES, because a name bound there is a
+    local. Their headers are different: decorators, argument defaults, annotations, class
+    bases and class keywords all execute where the definition appears, at module scope, at
+    definition time. Skipping the whole node skipped those too.
+
+    Flagged by CodeRabbit on PR #167. The exploits reachable through it all routed via the
+    attribute-store gap below, so no header-only bypass was demonstrated — but the traversal
+    gap is real, and given how this file has gone, an undemonstrated gap is not a safe one.
+    """
+    out: list[ast.AST] = list(getattr(node, "decorator_list", []))
+    if isinstance(node, ast.ClassDef):
+        out.extend(node.bases)
+        out.extend(kw.value for kw in node.keywords)
+    elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        spec = node.args
+        out.extend(d for d in [*spec.defaults, *spec.kw_defaults] if d is not None)
+        for arg in [*spec.posonlyargs, *spec.args, *spec.kwonlyargs, spec.vararg, spec.kwarg]:
+            if arg is not None and arg.annotation is not None:
+                out.append(arg.annotation)
+        if node.returns is not None:
+            out.append(node.returns)
+    return out
 
 
 def _namespace_writes_from_any_scope(tree: ast.Module) -> set[str]:
@@ -172,6 +200,12 @@ def _namespace_writes_from_any_scope(tree: ast.Module) -> set[str]:
                 and target.value.func.id in {"globals", "vars"}
             ):
                 found.add(f"assignment through {target.value.func.id}()")
+            # BYPASS 11, found by CodeRabbit on PR #167 and reproduced. _module_scope_bindings
+            # records attribute stores, but only at module scope. A function body may do
+            # `import builtins; builtins.frozenset = ...` and be called before the module
+            # assigns the allowlist; ratchet read {"a"}, runtime was {"a", "s"}.
+            if isinstance(target, ast.Attribute) and target.attr in watched:
+                found.add(f"attribute write to {target.attr}")
 
         # BYPASSES 9 AND 10. `exec` and `eval` are refused at module scope, but not inside a
         # function body, where nothing is inspected:
@@ -222,7 +256,8 @@ def _const_bindings(tree: ast.Module) -> tuple[list[ast.expr], int]:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             if node.name == CONST:
                 other += 1
-            continue  # a nested scope cannot rebind the module-level name
+            stack.extend(_definition_header_nodes(node))  # header runs in the enclosing scope
+            continue  # ...but the BODY is a nested scope and cannot rebind the module name
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             for alias in node.names:
                 if (alias.asname or alias.name.split(".")[0]) == CONST:
@@ -261,6 +296,7 @@ def _module_scope_bindings(tree: ast.Module) -> set[str]:
         node = stack.pop()
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             bound.add(node.name)  # the definition binds a module-scope name
+            stack.extend(_definition_header_nodes(node))  # header runs in the enclosing scope
             continue              # ...but its body is a different scope
         if isinstance(node, (ast.Import, ast.ImportFrom)):
             for alias in node.names:

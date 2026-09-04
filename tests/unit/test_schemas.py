@@ -1337,6 +1337,58 @@ def test_witness_ratchet_refuses_namespace_writes_from_any_scope():
     ) == {"a"}
 
 
+def test_witness_ratchet_refuses_attribute_writes_and_scans_definition_headers():
+    """Attribute rebinding from any scope, and expressions in a def/class header.
+
+    Bypass 11, found by CodeRabbit on PR #167 and reproduced: _module_scope_bindings records
+    attribute stores, but only at module scope. A function body doing
+    `import builtins; builtins.frozenset = ...`, called before the module assigns the
+    allowlist, left the ratchet reading {"a"} while the runtime value was {"a", "s"}.
+
+    CodeRabbit also flagged that skipping a def or class skipped its HEADER — decorators,
+    argument defaults, annotations, class bases — which execute in the ENCLOSING scope at
+    definition time. No header-only bypass was demonstrated (every exploit routed through
+    the attribute-store gap), but the traversal gap is real and is now walked.
+
+    The negative cases matter as much: this module is full of @pytest.mark.parametrize and
+    annotated signatures, so a rule that tripped on ordinary decorated or typed functions
+    would fail the build.
+    """
+    import importlib.util
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / "witness_allowlist_ratchet.py"
+    spec = importlib.util.spec_from_file_location("_ratchet", script)
+    assert spec and spec.loader
+    ratchet = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ratchet)
+    const = "WITNESS_RAW_COVERAGE_ALLOWLIST"
+
+    for src in (
+        f'def f():\n    import builtins\n    builtins.frozenset = lambda x: set(x) | {{"s"}}\n'
+        f'f()\n{const} = frozenset({{"a"}})\n',
+        f"def mk(f):\n    import builtins\n    builtins.set = lambda x: x\n    return f\n"
+        f'@mk\ndef h(): pass\n{const} = set({{"a"}})\n',
+        f'{const} = frozenset({{"a"}})\ndef h(_=exec("x = 1", globals())): pass\n',
+        f'{const} = frozenset({{"a"}})\n'
+        f'def mk(f):\n    globals()["x"] = 1\n    return f\n@mk\ndef h(): pass\n',
+        f'{const} = frozenset({{"a"}})\n'
+        f'def ev():\n    globals()["x"] = 1\n    return object\nclass K(ev()): pass\n',
+    ):
+        with pytest.raises(SystemExit):
+            ratchet.extract(src, "attr-or-header")
+
+    # ordinary decorated and annotated code must still resolve
+    assert ratchet.extract(
+        f'import pytest\n@pytest.mark.parametrize("x", [1])\ndef t(x): pass\n'
+        f'{const} = frozenset({{"a"}})\n', "x"
+    ) == {"a"}
+    assert ratchet.extract(
+        f'def t(a: int = 3, *, b: str = "x") -> bool:\n    return True\n'
+        f'{const} = frozenset({{"a"}})\n', "x"
+    ) == {"a"}
+
+
 def test_witness_allowlist_is_defined_readably():
     """The live allowlist must be in the shape the ratchet can actually read.
 
