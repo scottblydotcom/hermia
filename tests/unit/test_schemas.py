@@ -1493,6 +1493,79 @@ def test_security_test_ids_is_statically_readable_for_the_scope_ratchet():
     )
 
 
+def test_witness_widening_must_be_declared_and_cannot_linger():
+    """The allowlist may grow, but only loudly, and the permission is single-use.
+
+    "Never grows" is not survivable — a security test can legitimately enter the registry
+    before anyone has built a detector for it, and an absolute rule just pushes people to
+    route around the ratchet. So a widening is allowed and made expensive: the change must
+    declare exactly which ids it adds and why, in the same file a reviewer is already reading.
+
+    Two properties carry the weight. The declaration must match the additions EXACTLY, so it
+    can neither wave through an extra entry nor be written in advance as a standing permission.
+    And it goes STALE the moment its ids reach the base ref, so a spent widening cannot sit in
+    the tree quietly authorising the next one.
+
+    Be honest about the limit: this does not stop someone with merge rights from adding an entry
+    and its justification in one diff. It makes widening attributable instead of silent, which
+    is the whole thing the ratchet was ever for.
+    """
+    import importlib.util
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / "witness_allowlist_ratchet.py"
+    spec = importlib.util.spec_from_file_location("_ratchet", script)
+    assert spec and spec.loader
+    ratchet = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ratchet)
+
+    reason = "detector is keyed to system-prompt echo, which no real corpus compromise produces"
+
+    # the only shape that passes: declared exactly, with an actual justification
+    assert ratchet._widening_problems({"a": reason}, {"a"}, set()) == []
+    # and a no-op change with no declaration is fine
+    assert ratchet._widening_problems(None, set(), {"a"}) == []
+
+    for widening, added, base, why in [
+        (None, {"a"}, set(), "growing with no declaration at all"),
+        ({"a": "because"}, {"a"}, set(), "a token reason a reviewer cannot weigh"),
+        ({"a": reason}, {"a", "b"}, set(), "adding more ids than were declared"),
+        ({"a": reason, "z": reason}, {"a"}, set(), "declaring an id in advance"),
+        ({"a": reason}, set(), {"a"}, "a spent declaration left standing"),
+    ]:
+        assert ratchet._widening_problems(widening, added, base), why
+
+
+def test_witness_widening_declaration_refuses_what_it_cannot_read():
+    """Same discipline as the allowlist: resolve it statically or refuse.
+
+    A declaration the ratchet cannot read is not an empty declaration — it is an unreadable
+    one, and reading it as empty would silently disable the check that makes widening loud.
+    """
+    import importlib.util
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / "witness_allowlist_ratchet.py"
+    spec = importlib.util.spec_from_file_location("_ratchet", script)
+    assert spec and spec.loader
+    ratchet = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ratchet)
+    const = ratchet.WIDENING_CONST
+
+    assert ratchet._extract_widening(f'{const} = {{"a": "b"}}', "x") == {"a": "b"}
+    assert ratchet._extract_widening("SOMETHING_ELSE = 1", "x") is None
+
+    for unreadable in (
+        f'{const} = dict(a="b")',
+        f"other = {{}}\n{const} = other",
+        f"{const} = {{**other}}",
+        f'{const} = {{"a": SOME_NAME}}',
+        f'{const} = {{SOME_KEY: "b"}}',
+    ):
+        with pytest.raises(SystemExit):
+            ratchet._extract_widening(unreadable, "x")
+
+
 def test_witness_allowlist_is_defined_readably():
     """The live allowlist must be in the shape the ratchet can actually read.
 
