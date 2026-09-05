@@ -199,6 +199,17 @@ def _definition_header_nodes(node: ast.AST) -> list[ast.AST]:
     return out
 
 
+def _assigned_values(node: ast.AST) -> list[ast.expr]:
+    """Right-hand sides of any assignment form, so an alias can be spotted wherever it is made."""
+    if isinstance(node, ast.Assign):
+        return [node.value]
+    if isinstance(node, (ast.AnnAssign, ast.AugAssign)) and node.value is not None:
+        return [node.value]
+    if isinstance(node, ast.NamedExpr):
+        return [node.value]
+    return []
+
+
 def _namespace_writes_from_any_scope(tree: ast.Module, const: str) -> set[str]:
     """Rebindings of the module namespace reachable from INSIDE a function body.
 
@@ -226,6 +237,35 @@ def _namespace_writes_from_any_scope(tree: ast.Module, const: str) -> set[str]:
     """
     watched = {const} | _CONSTRUCTORS
     found: set[str] = set()
+
+    # BYPASS 15 AND 16, and the reason this refuses a CLASS rather than a list of forms.
+    #
+    # Every dynamic-builtin check matched on the NAME at the call site, so binding the builtin
+    # to another name defeated all of them at once (qwen3.5:122b). Fixing only the assignment
+    # form left three more ways in, found by CodeRabbit and by probing around its finding:
+    #     def rewrite(g=globals): ...      # a parameter default binds without an assignment
+    #     f(globals)                       # passed as an argument
+    #     def pick(): return globals       # returned from a helper
+    # All reproduced: the ratchet read the old literal while runtime widened the namespace.
+    #
+    # So the rule is not "these binding forms are refused" — that list does not terminate, as
+    # fifteen bypasses have already demonstrated. A reference to one of these builtins is
+    # allowed ONLY as the direct callee of a call. Used as a VALUE in any other position it is
+    # refused, whatever syntax carries it there.
+    called_directly = {
+        id(node.func)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Name)
+            and isinstance(node.ctx, ast.Load)
+            and node.id in _DYNAMIC_BUILTINS
+            and id(node) not in called_directly
+        ):
+            found.add(f"referencing {node.id} as a value")
+
     for node in ast.walk(tree):
         if isinstance(node, ast.Global):
             hit = watched.intersection(node.names)
@@ -440,8 +480,19 @@ def _literal_strings(
 
 
 def _git(repo: Path, *argv: str) -> subprocess.CompletedProcess[str]:
-    """Run git in the repo. The gate shells out to git and NOTHING else, ever."""
-    return subprocess.run(["git", *argv], cwd=repo, capture_output=True, text=True, check=False)
+    """Run git in the repo. The gate shells out to git and NOTHING else, ever.
+
+    A missing git binary used to raise FileNotFoundError and surface as an internal error,
+    which reads as an infrastructure hiccup rather than as the gate not having run. Found by
+    qwen3.5:122b. Fail closed and say so.
+    """
+    try:
+        return subprocess.run(
+            ["git", *argv], cwd=repo, capture_output=True, text=True, check=False
+        )
+    except OSError as exc:
+        print(f"FAIL: could not execute git ({exc}). The ratchet has NOT run — not a pass.")
+        raise SystemExit(1) from exc
 
 
 def _exists_at_ref(repo: Path, ref: str, path: str) -> bool:
@@ -469,6 +520,21 @@ def _guard_fingerprint(node: ast.FunctionDef) -> str:
     return ast.dump(ast.Module(body=body, type_ignores=[]))
 
 
+def _is_literal_only(expr: ast.expr) -> bool:
+    """True when an expression can only ever evaluate to the same thing.
+
+    `assert True` was rejected by checking for ast.Constant, and `assert 1 == 1` walked straight
+    past it because a Compare is not a Constant — a guard could keep its required-name
+    references and still enforce nothing. Found by CodeRabbit on PR #170. An expression that
+    reads no name, attribute, subscript or call has no input and cannot depend on the state the
+    guard exists to check.
+    """
+    return not any(
+        isinstance(n, (ast.Name, ast.Attribute, ast.Subscript, ast.Call))
+        for n in ast.walk(expr)
+    )
+
+
 def _guard_liveness_problems(tree: ast.Module) -> list[str]:
     """Each guard must still exist, still assert, and still mention what makes it a guard.
 
@@ -489,8 +555,17 @@ def _guard_liveness_problems(tree: ast.Module) -> list[str]:
         if node is None:
             problems.append(f"{name} is missing from {TARGET} (deleted or renamed)")
             continue
-        if not any(isinstance(n, ast.Assert) for n in ast.walk(node)):
+        asserts = [n for n in ast.walk(node) if isinstance(n, ast.Assert)]
+        if not asserts:
             problems.append(f"{name} contains no assert — it can no longer fail")
+        elif all(_is_literal_only(a.test) for a in asserts):
+            # `assert True` alongside a bare reference to the required names satisfied both the
+            # has-an-assert and mentions-the-names checks while enforcing nothing. Found by
+            # gpt-oss:120b. This does not make liveness prove EFFECTIVENESS — nothing here can
+            # — but a guard whose every assertion is a literal cannot fail by construction.
+            problems.append(
+                f"{name} asserts only literal constants — it cannot fail, whatever it mentions"
+            )
         names = {n.id for n in ast.walk(node) if isinstance(n, ast.Name)} | {
             n.attr for n in ast.walk(node) if isinstance(n, ast.Attribute)
         }
@@ -586,11 +661,28 @@ def _widening_problems(
     """Does the declaration authorise exactly these additions, and nothing else?"""
     problems: list[str] = []
 
-    stale = sorted(set(widening or {}) & base)
+    declared = set(widening or {})
+
+    stale = sorted(declared & base)
     for entry in stale:
         problems.append(
             f"{entry!r} is declared in {WIDENING_CONST} but is already in the allowlist at the "
             "base ref. A spent widening must be deleted, not left standing."
+        )
+
+    # ⚠️ Checked whether or not this diff adds anything. It used to sit behind an
+    # `if not added: return problems` early exit, which let a declaration land on its own —
+    # and that is a two-step, not an oversight. PR1 lands only the declaration and passes;
+    # PR2 then adds the id, matching a declaration ALREADY on the base, so `undeclared` is
+    # empty and `stale` does not fire because the id is not yet in the allowlist. The
+    # justification and the addition are never reviewed in the same diff, which was the one
+    # thing this mechanism existed to guarantee. Found by Antigravity on PR #168, reproduced.
+    unused = sorted(declared - added - base)
+    for entry in unused:
+        problems.append(
+            f"{entry!r} is declared in {WIDENING_CONST} but is not actually being added — a "
+            "declaration that outlives its own diff is a standing permission, which is exactly "
+            "what this must never become"
         )
 
     if not added:
@@ -606,13 +698,6 @@ def _widening_problems(
     undeclared = sorted(added - set(widening))
     for entry in undeclared:
         problems.append(f"{entry!r} is being added but is not declared in {WIDENING_CONST}")
-
-    unused = sorted(set(widening) - added - base)
-    for entry in unused:
-        problems.append(
-            f"{entry!r} is declared in {WIDENING_CONST} but is not actually being added — a "
-            "declaration written in advance is a standing permission, which is not allowed"
-        )
 
     for entry in sorted(added & set(widening)):
         reason = widening[entry].strip()
@@ -745,9 +830,24 @@ def main() -> int:
         )
         return 1
 
-    # ---- 3. Guards and gate may not move in the same diff as the allowlist.
+    # ---- 3. Guards and gate may not move in the same diff as EITHER register.
+    #
+    # `changed` used to be computed from the raw-coverage allowlist alone, so a change that
+    # moved only WITNESS_UNPROVEN_DETECTOR_ALLOWLIST could rewrite this script, the workflow or
+    # the guard tests in the same diff and skip this check entirely. Every shrink-only register
+    # has to count. Found by Antigravity on PR #168.
+    unproven_rc, unproven_added, unproven_base = _register_added(repo, args.base, UNPROVEN_CONST)
+    if unproven_rc:
+        return unproven_rc
+    unproven_head, _unproven_base_raw = _read_const(repo, args.base, TARGET, UNPROVEN_CONST)
+
     if not bootstrapping:
-        changed = base is None or head != base
+        changed = (
+            base is None
+            or head != base
+            or bool(unproven_added)
+            or bool(unproven_base - (unproven_head or set()))
+        )
         guard_problems = _guard_change_problems(repo, args.base, changed)
         if guard_problems:
             print("FAIL: the allowlist moved in the same change as the machinery guarding it.")
@@ -791,14 +891,17 @@ def main() -> int:
     # making a valid simultaneous widening impossible, and blaming the declaration for it.
     widening = _extract_widening((repo / TARGET).read_text(encoding="utf-8"), "working tree")
 
-    unproven_rc, unproven_added, unproven_base = _register_added(repo, args.base, UNPROVEN_CONST)
-    if unproven_rc:
-        return unproven_rc
-
     primary_base: set[str] = set() if base is None else base
     primary_added = head - primary_base
 
-    all_added = primary_added | unproven_added
+    # ⚠️ A genuine bootstrap — this gate does not exist at the base ref at all — establishes the
+    # BASELINE. Its entries are not additions and cannot be declared, because there is nothing
+    # to declare them against. Validating them as additions demanded a justification for every
+    # pre-existing entry, failed, and made the bootstrap handler below unreachable. That was
+    # live: `main` is still pre-allowlist, so the next dev->main promotion would have failed a
+    # required check with a message blaming a declaration that was not the problem. Found by
+    # Antigravity on PR #168 and reproduced against origin/main.
+    all_added = set() if bootstrapping else (primary_added | unproven_added)
     all_base = primary_base | unproven_base
     widening_problems = _widening_problems(widening, all_added, all_base)
 
@@ -819,7 +922,6 @@ def main() -> int:
         )
         return 1
 
-    unproven_head, _ = _read_const(repo, args.base, TARGET, UNPROVEN_CONST)
     _report_register(
         UNPROVEN_CONST,
         unproven_added,
