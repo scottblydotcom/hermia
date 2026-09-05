@@ -71,6 +71,14 @@ GUARD_REFERENCES = {
     "test_every_security_test_has_compromise_markers": (SCOPE_CONST, CONST),
     "test_witness_allowlist_only_shrinks": (SCOPE_CONST, CONST),
     "test_witness_allowlist_is_defined_readably": ("extract", CONST),
+    # Phase 2's invariant and its companion. Without these, the completeness contract itself
+    # could be deleted while every other guard stayed green — which is precisely the shape of
+    # the bug this project exists to catch. Registered a change later than they should have
+    # been, because the guards had to exist on the base ref first. Flagged by CodeRabbit.
+    "test_every_security_test_has_a_firing_compromise_witness": (SCOPE_CONST, "_fixture_witnesses"),
+    "test_allowlisted_blind_spots_are_still_blind": (UNPROVEN_CONST, "_fixture_witnesses"),
+    "test_witness_unproven_allowlist_is_defined_readably": ("extract", UNPROVEN_CONST),
+    "test_every_security_test_has_a_fixture_file": (SCOPE_CONST, "is_file"),
 }
 _CONSTRUCTORS = frozenset({"frozenset", "set"})
 
@@ -301,6 +309,22 @@ def _namespace_writes_from_any_scope(tree: ast.Module, const: str) -> set[str]:
         # write to it, so that is what is refused — from any scope, whatever the callee.
         # Passing a fresh dict stays legal, which matters: this module's own regression tests
         # call exec(compile(...), namespace) with a local dict to drive the attacks.
+        # BYPASS 17, found by CodeRabbit on PR #169. setattr and delattr were refused at
+        # MODULE scope only, and the attribute-store rule sees `builtins.frozenset = ...` but
+        # not `setattr(builtins, "frozenset", ...)`, which is a Call. From inside a function
+        # body, nothing looked:
+        #     def f(): setattr(builtins, "frozenset", lambda x: set(x) | {"s"})
+        #     f()
+        # Reproduced. Unlike globals(), which is harmless until something writes through it,
+        # setattr IS the write — so the call is refused wherever it appears. `monkeypatch.
+        # setattr` is an Attribute call, not a Name, so ordinary pytest code is unaffected.
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in {"setattr", "delattr"}
+        ):
+            found.add(f"a {node.func.id}() call")
+
         if isinstance(node, ast.Call):
             for arg in [*node.args, *(kw.value for kw in node.keywords)]:
                 if (
