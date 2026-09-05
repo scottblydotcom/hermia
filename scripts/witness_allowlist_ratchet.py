@@ -237,6 +237,35 @@ def _namespace_writes_from_any_scope(tree: ast.Module, const: str) -> set[str]:
     """
     watched = {const} | _CONSTRUCTORS
     found: set[str] = set()
+
+    # BYPASS 15 AND 16, and the reason this refuses a CLASS rather than a list of forms.
+    #
+    # Every dynamic-builtin check matched on the NAME at the call site, so binding the builtin
+    # to another name defeated all of them at once (qwen3.5:122b). Fixing only the assignment
+    # form left three more ways in, found by CodeRabbit and by probing around its finding:
+    #     def rewrite(g=globals): ...      # a parameter default binds without an assignment
+    #     f(globals)                       # passed as an argument
+    #     def pick(): return globals       # returned from a helper
+    # All reproduced: the ratchet read the old literal while runtime widened the namespace.
+    #
+    # So the rule is not "these binding forms are refused" — that list does not terminate, as
+    # fifteen bypasses have already demonstrated. A reference to one of these builtins is
+    # allowed ONLY as the direct callee of a call. Used as a VALUE in any other position it is
+    # refused, whatever syntax carries it there.
+    called_directly = {
+        id(node.func)
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Name)
+            and isinstance(node.ctx, ast.Load)
+            and node.id in _DYNAMIC_BUILTINS
+            and id(node) not in called_directly
+        ):
+            found.add(f"referencing {node.id} as a value")
+
     for node in ast.walk(tree):
         if isinstance(node, ast.Global):
             hit = watched.intersection(node.names)
@@ -272,17 +301,6 @@ def _namespace_writes_from_any_scope(tree: ast.Module, const: str) -> set[str]:
         # write to it, so that is what is refused — from any scope, whatever the callee.
         # Passing a fresh dict stays legal, which matters: this module's own regression tests
         # call exec(compile(...), namespace) with a local dict to drive the attacks.
-        # BYPASS 15, found by qwen3.5:122b. Every dynamic-builtin check matched on the NAME at
-        # the call site, so binding the builtin to another name defeated all of them:
-        #     _g = globals
-        #     _g()["WITNESS_RAW_COVERAGE_ALLOWLIST"] = frozenset({"a", "sneaky"})
-        # Reproduced: ratchet read {"a"}, runtime was {"a", "sneaky"}. Refusing the ALIAS
-        # itself is the fix — a bare reference to one of these builtins as a value has no
-        # legitimate use in this module, and it cannot be laundered through a rename.
-        for value in _assigned_values(node):
-            if isinstance(value, ast.Name) and value.id in _DYNAMIC_BUILTINS:
-                found.add(f"aliasing {value.id}")
-
         if isinstance(node, ast.Call):
             for arg in [*node.args, *(kw.value for kw in node.keywords)]:
                 if (
@@ -502,6 +520,21 @@ def _guard_fingerprint(node: ast.FunctionDef) -> str:
     return ast.dump(ast.Module(body=body, type_ignores=[]))
 
 
+def _is_literal_only(expr: ast.expr) -> bool:
+    """True when an expression can only ever evaluate to the same thing.
+
+    `assert True` was rejected by checking for ast.Constant, and `assert 1 == 1` walked straight
+    past it because a Compare is not a Constant — a guard could keep its required-name
+    references and still enforce nothing. Found by CodeRabbit on PR #170. An expression that
+    reads no name, attribute, subscript or call has no input and cannot depend on the state the
+    guard exists to check.
+    """
+    return not any(
+        isinstance(n, (ast.Name, ast.Attribute, ast.Subscript, ast.Call))
+        for n in ast.walk(expr)
+    )
+
+
 def _guard_liveness_problems(tree: ast.Module) -> list[str]:
     """Each guard must still exist, still assert, and still mention what makes it a guard.
 
@@ -525,7 +558,7 @@ def _guard_liveness_problems(tree: ast.Module) -> list[str]:
         asserts = [n for n in ast.walk(node) if isinstance(n, ast.Assert)]
         if not asserts:
             problems.append(f"{name} contains no assert — it can no longer fail")
-        elif all(isinstance(a.test, ast.Constant) for a in asserts):
+        elif all(_is_literal_only(a.test) for a in asserts):
             # `assert True` alongside a bare reference to the required names satisfied both the
             # has-an-assert and mentions-the-names checks while enforcing nothing. Found by
             # gpt-oss:120b. This does not make liveness prove EFFECTIVENESS — nothing here can

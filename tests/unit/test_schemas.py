@@ -1609,28 +1609,44 @@ def test_witness_outside_review_findings_stay_fixed():
 
     # qwen: every dynamic-builtin check matched the NAME at the call site, so binding the
     # builtin to another name defeated all of them at once.
+    # Fixing only the assignment form left three more ways in, found by CodeRabbit on PR #170
+    # and by probing around its finding. The rule refuses the CLASS — a reference to one of
+    # these builtins is legal only as the direct callee of a call — because the list of binding
+    # forms does not terminate, as fifteen bypasses have already demonstrated.
     for aliased in (
         f'_g = globals\n{const} = frozenset({{"a"}})\n_g()["{const}"] = 1\n',
         f'{const} = frozenset({{"a"}})\ndef f():\n    g = globals\n    g()["x"] = 1\n',
         f"{const} = frozenset({{'a'}})\n_e: object = exec\n",
         f"{const} = frozenset({{'a'}})\nprint(_v := vars)\n",
+        f'{const} = frozenset({{"a"}})\ndef w(g=globals):\n    g()["x"] = 1\n',
+        f'{const} = frozenset({{"a"}})\ndef f(g):\n    g()["x"] = 1\nf(globals)\n',
+        f'{const} = frozenset({{"a"}})\ndef pick():\n    return globals\n',
+        f'{const} = frozenset({{"a"}})\nT = {{"g": globals}}\n',
     ):
         with pytest.raises(SystemExit):
             ratchet.extract(aliased, "aliased")
 
-    # ...but aliasing something harmless is ordinary Python and must not fail the build
+    # ...but aliasing something harmless, and CALLING one directly, both stay legal
     assert ratchet.extract(f'{const} = frozenset({{"a"}})\n_p = print\n', "x") == {"a"}
+    assert ratchet.extract(
+        f'def t():\n    return globals()\n{const} = frozenset({{"a"}})\n', "x"
+    ) == {"a"}
 
     # gpt-oss: `assert True` beside a bare reference to the guarded names satisfied both the
     # has-an-assert and mentions-the-names checks while enforcing nothing.
-    gutted = (
-        "def test_witness_allowlist_only_shrinks():\n"
-        "    _ = WITNESS_RAW_COVERAGE_ALLOWLIST, SECURITY_TEST_IDS\n"
-        "    assert True\n"
-    )
-    assert [
-        p for p in ratchet._guard_liveness_problems(ast.parse(gutted)) if "only_shrinks" in p
-    ], "a guard whose every assertion is a literal cannot fail and must be reported"
+    # `assert 1 == 1` walked past the first version of this check, because a Compare is not a
+    # Constant. Found by CodeRabbit on PR #170 — the test has to be on the whole expression.
+    for trivial in ("assert True", "assert 1 == 1", "assert (2 > 1) and True"):
+        gutted = (
+            "def test_witness_allowlist_only_shrinks():\n"
+            "    _ = WITNESS_RAW_COVERAGE_ALLOWLIST, SECURITY_TEST_IDS\n"
+            f"    {trivial}\n"
+        )
+        assert [
+            p
+            for p in ratchet._guard_liveness_problems(ast.parse(gutted))
+            if "only_shrinks" in p
+        ], f"a guard whose every assertion is literal ({trivial}) cannot fail and must be reported"
 
     real = (
         "def test_witness_allowlist_only_shrinks():\n"
