@@ -1887,6 +1887,30 @@ def test_witness_setattr_is_refused_from_any_scope():
         "x",
     ) == {"a"}
 
+    # Bypass 18, found by CodeRabbit on PR #171: the check above matches a direct Name callee,
+    # so fetching the same builtin indirectly walked past it. Naming one of these builtins in a
+    # getattr literal is refused; getattr itself stays legal, because banning ordinary Python
+    # would fail the build on innocent code.
+    #
+    # A COMPUTED name still evades this, deliberately. The load-bearing control is the
+    # equivalence guard, which compares the static read against what Python actually produces
+    # and catches ANY divergence however caused — verified against this exact bypass — and it is
+    # registered in GUARD_REFERENCES so it cannot be removed without a liveness failure. This
+    # layer is defence in depth, not the thing holding the roof up.
+    for indirect in (
+        f'import builtins\ndef f():\n'
+        f'    getattr(builtins, "setattr")(builtins, "frozenset", lambda x: x)\n'
+        f'f()\n{const} = frozenset({{"a"}})\n',
+        f'import builtins\ndef f():\n    getattr(builtins, "frozenset")\n'
+        f'{const} = frozenset({{"a"}})\n',
+    ):
+        with pytest.raises(SystemExit):
+            ratchet.extract(indirect, "indirect")
+
+    assert ratchet.extract(
+        f'def t(o):\n    return getattr(o, "name", None)\n{const} = frozenset({{"a"}})\n', "x"
+    ) == {"a"}
+
 
 def test_witness_phase2_guards_are_registered_with_the_ratchet():
     """The completeness contract must itself be undeletable.

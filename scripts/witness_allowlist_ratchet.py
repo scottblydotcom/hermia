@@ -325,6 +325,29 @@ def _namespace_writes_from_any_scope(tree: ast.Module, const: str) -> set[str]:
         ):
             found.add(f"a {node.func.id}() call")
 
+        # BYPASS 18, found by CodeRabbit on PR #171: the check above matches a direct Name
+        # callee, so fetching the same builtin indirectly walked past it —
+        #     getattr(builtins, "setattr")(builtins, "frozenset", ...)
+        # Reproduced. Naming one of these builtins in a getattr literal is refused; getattr
+        # itself stays legal, because it is ordinary Python and banning it outright would fail
+        # the build on innocent code.
+        #
+        # ⚠️ A COMPUTED name still evades this, and that is fine rather than a gap left open:
+        # the load-bearing control is the equivalence guard, which compares this script's
+        # static read against the value Python actually produces and catches ANY divergence
+        # however it was caused — verified against this very bypass. That guard is registered
+        # in GUARD_REFERENCES, so it cannot be removed without a liveness failure. This layer
+        # is defence in depth, not the thing holding the roof up.
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "getattr"
+            and len(node.args) >= 2
+            and isinstance(node.args[1], ast.Constant)
+            and node.args[1].value in _DYNAMIC_BUILTINS | _CONSTRUCTORS
+        ):
+            found.add(f"getattr(..., {node.args[1].value!r})")
+
         if isinstance(node, ast.Call):
             for arg in [*node.args, *(kw.value for kw in node.keywords)]:
                 if (
