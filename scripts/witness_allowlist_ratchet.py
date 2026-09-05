@@ -33,10 +33,35 @@ TARGET = "tests/unit/test_schemas.py"
 # ratchet green — the same shape as every bypass above, one level up. That is exactly the
 # drift SECURITY_TEST_IDS exists to prevent, and how the original GREEN-while-blind bug
 # happened. So: the allowlist may only shrink, and the scope may only grow.
+# A SECOND shrink-only register, with a DIFFERENT meaning from the first. The raw-coverage
+# allowlist answers "is a detector configured?" — membership. This one answers "has a detector
+# ever been shown to fire?" — behaviour. Conflating them would make one list mean two things,
+# and since both may only shrink, that muddle would be permanent. Asserting membership as a
+# proxy for behaviour is the precise error this framework exists to catch.
+UNPROVEN_CONST = "WITNESS_UNPROVEN_DETECTOR_ALLOWLIST"
+
 SCOPE_CONST = "SECURITY_TEST_IDS"
 SCOPE_TARGET = "src/hermia/schemas.py"
 
 WORKFLOW = ".github/workflows/witness-ratchet.yml"
+
+# The allowlist may only shrink — but "never grows" is not survivable. A security test can
+# legitimately enter the registry before anyone has built a detector for it, and refusing that
+# outright would just push people to route around this script.
+#
+# So widening is possible and DELIBERATELY expensive: the change must declare, in the same file,
+# exactly which ids it is adding and why. The declaration must match the additions EXACTLY —
+# no more, no less — so it can neither authorize a silent extra entry nor be written in advance.
+#
+# It also cannot linger. Once an id reaches the base ref it is in the allowlist proper, and a
+# declaration still naming it is STALE and fails the build. A widening is a one-shot token that
+# must be spent and then removed; it can never become a standing permission.
+#
+# ⚠️ Be honest about what this buys. It does NOT stop someone with merge rights from adding an
+# entry and its justification in one diff. It makes widening LOUD, attributable and reviewed
+# instead of a silent line in a frozenset — which is the whole thing the ratchet was ever for.
+WIDENING_CONST = "WITNESS_ALLOWLIST_WIDENING"
+_MIN_REASON = 40
 
 # Guards that live in TARGET and must stay alive. The equivalence guard is the load-bearing
 # one: it compares what this script reads statically against what Python actually produces,
@@ -513,6 +538,137 @@ def _guard_change_problems(repo: Path, base: str, allowlist_changed: bool) -> li
     return problems
 
 
+def _extract_widening(source: str, origin: str) -> dict[str, str] | None:
+    """Read the widening declaration: a module-scope dict of {test_id: reason} string literals.
+
+    Same discipline as the allowlist — refuse anything that cannot be resolved statically,
+    rather than guessing. Returns None when the declaration is absent, which means no widening
+    is authorised at all.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError as exc:  # pragma: no cover - the caller already parsed HEAD
+        raise SystemExit(f"FAIL: could not parse {origin}: {exc}") from exc
+
+    values, other = _const_bindings(tree, WIDENING_CONST)
+    if other or len(values) > 1:
+        raise SystemExit(
+            f"FAIL: {WIDENING_CONST} in {origin} is bound more than once, or in a form this "
+            "script cannot resolve. Declare it exactly once, as a plain dict literal."
+        )
+    if not values:
+        return None
+
+    node = values[0]
+    if not isinstance(node, ast.Dict):
+        raise SystemExit(
+            f"FAIL: {WIDENING_CONST} in {origin} is not a literal dict, so this script cannot "
+            "read which additions it claims to authorise. Write it inline as "
+            '{"test-id": "reason", ...} with string literals only.'
+        )
+
+    out: dict[str, str] = {}
+    for key, value in zip(node.keys, node.values, strict=True):
+        ok_key = isinstance(key, ast.Constant) and isinstance(key.value, str)
+        ok_val = isinstance(value, ast.Constant) and isinstance(value.value, str)
+        if not (ok_key and ok_val):
+            raise SystemExit(
+                f"FAIL: {WIDENING_CONST} in {origin} contains a non-literal key or value. "
+                "Every entry must be a plain string constant so the ratchet can compare it."
+            )
+        out[key.value] = value.value
+    return out
+
+
+def _widening_problems(
+    widening: dict[str, str] | None, added: set[str], base: set[str]
+) -> list[str]:
+    """Does the declaration authorise exactly these additions, and nothing else?"""
+    problems: list[str] = []
+
+    stale = sorted(set(widening or {}) & base)
+    for entry in stale:
+        problems.append(
+            f"{entry!r} is declared in {WIDENING_CONST} but is already in the allowlist at the "
+            "base ref. A spent widening must be deleted, not left standing."
+        )
+
+    if not added:
+        return problems
+
+    if widening is None:
+        return [
+            *problems,
+            f"the allowlist grows by {len(added)} entr"
+            f"{'y' if len(added) == 1 else 'ies'} with no {WIDENING_CONST} declaration at all",
+        ]
+
+    undeclared = sorted(added - set(widening))
+    for entry in undeclared:
+        problems.append(f"{entry!r} is being added but is not declared in {WIDENING_CONST}")
+
+    unused = sorted(set(widening) - added - base)
+    for entry in unused:
+        problems.append(
+            f"{entry!r} is declared in {WIDENING_CONST} but is not actually being added — a "
+            "declaration written in advance is a standing permission, which is not allowed"
+        )
+
+    for entry in sorted(added & set(widening)):
+        reason = widening[entry].strip()
+        if len(reason) < _MIN_REASON:
+            problems.append(
+                f"{entry!r} is declared with a {len(reason)}-character reason; a widening needs "
+                f"an actual justification (at least {_MIN_REASON} characters) that a reviewer "
+                "can weigh"
+            )
+    return problems
+
+
+def _register_added(repo: Path, base_ref: str, const: str) -> tuple[int, set[str], set[str]]:
+    """(status, added, base_entries) for one shrink-only register. status is an exit code.
+
+    Additions are computed for EVERY register before the widening declaration is validated,
+    because one change may legitimately widen more than one of them and the declaration covers
+    all of it at once. Validating per register rejected a declared id destined for the other
+    register as an unused declaration, making a simultaneous widening impossible and blaming
+    the declaration for it. Caught by CodeRabbit on PR #168 and reproduced before fixing.
+    """
+    head, base = _read_const(repo, base_ref, TARGET, const)
+
+    if head is None and base is None:
+        return 0, set(), set()
+
+    if head is None:
+        print(f"FAIL: {const} existed at {base_ref} but is missing from {TARGET} in the working "
+              "tree.")
+        print(
+            "The ratchet cannot verify a register that was deleted or renamed. If that was "
+            "deliberate, land that change on its own, reviewed, first."
+        )
+        return 1, set(), set()
+
+    base_entries: set[str] = set() if base is None else base
+    return 0, head - base_entries, base_entries
+
+
+def _report_register(
+    const: str, added: set[str], removed: set[str], widening: dict[str, str] | None
+) -> None:
+    """Print what one register did. The declaration is validated by the caller, once, across
+    every register — see _register_added for why per-register validation was wrong."""
+    for entry in sorted(removed):
+        print(f"  {const} removed (good):  {entry}")
+    if not added:
+        return
+    print()
+    print(f"WIDENING: {const} gains {len(added)} entr{'y' if len(added) == 1 else 'ies'}, "
+          f"declared in {WIDENING_CONST} and therefore recorded rather than silent:")
+    for entry in sorted(added):
+        print(f"  ADDED: {entry}")
+        print(f"    {(widening or {})[entry]}")
+
+
 def _read_const(
     repo: Path, base: str, target: str, const: str
 ) -> tuple[set[str] | None, set[str] | None]:
@@ -627,6 +783,50 @@ def main() -> int:
             )
             return 1
 
+    # ---- 4b. Both shrink-only registers, validated together.
+    #
+    # The declaration is checked ONCE against every register's additions at the same time. One
+    # change may legitimately widen more than one register, and validating them separately
+    # rejected a declared id destined for the other register as an "unused declaration" —
+    # making a valid simultaneous widening impossible, and blaming the declaration for it.
+    widening = _extract_widening((repo / TARGET).read_text(encoding="utf-8"), "working tree")
+
+    unproven_rc, unproven_added, unproven_base = _register_added(repo, args.base, UNPROVEN_CONST)
+    if unproven_rc:
+        return unproven_rc
+
+    primary_base: set[str] = set() if base is None else base
+    primary_added = head - primary_base
+
+    all_added = primary_added | unproven_added
+    all_base = primary_base | unproven_base
+    widening_problems = _widening_problems(widening, all_added, all_base)
+
+    if widening_problems:
+        print()
+        print("FAIL: the WITNESS registers may only shrink.")
+        for entry in sorted(all_added):
+            print(f"  ADDED: {entry}")
+        print()
+        for problem in widening_problems:
+            print(f"  {problem}")
+        print()
+        print(
+            "Each entry is a security test whose compromises cannot be detected. Adding one "
+            f"widens a declared blind spot. If that is genuinely intended, declare it in "
+            f"{WIDENING_CONST} as {{test_id: reason}} in the same change — an explicit decision "
+            "recorded where a reviewer reads it, not a silent line."
+        )
+        return 1
+
+    unproven_head, _ = _read_const(repo, args.base, TARGET, UNPROVEN_CONST)
+    _report_register(
+        UNPROVEN_CONST,
+        unproven_added,
+        unproven_base - (unproven_head or set()),
+        widening,
+    )
+
     # ---- 5. The allowlist itself may only shrink.
     if base is None:
         print(f"BOOTSTRAP: {CONST} does not exist at {args.base}, and neither does {WORKFLOW}.")
@@ -648,18 +848,20 @@ def main() -> int:
 
     if added:
         print()
-        print("FAIL: the WITNESS raw-coverage allowlist may only shrink.")
+        print(f"WIDENING: {len(added)} entr{'y' if len(added) == 1 else 'ies'} added, declared "
+              f"in {WIDENING_CONST} and therefore recorded rather than silent:")
         for entry in added:
             print(f"  ADDED: {entry}")
+            print(f"    {(widening or {})[entry]}")
         print()
         print(
-            "Each entry is a security test on which a compromise cannot be detected. "
-            "Adding one widens a declared blind spot. If that is genuinely intended, it "
-            "needs an explicit decision recorded on the pull request — not a silent line."
+            "This is a deliberate widening of a declared blind spot. The ratchet permits it "
+            "ONLY because it is written down; it does not endorse it. The declaration must be "
+            "deleted once these entries reach the base ref."
         )
-        return 1
 
-    print(f"OK: allowlist shrank or held; guards alive; {SCOPE_CONST} did not shrink.")
+    print(f"OK: both WITNESS registers shrank or held; guards alive; "
+          f"{SCOPE_CONST} did not shrink.")
     return 0
 
 
