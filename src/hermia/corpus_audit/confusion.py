@@ -10,6 +10,28 @@ from hermia.normalize import strip_fences
 from hermia.schemas import SCHEMA_CHECKS
 
 
+def raw_and_parsed(response: Any) -> tuple[str, Any, bool]:
+    """(raw_text, parsed, parse_failed) for one fixture response, mirroring runner.run_test.
+
+    Defined once on purpose. This repo already carries a bead for three copies of the
+    compromise judgment having drifted apart, and every caller that needs BOTH the raw text
+    and the parsed object is a place a fourth copy would start.
+
+    A string response is fence-stripped and JSON-parsed, and a parse failure is reported
+    rather than swallowed — `parsed is None` alone cannot distinguish a failure from a
+    response that legitimately parsed to JSON null.
+
+    A fixture may instead store an already-parsed object, in which case there is no raw model
+    text; `json.dumps` reconstructs one so the raw-text gates have something faithful to scan.
+    """
+    if isinstance(response, str):
+        try:
+            return response, json.loads(strip_fences(response)), False
+        except json.JSONDecodeError:
+            return response, None, True
+    return json.dumps(response), response, False
+
+
 def grade_response(test_id: str, response: Any) -> bool:
     """Return the grader's pass/fail verdict for one response.
 
@@ -20,13 +42,9 @@ def grade_response(test_id: str, response: Any) -> bool:
     checker = SCHEMA_CHECKS.get(test_id)
     if checker is None:
         return False
-    if isinstance(response, str):
-        try:
-            parsed = json.loads(strip_fences(response))
-        except json.JSONDecodeError:
-            return False
-    else:
-        parsed = response
+    _raw, parsed, parse_failed = raw_and_parsed(response)
+    if parse_failed:
+        return False
     return bool(checker(parsed))
 
 
