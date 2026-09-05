@@ -1578,6 +1578,93 @@ def test_witness_widening_declaration_refuses_what_it_cannot_read():
             ratchet._extract_widening(unreadable, "x")
 
 
+def test_witness_outside_review_findings_stay_fixed():
+    """Regressions for what three outside-family reviewers found on PR #168.
+
+    Antigravity, gpt-oss:120b and qwen3.5:122b reviewed the same diff and their findings barely
+    overlapped, which is the whole argument for running a panel rather than a favourite.
+
+    Each case below was reproduced as a working bypass before being fixed.
+    """
+    import ast
+    import importlib.util
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / "witness_allowlist_ratchet.py"
+    spec = importlib.util.spec_from_file_location("_ratchet", script)
+    assert spec and spec.loader
+    ratchet = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ratchet)
+    const = "WITNESS_RAW_COVERAGE_ALLOWLIST"
+    reason = "a genuine justification long enough to satisfy the reviewer-facing minimum"
+
+    # Antigravity: a declaration that adds nothing used to pass, so it could land in one pull
+    # request and be spent by the next — the justification and the addition never reviewed
+    # together, which was the one thing the mechanism existed to guarantee.
+    assert ratchet._widening_problems({"future": reason}, set(), set()), (
+        "an advance declaration with no additions must be refused"
+    )
+    assert ratchet._widening_problems({"a": reason}, {"a"}, set()) == []
+    assert ratchet._widening_problems(None, set(), {"a"}) == []
+
+    # qwen: every dynamic-builtin check matched the NAME at the call site, so binding the
+    # builtin to another name defeated all of them at once.
+    for aliased in (
+        f'_g = globals\n{const} = frozenset({{"a"}})\n_g()["{const}"] = 1\n',
+        f'{const} = frozenset({{"a"}})\ndef f():\n    g = globals\n    g()["x"] = 1\n',
+        f"{const} = frozenset({{'a'}})\n_e: object = exec\n",
+        f"{const} = frozenset({{'a'}})\nprint(_v := vars)\n",
+    ):
+        with pytest.raises(SystemExit):
+            ratchet.extract(aliased, "aliased")
+
+    # ...but aliasing something harmless is ordinary Python and must not fail the build
+    assert ratchet.extract(f'{const} = frozenset({{"a"}})\n_p = print\n', "x") == {"a"}
+
+    # gpt-oss: `assert True` beside a bare reference to the guarded names satisfied both the
+    # has-an-assert and mentions-the-names checks while enforcing nothing.
+    gutted = (
+        "def test_witness_allowlist_only_shrinks():\n"
+        "    _ = WITNESS_RAW_COVERAGE_ALLOWLIST, SECURITY_TEST_IDS\n"
+        "    assert True\n"
+    )
+    assert [
+        p for p in ratchet._guard_liveness_problems(ast.parse(gutted)) if "only_shrinks" in p
+    ], "a guard whose every assertion is a literal cannot fail and must be reported"
+
+    real = (
+        "def test_witness_allowlist_only_shrinks():\n"
+        "    x = WITNESS_RAW_COVERAGE_ALLOWLIST - set(SECURITY_TEST_IDS)\n"
+        "    assert not x\n"
+    )
+    assert not [
+        p for p in ratchet._guard_liveness_problems(ast.parse(real)) if "only_shrinks" in p
+    ]
+
+
+def test_witness_ratchet_bootstrap_survives_a_promotion():
+    """A genuine bootstrap establishes the BASELINE; its entries are not additions.
+
+    Antigravity found that the joint widening validation ran unconditionally, so during a
+    bootstrap it treated every pre-existing entry as an unjustified addition and made the
+    bootstrap handler unreachable. That was live: `main` is still pre-allowlist, so the next
+    dev->main promotion would have failed a required check while blaming a declaration that
+    was not the problem.
+    """
+    import importlib.util
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / "witness_allowlist_ratchet.py"
+    spec = importlib.util.spec_from_file_location("_ratchet", script)
+    assert spec and spec.loader
+    ratchet = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ratchet)
+
+    # bootstrap: nothing to compare against, so nothing is an addition and no declaration
+    # can exist. The gate must not demand one.
+    assert ratchet._widening_problems(None, set(), set()) == []
+
+
 def test_witness_allowlist_is_defined_readably():
     """The live allowlist must be in the shape the ratchet can actually read.
 
