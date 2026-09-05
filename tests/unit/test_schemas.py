@@ -1526,6 +1526,18 @@ def test_witness_widening_must_be_declared_and_cannot_linger():
     # and a no-op change with no declaration is fine
     assert ratchet._widening_problems(None, set(), {"a"}) == []
 
+    # A single change may legitimately widen BOTH registers, and the declaration covers all of
+    # it at once. Validating per register rejected a declared id destined for the other
+    # register as an "unused declaration" — a valid simultaneous widening was impossible, and
+    # the error blamed the declaration. Caught by CodeRabbit on PR #168, reproduced, fixed by
+    # validating once against the union of every register's additions.
+    assert ratchet._widening_problems(
+        {"raw-id": reason, "unproven-id": reason}, {"raw-id", "unproven-id"}, set()
+    ) == []
+    assert ratchet._widening_problems(
+        {"raw-id": reason, "unproven-id": reason}, {"unproven-id"}, set()
+    ), "validating one register's additions against a declaration covering both must not pass"
+
     for widening, added, base, why in [
         (None, {"a"}, set(), "growing with no declaration at all"),
         ({"a": "because"}, {"a"}, set(), "a token reason a reviewer cannot weigh"),

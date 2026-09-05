@@ -625,21 +625,19 @@ def _widening_problems(
     return problems
 
 
-def _shrink_only(
-    repo: Path, base_ref: str, const: str, widening: dict[str, str] | None
-) -> int:
-    """Enforce "may only shrink" on one allowlist constant in TARGET. Returns an exit code.
+def _register_added(repo: Path, base_ref: str, const: str) -> tuple[int, set[str], set[str]]:
+    """(status, added, base_entries) for one shrink-only register. status is an exit code.
 
-    Both WITNESS registers obey the same rule and the same widening discipline, so the rule is
-    written once. A register absent from the base ref is a bootstrap — permitted only while the
-    gate itself is new there, exactly as for the primary allowlist.
+    Additions are computed for EVERY register before the widening declaration is validated,
+    because one change may legitimately widen more than one of them and the declaration covers
+    all of it at once. Validating per register rejected a declared id destined for the other
+    register as an unused declaration, making a simultaneous widening impossible and blaming
+    the declaration for it. Caught by CodeRabbit on PR #168 and reproduced before fixing.
     """
     head, base = _read_const(repo, base_ref, TARGET, const)
 
     if head is None and base is None:
-        # The register does not exist on either side. It has not been introduced yet, which is
-        # not a failure — the machinery may legitimately land before the data it will govern.
-        return 0
+        return 0, set(), set()
 
     if head is None:
         print(f"FAIL: {const} existed at {base_ref} but is missing from {TARGET} in the working "
@@ -648,43 +646,27 @@ def _shrink_only(
             "The ratchet cannot verify a register that was deleted or renamed. If that was "
             "deliberate, land that change on its own, reviewed, first."
         )
-        return 1
+        return 1, set(), set()
 
-    # Introducing the register is not a free pass. Every entry it arrives with is an addition,
-    # and must be declared exactly as a later one would be — otherwise "create a new register"
-    # becomes the way to add blind spots silently. A RENAME cannot reach this branch: the old
-    # name would vanish from HEAD and be caught as a deletion above.
     base_entries: set[str] = set() if base is None else base
-    added = sorted(head - base_entries)
-    for entry in sorted(base_entries - head):
+    return 0, head - base_entries, base_entries
+
+
+def _report_register(
+    const: str, added: set[str], removed: set[str], widening: dict[str, str] | None
+) -> None:
+    """Print what one register did. The declaration is validated by the caller, once, across
+    every register — see _register_added for why per-register validation was wrong."""
+    for entry in sorted(removed):
         print(f"  {const} removed (good):  {entry}")
-
-    problems = _widening_problems(widening, set(added), base_entries)
-    if problems:
-        print()
-        print(f"FAIL: {const} may only shrink.")
-        for entry in added:
-            print(f"  ADDED: {entry}")
-        print()
-        for problem in problems:
-            print(f"  {problem}")
-        print()
-        print(
-            "Each entry is a security test whose compromises cannot be detected. Adding one "
-            f"widens a declared blind spot. If that is genuinely intended, declare it in "
-            f"{WIDENING_CONST} as {{test_id: reason}} in the same change — an explicit decision "
-            "recorded where a reviewer reads it, not a silent line."
-        )
-        return 1
-
-    if added:
-        print()
-        print(f"WIDENING: {const} gains {len(added)} entr{'y' if len(added) == 1 else 'ies'}, "
-              f"declared in {WIDENING_CONST} and therefore recorded rather than silent:")
-        for entry in added:
-            print(f"  ADDED: {entry}")
-            print(f"    {(widening or {})[entry]}")
-    return 0
+    if not added:
+        return
+    print()
+    print(f"WIDENING: {const} gains {len(added)} entr{'y' if len(added) == 1 else 'ies'}, "
+          f"declared in {WIDENING_CONST} and therefore recorded rather than silent:")
+    for entry in sorted(added):
+        print(f"  ADDED: {entry}")
+        print(f"    {(widening or {})[entry]}")
 
 
 def _read_const(
@@ -801,11 +783,49 @@ def main() -> int:
             )
             return 1
 
-    # ---- 4b. The unproven-detector register obeys the same shrink-only rule.
+    # ---- 4b. Both shrink-only registers, validated together.
+    #
+    # The declaration is checked ONCE against every register's additions at the same time. One
+    # change may legitimately widen more than one register, and validating them separately
+    # rejected a declared id destined for the other register as an "unused declaration" —
+    # making a valid simultaneous widening impossible, and blaming the declaration for it.
     widening = _extract_widening((repo / TARGET).read_text(encoding="utf-8"), "working tree")
-    unproven_rc = _shrink_only(repo, args.base, UNPROVEN_CONST, widening)
+
+    unproven_rc, unproven_added, unproven_base = _register_added(repo, args.base, UNPROVEN_CONST)
     if unproven_rc:
         return unproven_rc
+
+    primary_base: set[str] = set() if base is None else base
+    primary_added = head - primary_base
+
+    all_added = primary_added | unproven_added
+    all_base = primary_base | unproven_base
+    widening_problems = _widening_problems(widening, all_added, all_base)
+
+    if widening_problems:
+        print()
+        print("FAIL: the WITNESS registers may only shrink.")
+        for entry in sorted(all_added):
+            print(f"  ADDED: {entry}")
+        print()
+        for problem in widening_problems:
+            print(f"  {problem}")
+        print()
+        print(
+            "Each entry is a security test whose compromises cannot be detected. Adding one "
+            f"widens a declared blind spot. If that is genuinely intended, declare it in "
+            f"{WIDENING_CONST} as {{test_id: reason}} in the same change — an explicit decision "
+            "recorded where a reviewer reads it, not a silent line."
+        )
+        return 1
+
+    unproven_head, _ = _read_const(repo, args.base, TARGET, UNPROVEN_CONST)
+    _report_register(
+        UNPROVEN_CONST,
+        unproven_added,
+        unproven_base - (unproven_head or set()),
+        widening,
+    )
 
     # ---- 5. The allowlist itself may only shrink.
     if base is None:
@@ -825,25 +845,6 @@ def main() -> int:
     print(f"head:              {len(head)} entr{'y' if len(head) == 1 else 'ies'}")
     for entry in removed:
         print(f"  removed (good):  {entry}")
-
-    widening_problems = _widening_problems(widening, set(added), base)
-
-    if widening_problems:
-        print()
-        print("FAIL: the WITNESS raw-coverage allowlist may only shrink.")
-        for entry in added:
-            print(f"  ADDED: {entry}")
-        print()
-        for problem in widening_problems:
-            print(f"  {problem}")
-        print()
-        print(
-            "Each entry is a security test on which a compromise cannot be detected. Adding one "
-            f"widens a declared blind spot. If that is genuinely intended, declare it in "
-            f"{WIDENING_CONST} as {{test_id: reason}} in the same change — an explicit decision "
-            "recorded where a reviewer reads it, not a silent line in a frozenset."
-        )
-        return 1
 
     if added:
         print()
