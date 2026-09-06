@@ -246,6 +246,34 @@ def _namespace_writes_from_any_scope(tree: ast.Module, const: str) -> set[str]:
     watched = {const} | _CONSTRUCTORS
     found: set[str] = set()
 
+    # BYPASS 19, found by CodeRabbit on PR #171. Every check above matches a bare Name, so
+    # reaching the same builtin through the module qualified it out of view:
+    #     import builtins;      builtins.setattr(builtins, "frozenset", ...)
+    #     import builtins as b; b.setattr(b, "frozenset", ...)
+    # Both reproduced. The names the builtins module is bound to are collected first, because
+    # `monkeypatch.setattr` is ALSO an Attribute call and must stay legal — this repo uses it in
+    # several test modules, and a rule that failed innocent pytest code would get the gate
+    # switched off rather than obeyed. So the check is on the receiver, not the attribute name.
+    builtins_aliases = {
+        alias.asname or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+        if alias.name == "builtins"
+    }
+    for node in ast.walk(tree):
+        target = node.func if isinstance(node, ast.Call) else node
+        if (
+            isinstance(target, ast.Attribute)
+            and isinstance(target.value, ast.Name)
+            and target.value.id in builtins_aliases
+            and target.attr in _DYNAMIC_BUILTINS | _CONSTRUCTORS | {"getattr"}
+        ):
+            # `getattr` is deliberately absent from _DYNAMIC_BUILTINS — bare getattr is ordinary
+            # Python and banning it would fail the build on innocent code. Reached THROUGH the
+            # builtins module it has no innocent use: you would simply write `getattr`.
+            found.add(f"{target.value.id}.{target.attr}")
+
     # BYPASS 15 AND 16, and the reason this refuses a CLASS rather than a list of forms.
     #
     # Every dynamic-builtin check matched on the NAME at the call site, so binding the builtin

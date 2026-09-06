@@ -1911,6 +1911,32 @@ def test_witness_setattr_is_refused_from_any_scope():
         f'def t(o):\n    return getattr(o, "name", None)\n{const} = frozenset({{"a"}})\n', "x"
     ) == {"a"}
 
+    # Bypass 19, found by CodeRabbit on PR #171: every check above matches a bare Name, so
+    # reaching the same builtin THROUGH the module qualified it out of view. Both forms
+    # reproduced. The check is on the RECEIVER, not the attribute name, because
+    # `monkeypatch.setattr` is also an Attribute call and this repo uses it in several test
+    # modules — a rule that failed innocent pytest code would get the gate switched off.
+    for qualified in (
+        f'import builtins\ndef f():\n'
+        f'    builtins.setattr(builtins, "frozenset", lambda x: x)\n'
+        f'{const} = frozenset({{"a"}})\n',
+        f'import builtins as b\ndef f():\n    b.setattr(b, "frozenset", lambda x: x)\n'
+        f'{const} = frozenset({{"a"}})\n',
+        f'import builtins\ndef f():\n    builtins.getattr(builtins, "setattr")\n'
+        f'{const} = frozenset({{"a"}})\n',
+        f'import builtins\nx = builtins.frozenset\n{const} = frozenset({{"a"}})\n',
+        f'import builtins\ndef f():\n    builtins.globals()["x"] = 1\n'
+        f'{const} = frozenset({{"a"}})\n',
+    ):
+        with pytest.raises(SystemExit):
+            ratchet.extract(qualified, "qualified")
+
+    # ...and attribute access on anything that is NOT the builtins module stays legal
+    assert ratchet.extract(
+        f'import os\ndef t():\n    return os.path.join("a", "b")\n{const} = frozenset({{"a"}})\n',
+        "x",
+    ) == {"a"}
+
 
 def test_witness_phase2_guards_are_registered_with_the_ratchet():
     """The completeness contract must itself be undeletable.
