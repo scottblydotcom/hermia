@@ -261,6 +261,30 @@ def _namespace_writes_from_any_scope(tree: ast.Module, const: str) -> set[str]:
         for alias in node.names
         if alias.name == "builtins"
     }
+    # BYPASSES 20-22. `import builtins` is only ONE way to reach that module. Found by
+    # coder-biggest-5090 (sys.modules) and by probing around its finding:
+    #     sys.modules["builtins"].setattr(...)      # a Subscript, not a Name
+    #     from builtins import setattr as sa        # never enters the module namespace at all
+    #     __builtins__["frozenset"] = ...           # the dict, reached directly
+    # All three reproduced. None has any legitimate use in the target module — the builtins are
+    # already in scope, so naming the module is only ever done to reach past this gate.
+    #
+    # These are DEFENCE IN DEPTH, not the control. Each is caught by the equivalence guard
+    # regardless, which was verified against all three before this was written.
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module == "builtins":
+            found.add("from builtins import ...")
+        if isinstance(node, ast.Name) and node.id == "__builtins__":
+            found.add("__builtins__")
+        if (
+            isinstance(node, ast.Subscript)
+            and isinstance(node.value, ast.Attribute)
+            and node.value.attr == "modules"
+            and isinstance(node.value.value, ast.Name)
+            and node.value.value.id == "sys"
+        ):
+            found.add("sys.modules[...]")
+
     for node in ast.walk(tree):
         target = node.func if isinstance(node, ast.Call) else node
         if (

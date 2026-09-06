@@ -2059,6 +2059,57 @@ def test_witness_report_survives_a_bootstrap_with_no_declaration():
     ratchet._report_register("SOME_REGISTER", {"a"}, set(), {"a": "reason"}, False)
 
 
+def test_witness_refuses_every_route_to_the_builtins_module():
+    """`import builtins` is only one way to reach that module.
+
+    Bypasses 20-22, found by coder-biggest-5090 (the sys.modules route) and by probing around
+    its finding. All three reproduced:
+
+        sys.modules["builtins"].setattr(...)   # a Subscript, not a Name
+        from builtins import setattr as sa     # never enters the module namespace at all
+        __builtins__["frozenset"] = ...        # the dict, reached directly
+
+    None has any legitimate use in this module — the builtins are already in scope, so naming
+    the module is only ever done to reach past the gate. Verified there is no such usage here
+    outside string payloads before making it a refusal.
+
+    ⚠️ These are DEFENCE IN DEPTH, not the control. Each was verified to be caught by the
+    equivalence guard anyway, which compares the static read against what Python actually
+    produces. That guard is registered in GUARD_REFERENCES and cannot be deleted without a
+    liveness failure. The static reader widening here is cheap, not load-bearing.
+    """
+    import importlib.util
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / "witness_allowlist_ratchet.py"
+    spec = importlib.util.spec_from_file_location("_ratchet", script)
+    assert spec and spec.loader
+    ratchet = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ratchet)
+    const = "WITNESS_RAW_COVERAGE_ALLOWLIST"
+
+    for src in (
+        f'import sys\ndef f():\n    sys.modules["builtins"].setattr(sys, "x", 1)\n'
+        f'{const} = frozenset({{"a"}})\n',
+        f'from builtins import setattr as sa\n{const} = frozenset({{"a"}})\n',
+        f'def f():\n    __builtins__["frozenset"] = 1\n{const} = frozenset({{"a"}})\n',
+        # this also closes bypass 12, which had been left to the equivalence guard alone
+        f'import sys\n{const} = frozenset({{"a"}})\n'
+        f'sys.modules[__name__].__dict__["{const}"] = 1\n',
+    ):
+        with pytest.raises(SystemExit):
+            ratchet.extract(src, "builtins-route")
+
+    # ordinary use of sys, and monkeypatch, must stay legal — a rule that fails innocent code
+    # gets the gate switched off rather than obeyed
+    assert ratchet.extract(
+        f'import sys\ndef t():\n    return sys.argv\n{const} = frozenset({{"a"}})\n', "x"
+    ) == {"a"}
+    assert ratchet.extract(
+        f'def t(mp):\n    mp.setattr(object, "x", 1)\n{const} = frozenset({{"a"}})\n', "x"
+    ) == {"a"}
+
+
 def test_witness_allowlist_is_defined_readably():
     """The live allowlist must be in the shape the ratchet can actually read.
 
