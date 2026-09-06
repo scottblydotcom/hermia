@@ -71,6 +71,14 @@ GUARD_REFERENCES = {
     "test_every_security_test_has_compromise_markers": (SCOPE_CONST, CONST),
     "test_witness_allowlist_only_shrinks": (SCOPE_CONST, CONST),
     "test_witness_allowlist_is_defined_readably": ("extract", CONST),
+    # Phase 2's invariant and its companion. Without these, the completeness contract itself
+    # could be deleted while every other guard stayed green — which is precisely the shape of
+    # the bug this project exists to catch. Registered a change later than they should have
+    # been, because the guards had to exist on the base ref first. Flagged by CodeRabbit.
+    "test_every_security_test_has_a_firing_compromise_witness": (SCOPE_CONST, "_fixture_witnesses"),
+    "test_allowlisted_blind_spots_are_still_blind": (UNPROVEN_CONST, "_fixture_witnesses"),
+    "test_witness_unproven_allowlist_is_defined_readably": ("extract", UNPROVEN_CONST),
+    "test_every_security_test_has_a_fixture_file": (SCOPE_CONST, "is_file"),
 }
 _CONSTRUCTORS = frozenset({"frozenset", "set"})
 
@@ -238,6 +246,34 @@ def _namespace_writes_from_any_scope(tree: ast.Module, const: str) -> set[str]:
     watched = {const} | _CONSTRUCTORS
     found: set[str] = set()
 
+    # BYPASS 19, found by CodeRabbit on PR #171. Every check above matches a bare Name, so
+    # reaching the same builtin through the module qualified it out of view:
+    #     import builtins;      builtins.setattr(builtins, "frozenset", ...)
+    #     import builtins as b; b.setattr(b, "frozenset", ...)
+    # Both reproduced. The names the builtins module is bound to are collected first, because
+    # `monkeypatch.setattr` is ALSO an Attribute call and must stay legal — this repo uses it in
+    # several test modules, and a rule that failed innocent pytest code would get the gate
+    # switched off rather than obeyed. So the check is on the receiver, not the attribute name.
+    builtins_aliases = {
+        alias.asname or alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+        if alias.name == "builtins"
+    }
+    for node in ast.walk(tree):
+        target = node.func if isinstance(node, ast.Call) else node
+        if (
+            isinstance(target, ast.Attribute)
+            and isinstance(target.value, ast.Name)
+            and target.value.id in builtins_aliases
+            and target.attr in _DYNAMIC_BUILTINS | _CONSTRUCTORS | {"getattr"}
+        ):
+            # `getattr` is deliberately absent from _DYNAMIC_BUILTINS — bare getattr is ordinary
+            # Python and banning it would fail the build on innocent code. Reached THROUGH the
+            # builtins module it has no innocent use: you would simply write `getattr`.
+            found.add(f"{target.value.id}.{target.attr}")
+
     # BYPASS 15 AND 16, and the reason this refuses a CLASS rather than a list of forms.
     #
     # Every dynamic-builtin check matched on the NAME at the call site, so binding the builtin
@@ -301,6 +337,45 @@ def _namespace_writes_from_any_scope(tree: ast.Module, const: str) -> set[str]:
         # write to it, so that is what is refused — from any scope, whatever the callee.
         # Passing a fresh dict stays legal, which matters: this module's own regression tests
         # call exec(compile(...), namespace) with a local dict to drive the attacks.
+        # BYPASS 17, found by CodeRabbit on PR #169. setattr and delattr were refused at
+        # MODULE scope only, and the attribute-store rule sees `builtins.frozenset = ...` but
+        # not `setattr(builtins, "frozenset", ...)`, which is a Call. From inside a function
+        # body, nothing looked:
+        #     def f(): setattr(builtins, "frozenset", lambda x: set(x) | {"s"})
+        #     f()
+        # Reproduced. Unlike globals(), which is harmless until something writes through it,
+        # setattr IS the write — so the call is refused wherever it appears. `monkeypatch.
+        # setattr` is an Attribute call, not a Name, so ordinary pytest code is unaffected.
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in {"setattr", "delattr"}
+        ):
+            found.add(f"a {node.func.id}() call")
+
+        # BYPASS 18, found by CodeRabbit on PR #171: the check above matches a direct Name
+        # callee, so fetching the same builtin indirectly walked past it —
+        #     getattr(builtins, "setattr")(builtins, "frozenset", ...)
+        # Reproduced. Naming one of these builtins in a getattr literal is refused; getattr
+        # itself stays legal, because it is ordinary Python and banning it outright would fail
+        # the build on innocent code.
+        #
+        # ⚠️ A COMPUTED name still evades this, and that is fine rather than a gap left open:
+        # the load-bearing control is the equivalence guard, which compares this script's
+        # static read against the value Python actually produces and catches ANY divergence
+        # however it was caused — verified against this very bypass. That guard is registered
+        # in GUARD_REFERENCES, so it cannot be removed without a liveness failure. This layer
+        # is defence in depth, not the thing holding the roof up.
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "getattr"
+            and len(node.args) >= 2
+            and isinstance(node.args[1], ast.Constant)
+            and node.args[1].value in _DYNAMIC_BUILTINS | _CONSTRUCTORS
+        ):
+            found.add(f"getattr(..., {node.args[1].value!r})")
+
         if isinstance(node, ast.Call):
             for arg in [*node.args, *(kw.value for kw in node.keywords)]:
                 if (
@@ -520,6 +595,47 @@ def _guard_fingerprint(node: ast.FunctionDef) -> str:
     return ast.dump(ast.Module(body=body, type_ignores=[]))
 
 
+def _always_true(expr: ast.expr) -> bool:
+    """True when an expression is a TAUTOLOGY by structure, whatever its names hold.
+
+    Found by qwen3.5:122b. `_is_literal_only` rejects `assert True`, but referencing the
+    guarded name defeats it: `assert WITNESS_RAW_COVERAGE_ALLOWLIST or True` contains a Name,
+    so it passed the literal-only test while being unconditionally true. So do
+    `assert True or CONST` and `assert not (CONST and False)`.
+
+    Note the family difference: gpt-oss proposed `assert (1 == 2) or True` for the same slot,
+    which was ALREADY caught — it has no Name at all. Only the version that mentions the guarded
+    name gets through, which is exactly the version a neutered guard would use.
+
+    Constant-folds the boolean skeleton and treats every name, call and comparison as unknown.
+    That catches the tautologies a neutered guard actually reaches for. It does NOT catch every
+    inert assertion — `assert len(CONST) >= 0` is inert and undecidable in general — and that is
+    the standing scope limit: liveness proves a guard ACTIVE, never EFFECTIVE.
+    """
+    if isinstance(expr, ast.Constant):
+        return bool(expr.value)
+    if isinstance(expr, ast.BoolOp):
+        if isinstance(expr.op, ast.Or):
+            return any(_always_true(v) for v in expr.values)
+        return all(_always_true(v) for v in expr.values)
+    if isinstance(expr, ast.UnaryOp) and isinstance(expr.op, ast.Not):
+        return _always_false(expr.operand)
+    return False
+
+
+def _always_false(expr: ast.expr) -> bool:
+    """Mirror of _always_true, so `not (X and False)` folds correctly."""
+    if isinstance(expr, ast.Constant):
+        return not bool(expr.value)
+    if isinstance(expr, ast.BoolOp):
+        if isinstance(expr.op, ast.And):
+            return any(_always_false(v) for v in expr.values)
+        return all(_always_false(v) for v in expr.values)
+    if isinstance(expr, ast.UnaryOp) and isinstance(expr.op, ast.Not):
+        return _always_true(expr.operand)
+    return False
+
+
 def _is_literal_only(expr: ast.expr) -> bool:
     """True when an expression can only ever evaluate to the same thing.
 
@@ -558,13 +674,14 @@ def _guard_liveness_problems(tree: ast.Module) -> list[str]:
         asserts = [n for n in ast.walk(node) if isinstance(n, ast.Assert)]
         if not asserts:
             problems.append(f"{name} contains no assert — it can no longer fail")
-        elif all(_is_literal_only(a.test) for a in asserts):
+        elif all(_is_literal_only(a.test) or _always_true(a.test) for a in asserts):
             # `assert True` alongside a bare reference to the required names satisfied both the
             # has-an-assert and mentions-the-names checks while enforcing nothing. Found by
             # gpt-oss:120b. This does not make liveness prove EFFECTIVENESS — nothing here can
             # — but a guard whose every assertion is a literal cannot fail by construction.
             problems.append(
-                f"{name} asserts only literal constants — it cannot fail, whatever it mentions"
+                f"{name} has no assertion that can fail — every one is a literal or a "
+                "tautology, whatever names it mentions"
             )
         names = {n.id for n in ast.walk(node) if isinstance(n, ast.Name)} | {
             n.attr for n in ast.walk(node) if isinstance(n, ast.Attribute)
@@ -784,6 +901,14 @@ def main() -> int:
     # tries to out-parse the adversary; it makes that test undeletable.
     try:
         head_tree = ast.parse((repo / TARGET).read_text(encoding="utf-8"))
+    except OSError as exc:
+        # A deleted or unreadable target used to raise FileNotFoundError and surface as an
+        # internal error, which reads as an infrastructure hiccup rather than as the gate not
+        # having run — and deleting the file is the most direct way to remove every guard at
+        # once. Found by qwen3.5:122b.
+        print(f"FAIL: could not read {TARGET}: {exc}")
+        print("The ratchet has NOT run — this is not a pass.")
+        return 1
     except SyntaxError as exc:
         print(f"FAIL: could not parse {TARGET}: {exc}")
         print("The ratchet has NOT run — this is not a pass.")
