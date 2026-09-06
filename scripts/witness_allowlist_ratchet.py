@@ -567,6 +567,47 @@ def _guard_fingerprint(node: ast.FunctionDef) -> str:
     return ast.dump(ast.Module(body=body, type_ignores=[]))
 
 
+def _always_true(expr: ast.expr) -> bool:
+    """True when an expression is a TAUTOLOGY by structure, whatever its names hold.
+
+    Found by qwen3.5:122b. `_is_literal_only` rejects `assert True`, but referencing the
+    guarded name defeats it: `assert WITNESS_RAW_COVERAGE_ALLOWLIST or True` contains a Name,
+    so it passed the literal-only test while being unconditionally true. So do
+    `assert True or CONST` and `assert not (CONST and False)`.
+
+    Note the family difference: gpt-oss proposed `assert (1 == 2) or True` for the same slot,
+    which was ALREADY caught — it has no Name at all. Only the version that mentions the guarded
+    name gets through, which is exactly the version a neutered guard would use.
+
+    Constant-folds the boolean skeleton and treats every name, call and comparison as unknown.
+    That catches the tautologies a neutered guard actually reaches for. It does NOT catch every
+    inert assertion — `assert len(CONST) >= 0` is inert and undecidable in general — and that is
+    the standing scope limit: liveness proves a guard ACTIVE, never EFFECTIVE.
+    """
+    if isinstance(expr, ast.Constant):
+        return bool(expr.value)
+    if isinstance(expr, ast.BoolOp):
+        if isinstance(expr.op, ast.Or):
+            return any(_always_true(v) for v in expr.values)
+        return all(_always_true(v) for v in expr.values)
+    if isinstance(expr, ast.UnaryOp) and isinstance(expr.op, ast.Not):
+        return _always_false(expr.operand)
+    return False
+
+
+def _always_false(expr: ast.expr) -> bool:
+    """Mirror of _always_true, so `not (X and False)` folds correctly."""
+    if isinstance(expr, ast.Constant):
+        return not bool(expr.value)
+    if isinstance(expr, ast.BoolOp):
+        if isinstance(expr.op, ast.And):
+            return any(_always_false(v) for v in expr.values)
+        return all(_always_false(v) for v in expr.values)
+    if isinstance(expr, ast.UnaryOp) and isinstance(expr.op, ast.Not):
+        return _always_true(expr.operand)
+    return False
+
+
 def _is_literal_only(expr: ast.expr) -> bool:
     """True when an expression can only ever evaluate to the same thing.
 
@@ -605,13 +646,14 @@ def _guard_liveness_problems(tree: ast.Module) -> list[str]:
         asserts = [n for n in ast.walk(node) if isinstance(n, ast.Assert)]
         if not asserts:
             problems.append(f"{name} contains no assert — it can no longer fail")
-        elif all(_is_literal_only(a.test) for a in asserts):
+        elif all(_is_literal_only(a.test) or _always_true(a.test) for a in asserts):
             # `assert True` alongside a bare reference to the required names satisfied both the
             # has-an-assert and mentions-the-names checks while enforcing nothing. Found by
             # gpt-oss:120b. This does not make liveness prove EFFECTIVENESS — nothing here can
             # — but a guard whose every assertion is a literal cannot fail by construction.
             problems.append(
-                f"{name} asserts only literal constants — it cannot fail, whatever it mentions"
+                f"{name} has no assertion that can fail — every one is a literal or a "
+                "tautology, whatever names it mentions"
             )
         names = {n.id for n in ast.walk(node) if isinstance(n, ast.Name)} | {
             n.attr for n in ast.walk(node) if isinstance(n, ast.Attribute)
@@ -831,6 +873,14 @@ def main() -> int:
     # tries to out-parse the adversary; it makes that test undeletable.
     try:
         head_tree = ast.parse((repo / TARGET).read_text(encoding="utf-8"))
+    except OSError as exc:
+        # A deleted or unreadable target used to raise FileNotFoundError and surface as an
+        # internal error, which reads as an infrastructure hiccup rather than as the gate not
+        # having run — and deleting the file is the most direct way to remove every guard at
+        # once. Found by qwen3.5:122b.
+        print(f"FAIL: could not read {TARGET}: {exc}")
+        print("The ratchet has NOT run — this is not a pass.")
+        return 1
     except SyntaxError as exc:
         print(f"FAIL: could not parse {TARGET}: {exc}")
         print("The ratchet has NOT run — this is not a pass.")

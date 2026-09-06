@@ -1945,6 +1945,63 @@ def test_witness_phase2_guards_are_registered_with_the_ratchet():
     )
 
 
+def test_witness_guard_tautologies_are_refused():
+    """A guard that mentions what it guards can still be unconditionally true.
+
+    Found by qwen3.5:122b on PR #171. The literal-only check rejects `assert True`, but
+    REFERENCING the guarded name defeats it — `assert CONST or True` contains a Name, so it
+    passed while being a tautology. `assert True or CONST` and `assert not (CONST and False)`
+    do the same.
+
+    Worth recording the family difference: gpt-oss proposed `assert (1 == 2) or True` for this
+    slot, which was ALREADY caught because it has no Name at all. Only the version that mentions
+    the guarded name gets through — which is exactly the version a neutered guard would use.
+
+    The boolean skeleton is constant-folded with every name, call and comparison treated as
+    unknown. That catches the tautologies a neutered guard reaches for. It does NOT catch every
+    inert assertion — `assert len(CONST) >= 0` is inert and undecidable in general — and that is
+    the standing limit: liveness proves a guard ACTIVE, never EFFECTIVE.
+    """
+    import ast
+    import importlib.util
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / "witness_allowlist_ratchet.py"
+    spec = importlib.util.spec_from_file_location("_ratchet", script)
+    assert spec and spec.loader
+    ratchet = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ratchet)
+
+    def flagged(body):
+        src = (
+            "def test_witness_allowlist_only_shrinks():\n"
+            "    _ = WITNESS_RAW_COVERAGE_ALLOWLIST, SECURITY_TEST_IDS\n" + body
+        )
+        return [
+            p
+            for p in ratchet._guard_liveness_problems(ast.parse(src))
+            if "only_shrinks" in p
+        ]
+
+    for tautology in (
+        "    assert WITNESS_RAW_COVERAGE_ALLOWLIST or True\n",
+        "    assert True or WITNESS_RAW_COVERAGE_ALLOWLIST\n",
+        "    assert not (WITNESS_RAW_COVERAGE_ALLOWLIST and False)\n",
+        "    assert True\n",
+        "    assert (1 == 2) or True\n",
+    ):
+        assert flagged(tautology), f"tautology not reported: {tautology.strip()}"
+
+    # ...and assertions that genuinely depend on state must NOT be flagged, or the check would
+    # fail the build on real guards, which is how a gate gets switched off.
+    for real in (
+        "    x = WITNESS_RAW_COVERAGE_ALLOWLIST - set(SECURITY_TEST_IDS)\n    assert not x\n",
+        "    assert WITNESS_RAW_COVERAGE_ALLOWLIST <= set(SECURITY_TEST_IDS)\n",
+        "    assert WITNESS_RAW_COVERAGE_ALLOWLIST and SECURITY_TEST_IDS\n",
+    ):
+        assert not flagged(real), f"a real assertion was wrongly reported: {real.strip()}"
+
+
 def test_witness_allowlist_is_defined_readably():
     """The live allowlist must be in the shape the ratchet can actually read.
 
