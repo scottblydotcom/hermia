@@ -9,7 +9,17 @@ repos:
     rev: 01886c8a910c64595c47f186ca1ffc0b77fa5458  # v1.5.0
     hooks:
       - id: detect-secrets
-        args: ["--baseline", ".secrets.baseline"]
+        # WITNESS provenance digests are sha256 hashes of MODEL RESPONSES, stamped by
+        # scripts/witness_extract_candidates.py so a "real" witness can be re-verified
+        # against the corpus row it names. They are high-entropy hex by construction and
+        # every witness adds another, so a baseline entry would need updating on every
+        # new witness. Scoped as tightly as it can be: a 64-hex value in a field named
+        # raw_sha256, nowhere else. Anything else high-entropy still fails the hook.
+        args:
+          - "--baseline"
+          - ".secrets.baseline"
+          - "--exclude-lines"
+          - '"raw_sha256": "[a-f0-9]{64}"'
         exclude: uv\.lock
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
