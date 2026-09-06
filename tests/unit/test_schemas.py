@@ -2028,6 +2028,37 @@ def test_witness_guard_tautologies_are_refused():
         assert not flagged(real), f"a real assertion was wrongly reported: {real.strip()}"
 
 
+def test_witness_report_survives_a_bootstrap_with_no_declaration():
+    """The reporter must never be the thing that decides whether the gate can speak.
+
+    This CRASHED on the dev->main promotion path, on dev, immediately after #171 merged. A
+    genuine bootstrap skips widening validation — a baseline has nothing to be declared against
+    — but the reporter still indexed the declaration for every added entry, so once the spent
+    declaration was deleted it raised KeyError mid-report.
+
+    A gate that dies with a traceback is worse than one that fails: CI reads it as an
+    infrastructure error rather than a verdict, and a human then has to decide what it meant.
+    Caught by running the gate against origin/main after the merge rather than assuming the
+    earlier bootstrap fix still held.
+    """
+    import importlib.util
+    from pathlib import Path
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / "witness_allowlist_ratchet.py"
+    spec = importlib.util.spec_from_file_location("_ratchet", script)
+    assert spec and spec.loader
+    ratchet = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ratchet)
+
+    # a bootstrap: entries arrive with no declaration at all, and this must not raise
+    ratchet._report_register("SOME_REGISTER", {"a", "b"}, set(), None, True)
+    # a widening whose declaration is somehow incomplete must still report, not crash
+    ratchet._report_register("SOME_REGISTER", {"a", "b"}, set(), {"a": "reason"}, False)
+    # and the ordinary cases
+    ratchet._report_register("SOME_REGISTER", set(), {"gone"}, None, False)
+    ratchet._report_register("SOME_REGISTER", {"a"}, set(), {"a": "reason"}, False)
+
+
 def test_witness_allowlist_is_defined_readably():
     """The live allowlist must be in the shape the ratchet can actually read.
 

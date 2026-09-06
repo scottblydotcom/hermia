@@ -855,20 +855,45 @@ def _register_added(repo: Path, base_ref: str, const: str) -> tuple[int, set[str
 
 
 def _report_register(
-    const: str, added: set[str], removed: set[str], widening: dict[str, str] | None
+    const: str,
+    added: set[str],
+    removed: set[str],
+    widening: dict[str, str] | None,
+    bootstrapping: bool,
 ) -> None:
     """Print what one register did. The declaration is validated by the caller, once, across
-    every register — see _register_added for why per-register validation was wrong."""
+    every register — see _register_added for why per-register validation was wrong.
+
+    ⚠️ This CRASHED on the dev->main promotion path. A genuine bootstrap skips widening
+    validation, because a baseline has nothing to be declared against — but the reporter still
+    indexed the declaration for every added entry, so once #169's spent declaration was deleted
+    it raised KeyError mid-report. A gate that dies with a traceback is worse than one that
+    fails: CI reads it as an infrastructure error rather than a verdict, and the operator has to
+    decide what it meant.
+
+    So a bootstrap now reports a BASELINE, which is what it is, and a reason is printed only
+    when one was actually required. Reasons are looked up with .get() throughout — the reporter
+    must never be the thing that decides whether the gate can speak.
+    """
     for entry in sorted(removed):
         print(f"  {const} removed (good):  {entry}")
     if not added:
         return
     print()
+    if bootstrapping:
+        print(f"BASELINE: {const} arrives with {len(added)} entr"
+              f"{'y' if len(added) == 1 else 'ies'}; this gate does not exist at the base ref, "
+              "so there is nothing to ratchet against yet:")
+        for entry in sorted(added):
+            print(f"  {entry}")
+        return
     print(f"WIDENING: {const} gains {len(added)} entr{'y' if len(added) == 1 else 'ies'}, "
           f"declared in {WIDENING_CONST} and therefore recorded rather than silent:")
     for entry in sorted(added):
         print(f"  ADDED: {entry}")
-        print(f"    {(widening or {})[entry]}")
+        reason = (widening or {}).get(entry)
+        if reason:
+            print(f"    {reason}")
 
 
 def _read_const(
@@ -1052,6 +1077,7 @@ def main() -> int:
         unproven_added,
         unproven_base - (unproven_head or set()),
         widening,
+        bootstrapping,
     )
 
     # ---- 5. The allowlist itself may only shrink.
