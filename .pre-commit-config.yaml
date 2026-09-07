@@ -14,12 +14,14 @@ repos:
         # against the corpus row it names. They are high-entropy hex by construction and
         # every witness adds another, so a baseline entry would need updating on every
         # new witness. Scoped as tightly as it can be: a 64-hex value in a field named
-        # raw_sha256, nowhere else. Anything else high-entropy still fails the hook.
+        # raw_sha256, nowhere else. ANCHORED to the whole line (CodeRabbit, PR #173): an
+# unanchored pattern would let a secret ride along on the same line as a digest.
+# Anything else high-entropy still fails the hook.
         args:
           - "--baseline"
           - ".secrets.baseline"
           - "--exclude-lines"
-          - '"raw_sha256": "[a-f0-9]{64}"'
+          - '^\s*"raw_sha256": "[a-f0-9]{64}",?$'
         exclude: uv\.lock
 
   - repo: https://github.com/pre-commit/pre-commit-hooks
