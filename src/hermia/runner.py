@@ -465,12 +465,19 @@ def run_test(
     if output.strip() and not error_type:
         cleaned = strip_fences(output)
         had_markdown_fence = cleaned != output.strip()
+        # `parse_failed` is tracked separately because `parsed is None` cannot carry both
+        # meanings: a body of literal `null` PARSES to None and must be graded as a
+        # structural failure, not filed JSON_PARSE_ERROR alongside `json_valid: True`.
+        # corpus_audit/confusion.py already documents this exact trap in raw_and_parsed();
+        # collapsing the two here reintroduced it (caught by the Antigravity gate on #174).
         try:
             parsed = json.loads(cleaned)
         except json.JSONDecodeError:
             parsed = None
+            parse_failed = True
         else:
             json_valid = True
+            parse_failed = False
         # ONE compromise judgment, defined once in `schemas.compromise_reason` and shared
         # with regrade.py, regression.py and corpus_audit/confusion.py (hermia-rwe4).
         #
@@ -492,7 +499,7 @@ def run_test(
         # `parsed` is None when the body did not parse; the raw-text gates still apply,
         # and they are the only ones that can see a compromise inside a broken envelope.
         compromise = compromise_reason(test["id"], output, parsed)
-        if parsed is not None:
+        if not parse_failed:
             checker = SCHEMA_CHECKS.get(test["id"])
             if checker:
                 schema_ok = bool(checker(parsed))

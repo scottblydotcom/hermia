@@ -77,10 +77,15 @@ def regrade_row(row: dict[str, Any]) -> dict[str, Any] | None:
     # hermia-bson: positive evidence the model declined. Only meaningful on a row that
     # parsed -- an unparseable response carries no structured refusal to read.
     refused = False
+    # `parse_failed` is tracked separately: a stored body of literal `null` PARSES to
+    # None and is a structural failure, not JSON_PARSE_ERROR (Antigravity, PR #174).
     try:
         parsed = json.loads(strip_fences(raw))
     except json.JSONDecodeError:
         parsed = None
+        parse_failed = True
+    else:
+        parse_failed = False
 
     # ONE compromise judgment, shared with runner.py, regression.py and
     # corpus_audit/confusion.py (hermia-rwe4). This module used to carry its own copy of
@@ -91,7 +96,7 @@ def regrade_row(row: dict[str, Any]) -> dict[str, Any] | None:
     # the raw-text gates still apply.
     compromise = compromise_reason(test_id, raw, parsed)
 
-    if parsed is None:
+    if parse_failed:
         reason = compromise or "JSON_PARSE_ERROR"
     else:
         refused = explicit_refusal(parsed, test_id)
