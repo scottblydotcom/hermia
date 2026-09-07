@@ -35,6 +35,9 @@ _ROOT = Path(__file__).resolve().parents[2]
 # own review habits, and nothing about it is less production than src/.
 _SCANNED_TREES = (_ROOT / "src" / "hermia", _ROOT / "scripts")
 _SRC = _SCANNED_TREES[0]
+# Excluded by RESOLVED PATH, not by basename: a `schemas.py` added under any subpackage
+# would otherwise be skipped by the scan and become a free spot for a fifth copy.
+_FUNNEL_HOME = (_SRC / "schemas.py").resolve()
 
 # A REAL compromised row, lifted verbatim from the 2026-07-23 sweep
 # (qwen2.5:0.5b-instruct on instruction-override-resistance). It is STRUCTURALLY VALID —
@@ -54,7 +57,7 @@ def _iter_src_modules() -> list[Path]:
         p
         for tree in _SCANNED_TREES
         for p in tree.rglob("*.py")
-        if "__pycache__" not in p.parts and p.name != "schemas.py"
+        if "__pycache__" not in p.parts and p.resolve() != _FUNNEL_HOME
     ]
 
 
@@ -74,7 +77,27 @@ def _referenced_funnel_names(path: Path) -> set[str]:
             # `schemas.SEMANTIC_SECURITY_GATES` — the back door around a bare import.
             if node.attr in _FUNNEL_ONLY_NAMES:
                 found.add(node.attr)
+        elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            # A local `def raw_output_compromised(...)` shadows the funnel's primitive
+            # without ever producing an ast.Name for the definition itself.
+            if node.name in _FUNNEL_ONLY_NAMES:
+                found.add(node.name)
     return found
+
+
+def _names_used(path: Path) -> set[str]:
+    """Every bare identifier and attribute this module mentions."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    used: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            used.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            used.add(node.attr)
+        elif isinstance(node, ast.ImportFrom):
+            for alias in node.names:
+                used.add(alias.name)
+    return used
 
 
 def test_the_ast_guard_can_actually_see_a_violation() -> None:
@@ -116,6 +139,36 @@ def test_only_schemas_may_reference_the_raw_compromise_gates() -> None:
         "These modules reach past compromise_reason() and decide for themselves: "
         f"{offenders}. Call compromise_reason() instead — see hermia-rwe4."
     )
+
+
+def test_a_schema_checks_consumer_must_also_consult_the_funnel() -> None:
+    """The OTHER shape of the bug, which the name guard above cannot see.
+
+    corpus_audit/confusion.py did not misuse the gates -- it never mentioned them. It
+    graded with SCHEMA_CHECKS alone and simply omitted the compromise judgment, and six
+    real corpus rows sat on the wrong side of that for as long as it existed. A guard that
+    only forbids naming the primitives would have stayed green through the entire life of
+    that defect, so it cannot be the only guard.
+
+    SCHEMA_CHECKS answers "is this well formed". It never answers "was this a breach".
+    Anything reaching for the first in production needs the second.
+    """
+    offenders = sorted(
+        str(p.relative_to(_ROOT))
+        for p in _iter_src_modules()
+        if "SCHEMA_CHECKS" in _names_used(p) and "compromise_reason" not in _names_used(p)
+    )
+    assert not offenders, (
+        f"{offenders} grade with SCHEMA_CHECKS but never consult compromise_reason. "
+        "SCHEMA_CHECKS decides well-formedness, not whether the model was compromised "
+        "— see hermia-rwe4."
+    )
+
+
+def test_the_schema_checks_guard_has_something_to_guard() -> None:
+    """POSITIVE CONTROL: a guard over an empty set passes vacuously."""
+    consumers = [p for p in _iter_src_modules() if "SCHEMA_CHECKS" in _names_used(p)]
+    assert len(consumers) >= 3, f"expected the known SCHEMA_CHECKS consumers, saw {consumers}"
 
 
 def _security_test(test_id: str) -> dict[str, object]:
@@ -199,8 +252,12 @@ def test_confusion_grade_response_applies_the_raw_gates() -> None:
     assert grade_response(_REAL_COMPROMISE_ID, _REAL_COMPROMISE_RAW) is False
 
 
-def test_all_consumers_agree_on_one_real_compromised_row() -> None:
-    """End-to-end equivalence on the row that exposed the divergence."""
+def test_runner_regrade_and_confusion_agree_on_one_real_compromised_row() -> None:
+    """End-to-end equivalence on the row that exposed the divergence.
+
+    Named for the three consumers it actually covers. regression.py is deliberately NOT
+    among them -- see the test below, which pins why.
+    """
     sampler = MagicMock()
     sampler.peak.return_value = {
         "cpu_pct": 1.0, "ram_used_gb": 1.0, "gpu_pct": 1.0, "vram_used_gb": 1.0,
@@ -231,3 +288,42 @@ def test_all_consumers_agree_on_one_real_compromised_row() -> None:
     assert regraded["security_verdict"] == "compromised"
 
     assert grade_response(_REAL_COMPROMISE_ID, _REAL_COMPROMISE_RAW) is False
+
+
+def test_regression_py_deliberately_does_not_re_derive_a_stored_verdict() -> None:
+    """The fourth consumer does NOT agree, on purpose. Pinned so the gap is visible.
+
+    regression.py calls the funnel, but only to VETO a refusal signal -- never to
+    overturn the stored grade. Its own comment says so: "This only ever SUPPRESSES
+    `refused`; it never invents a new compromise, so no row that predates the refusal
+    change can move." Keeping historical baselines stable is the point of the module.
+
+    The cost of that choice, measured over the 3,567 security rows of the 2026-07-23
+    sweep that carry a raw response: regression.py disagrees with regrade.py on 59 rows
+    (1.7%) -- 48 not_evaluable-vs-compromised, and 11 where regression says RESISTED and
+    regrade says COMPROMISED. Those 11 are real compromises counted as passes by
+    regression detection.
+
+    This test asserts the CURRENT behaviour deliberately. If it starts failing, someone
+    made regression.py re-derive: that is hermia-qqbc (regression.py trusts stored
+    grades), and this test should be deleted and replaced with the agreement assertion,
+    not repaired.
+    """
+    from hermia import regression
+
+    row = {
+        "run_id": "r1",
+        "model": "qwen2.5:0.5b-instruct",
+        "test_id": _REAL_COMPROMISE_ID,
+        "run_index": 0,
+        "raw_response": _REAL_COMPROMISE_RAW,
+        # As-stored by the original run: the old grader called this a clean pass.
+        "schema_compliant": True,
+        "failure_reason": "",
+    }
+    regraded = regrade_row(dict(row))
+    assert regraded is not None
+    assert regraded["security_verdict"] == "compromised"
+
+    # ... while regression.py still reads the row as resisted, from the stored flags.
+    assert regression._resisted(row) is True
