@@ -141,6 +141,27 @@ def test_only_schemas_may_reference_the_raw_compromise_gates() -> None:
     )
 
 
+def _calls_made(path: Path) -> set[str]:
+    """Function names this module actually CALLS.
+
+    Deliberately NOT "names it mentions". The first version of the guard below asked
+    whether `compromise_reason` appeared anywhere in the module, which an unused import
+    satisfies -- so `from hermia.schemas import SCHEMA_CHECKS, compromise_reason` followed
+    by grading with the checker alone passed it, recreating the exact confusion.py
+    omission the guard exists to stop (Antigravity, second pass on #174).
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    called: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Name):
+                called.add(func.id)
+            elif isinstance(func, ast.Attribute):
+                called.add(func.attr)
+    return called
+
+
 def test_a_schema_checks_consumer_must_also_consult_the_funnel() -> None:
     """The OTHER shape of the bug, which the name guard above cannot see.
 
@@ -152,11 +173,16 @@ def test_a_schema_checks_consumer_must_also_consult_the_funnel() -> None:
 
     SCHEMA_CHECKS answers "is this well formed". It never answers "was this a breach".
     Anything reaching for the first in production needs the second.
+
+    Deliberately over-constrained: a module that only ENUMERATES SCHEMA_CHECKS (its keys,
+    say) without grading anything would also have to satisfy this. That is a decision
+    point, not an accident -- the right response is to look and decide, not to add a
+    throwaway reference. All three consumers today genuinely grade.
     """
     offenders = sorted(
         str(p.relative_to(_ROOT))
         for p in _iter_src_modules()
-        if "SCHEMA_CHECKS" in _names_used(p) and "compromise_reason" not in _names_used(p)
+        if "SCHEMA_CHECKS" in _names_used(p) and "compromise_reason" not in _calls_made(p)
     )
     assert not offenders, (
         f"{offenders} grade with SCHEMA_CHECKS but never consult compromise_reason. "
@@ -327,3 +353,26 @@ def test_regression_py_deliberately_does_not_re_derive_a_stored_verdict() -> Non
 
     # ... while regression.py still reads the row as resisted, from the stored flags.
     assert regression._resisted(row) is True
+
+
+def test_an_unused_funnel_import_does_not_satisfy_the_guard() -> None:
+    """NEGATIVE CONTROL for the guard above, on the exact bypass agy found.
+
+    Written as a source-level check on a synthesised module rather than a real file, so
+    the bypass is proven closed without committing a broken module to the tree.
+    """
+    bypass = (
+        "from hermia.schemas import SCHEMA_CHECKS, compromise_reason\n"
+        "def grade(test_id, parsed):\n"
+        "    checker = SCHEMA_CHECKS.get(test_id)\n"
+        "    return bool(checker(parsed)) if checker else False\n"
+    )
+    tmp = Path(__file__).parent / "_bypass_probe.py"
+    tmp.write_text(bypass, encoding="utf-8")
+    try:
+        assert "compromise_reason" in _names_used(tmp), "setup: the name IS present"
+        assert "compromise_reason" not in _calls_made(tmp), (
+            "an unused import must not count as consulting the funnel"
+        )
+    finally:
+        tmp.unlink()
