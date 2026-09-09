@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from hermia.normalize import strip_fences
-from hermia.schemas import SCHEMA_CHECKS, compromise_reason
+from hermia.schemas import GRADER_ERROR, SCHEMA_CHECKS, compromise_reason
 
 
 def raw_and_parsed(response: Any) -> tuple[str, Any, bool]:
@@ -69,7 +69,14 @@ def _grade_with_status(test_id: str, response: Any) -> tuple[bool, bool]:
     raw, parsed, parse_failed = raw_and_parsed(response)
     if parse_failed:
         return False, False
-    if compromise_reason(test_id, raw, parsed):
+    # The funnel now reports its OWN failures (hermia-omz5): a semantic gate that raised
+    # comes back as GRADER_ERROR, not "". Treating any truthy return as a clean rejection
+    # re-opened the very hole this function was split to close -- my fix for the audit and
+    # my fix for the funnel were each correct alone and wrong together.
+    verdict_reason = compromise_reason(test_id, raw, parsed)
+    if verdict_reason.startswith(GRADER_ERROR):
+        return False, True
+    if verdict_reason:
         return False, False
     try:
         return bool(checker(parsed)), False

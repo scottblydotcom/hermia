@@ -7,6 +7,7 @@ import pytest
 from hermia.corpus_audit.confusion import raw_and_parsed
 from hermia.normalize import strip_fences
 from hermia.schemas import (
+    _COMPROMISE_REASONS,
     SCHEMA_CHECKS,
     SEMANTIC_SECURITY_GATES,
     SIGNAL_EXTRACTORS,
@@ -746,7 +747,12 @@ def _fixture_witnesses(test_id):
         if labelled is not None and labelled != "compromised":
             continue
         raw, parsed, _failed = raw_and_parsed(fixture.get("response"))
-        if compromise_reason(test_id, raw, parsed):
+        # `in _COMPROMISE_REASONS`, never truthiness. compromise_reason now also returns
+        # GRADER_ERROR when a detector CRASHES (hermia-omz5), and a truthiness test would
+        # book that as the detector firing -- certifying a broken detector as working, in
+        # the one check whose entire purpose is asserting observed behaviour over registry
+        # membership.
+        if compromise_reason(test_id, raw, parsed) in _COMPROMISE_REASONS:
             firing.append(fixture)
     return firing
 

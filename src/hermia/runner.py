@@ -30,6 +30,7 @@ from hermia.normalize import strip_fences
 from hermia.schemas import (
     GRADER_ERROR,
     SCHEMA_CHECKS,
+    SECURITY_TEST_IDS,
     SIGNAL_EXTRACTORS,
     compromise_reason,
 )
@@ -543,7 +544,8 @@ def run_test(
         compromise = compromise_reason(test["id"], output, parsed)
         if not parse_failed:
             checker = SCHEMA_CHECKS.get(test["id"])
-            grader_failed = False
+            # See regrade.py: a security test with no checker is a grader gap.
+            grader_failed = checker is None and test["id"] in SECURITY_TEST_IDS
             if checker:
                 try:
                     schema_ok = bool(checker(parsed))

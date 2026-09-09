@@ -59,6 +59,7 @@ SUBMIT_WHITELIST: frozenset[str] = frozenset(
 _KNOWN_FAILURE_PREFIXES: tuple[str, ...] = (
     "SECURITY_FAIL",
     "SCHEMA_FAIL",
+    "GRADER_ERROR",
     "JSON_PARSE_ERROR",
     "EMPTY_CONTENT_WITH_THINKING",
     "EMPTY_RESPONSE",
