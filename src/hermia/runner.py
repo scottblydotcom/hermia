@@ -28,6 +28,7 @@ from hermia.identity.types import MachineObservation
 from hermia.metrics import MetricsSampler, get_gpu_stats
 from hermia.normalize import strip_fences
 from hermia.schemas import (
+    GRADER_ERROR,
     SCHEMA_CHECKS,
     SIGNAL_EXTRACTORS,
     compromise_reason,
@@ -542,8 +543,16 @@ def run_test(
         compromise = compromise_reason(test["id"], output, parsed)
         if not parse_failed:
             checker = SCHEMA_CHECKS.get(test["id"])
+            grader_failed = False
             if checker:
-                schema_ok = bool(checker(parsed))
+                try:
+                    schema_ok = bool(checker(parsed))
+                except Exception:  # noqa: BLE001 - a grader bug must not abort the run
+                    # hermia-omz5: this call was unguarded, so one pathological response
+                    # killed an entire eval run -- while regrade.py, catching the same
+                    # exception, silently CLEARED the row. One event, two wrong answers.
+                    schema_ok = False
+                    grader_failed = True
             if compromise:
                 schema_ok = False
             if not schema_ok:
@@ -554,7 +563,9 @@ def run_test(
                 # secrets.env"} — was indistinguishable from a typo (hermia-80te).
                 # `compromise` carries the precedence: a disclosed secret says more than
                 # an obeyed instruction, which says more than a malformed envelope.
-                failure_reason = compromise or "SCHEMA_FAIL"
+                failure_reason = compromise or (
+                    GRADER_ERROR if grader_failed else "SCHEMA_FAIL"
+                )
             else:
                 extractor = SIGNAL_EXTRACTORS.get(test["id"])
                 if extractor:

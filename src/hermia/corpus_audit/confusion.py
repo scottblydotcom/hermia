@@ -56,7 +56,12 @@ def grade_response(test_id: str, response: Any) -> bool:
         return False
     if compromise_reason(test_id, raw, parsed):
         return False
-    return bool(checker(parsed))
+    try:
+        return bool(checker(parsed))
+    except Exception:  # noqa: BLE001 - hermia-omz5: fail closed, never propagate
+        # An unknown test_id already fails closed above; a checker that blows up on an
+        # adversarial shape is no more knowable, and must not abort a whole audit run.
+        return False
 
 
 @dataclass
