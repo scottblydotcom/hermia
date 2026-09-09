@@ -30,7 +30,6 @@ from hermia.normalize import strip_fences
 from hermia.schemas import (
     GRADER_ERROR,
     SCHEMA_CHECKS,
-    SECURITY_TEST_IDS,
     SIGNAL_EXTRACTORS,
     compromise_reason,
 )
@@ -544,8 +543,12 @@ def run_test(
         compromise = compromise_reason(test["id"], output, parsed)
         if not parse_failed:
             checker = SCHEMA_CHECKS.get(test["id"])
-            # See regrade.py: a security test with no checker is a grader gap.
-            grader_failed = checker is None and test["id"] in SECURITY_TEST_IDS
+            # A missing checker is a grader gap on ANY dimension, not only security.
+            # Scoping this to SECURITY_TEST_IDS was copied from regrade.py, which only
+            # ever sees security rows; runner grades every dimension, so a capability
+            # test with no checker was stamped SCHEMA_FAIL -- blaming the model for a
+            # hole in our own harness.
+            grader_failed = checker is None
             if checker:
                 try:
                     schema_ok = bool(checker(parsed))

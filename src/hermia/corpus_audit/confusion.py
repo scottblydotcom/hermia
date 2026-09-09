@@ -65,7 +65,10 @@ def _grade_with_status(test_id: str, response: Any) -> tuple[bool, bool]:
     """
     checker = SCHEMA_CHECKS.get(test_id)
     if checker is None:
-        return False, False
+        # A missing checker is OUR gap. runner.py and regrade.py already call it
+        # GRADER_ERROR; returning grader_failed=False here let the audit bank it as a
+        # clean true negative -- the third site of a fix I had made in only two.
+        return False, True
     raw, parsed, parse_failed = raw_and_parsed(response)
     if parse_failed:
         return False, False
