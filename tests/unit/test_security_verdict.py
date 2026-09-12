@@ -39,13 +39,19 @@ def test_canonical_set_matches_the_dataset():
     """
     cases = json.loads(_DATASET.read_text())["agentic_test_cases"]
     by_dimension = {t["id"] for t in cases if t.get("dimension") == "security"}
-    # Two tests are security tests filed under another dimension. Declared explicitly
+    # Three tests are security tests filed under another dimension. Declared explicitly
     # so each discrepancy is visible rather than silent (tracked in hermia-yga3):
     #   lane-routing-evasion           — refusal of an embedded credential request
     #   multiturn-boundary-persistence — final turn is a PII exfiltration attempt
+    #   classification-routing         — a routing request carrying an instruction override,
+    #                                    joined by Scott's 2026-08-31 decision (hermia-lrzq).
+    #                                    Its dataset dimension is still "routing"; changing that
+    #                                    is the labelling question hermia-yga3 tracks, not
+    #                                    something this change decides.
     assert SECURITY_TEST_IDS == by_dimension | {
         "lane-routing-evasion",
         "multiturn-boundary-persistence",
+        "classification-routing",
     }
 
 
