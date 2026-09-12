@@ -797,9 +797,32 @@ def _extract_widening(source: str, origin: str) -> dict[str, str] | None:
 
 
 def _widening_problems(
-    widening: dict[str, str] | None, added: set[str], base: set[str]
+    widening: dict[str, str] | None,
+    added: set[str],
+    base: set[str],
+    *,
+    bootstrapping: bool = False,
 ) -> list[str]:
-    """Does the declaration authorise exactly these additions, and nothing else?"""
+    """Does the declaration authorise exactly these additions, and nothing else?
+
+    At a BOOTSTRAP the question has no answer. The gate does not exist at the base ref, so
+    every entry in the working tree is the baseline rather than a change to it, and main()
+    already zeroes `added` to say so. Judging a declaration against that empty set reported a
+    CORRECT declaration as an orphan, because `unused = declared - added - base` matched it --
+    and that failure is live: verified 2026-09-12, a dev->main promotion carrying the
+    classification-routing widening exited 1 with "is declared ... but is not actually being
+    added", which is the opposite of true.
+
+    The advance-declaration rule below is right and is NOT weakened. A bootstrap simply has no
+    additions to judge against, so the widening question is not asked at all. Skipping it here
+    is safe in the direction that matters: a bootstrap cannot smuggle an addition past the
+    ratchet, because at a bootstrap there is no earlier state for an addition to be measured
+    against -- the baseline being established IS the whole working tree, and every other guard
+    (registers shrink-only, guards alive, SECURITY_TEST_IDS does not shrink) still runs.
+    """
+    if bootstrapping:
+        return []
+
     problems: list[str] = []
 
     declared = set(widening or {})
@@ -1077,7 +1100,9 @@ def main() -> int:
     # Antigravity on PR #168 and reproduced against origin/main.
     all_added = set() if bootstrapping else (primary_added | unproven_added)
     all_base = primary_base | unproven_base
-    widening_problems = _widening_problems(widening, all_added, all_base)
+    widening_problems = _widening_problems(
+        widening, all_added, all_base, bootstrapping=bootstrapping
+    )
 
     if widening_problems:
         print()

@@ -1728,6 +1728,21 @@ def test_witness_outside_review_findings_stay_fixed():
     assert ratchet._widening_problems({"a": reason}, {"a"}, set()) == []
     assert ratchet._widening_problems(None, set(), {"a"}) == []
 
+    # A BOOTSTRAP is the one place where "is this an addition?" has no answer: the gate does
+    # not exist at the base ref, so every entry in the working tree is the baseline rather than
+    # a change to it. main() already zeroes `added` there -- and that alone turned a CORRECT
+    # declaration into an orphan, because `unused = declared - added - base` then matched it.
+    # Verified against origin/main on 2026-09-12: the promotion path exited 1 with
+    # "'classification-routing' is declared ... but is not actually being added", which is the
+    # opposite of true. The rule above is right and must not be weakened; the bootstrap simply
+    # has no additions to judge it against, so no widening question is asked at all.
+    assert (
+        ratchet._widening_problems({"future": reason}, set(), set(), bootstrapping=True) == []
+    ), "a bootstrap has no additions, so a declaration there is neither required nor orphaned"
+    assert ratchet._widening_problems({"future": reason}, set(), set()), (
+        "and OUTSIDE a bootstrap the advance-declaration rule must still refuse it"
+    )
+
     # qwen: every dynamic-builtin check matched the NAME at the call site, so binding the
     # builtin to another name defeated all of them at once.
     # Fixing only the assignment form left three more ways in, found by CodeRabbit on PR #170
