@@ -437,7 +437,25 @@ def _real_run_test(
         else OllamaTransport(host, headers)
     )
     sampler = MetricsSampler()
+    # locality is LEFT TO run_test's own detect_mode(host) -- deliberately not hardcoded.
+    #
+    # This call site passed locality="remote" unconditionally from the commit that created
+    # TuiRunner (2026-06-21). run_test gates ALL metric capture on is_local, so every row the
+    # TUI wrote carried peak_cpu_pct / peak_gpu_pct / peak_vram_used_gb = None -- including
+    # for someone running against Ollama on their own laptop, which is how most people run
+    # this. Measured over the corpus by run_id month: 2026-05 66% of rows carried GPU data,
+    # 2026-06 11%, 2026-07 and 2026-08 zero. The README's claim that "live system metrics run
+    # alongside every eval" has been false since the TUI became the way hermia is run.
+    #
+    # fleet.py keeps locality="remote" and is RIGHT to: those hosts really are remote and the
+    # orchestrator's own hardware says nothing about them. The difference is that this path
+    # can be pointed at localhost, and detect_mode is what tells the two apart.
+    #
+    # Known residual, not fixed here: an SSH tunnel on localhost:11435 forwarding to a fleet
+    # box reads as local, so the orchestrator's metrics would be attributed to a remote run.
+    # machine_id stamping (hermia-cfqv) is what catches that class; widening this fix to
+    # consult it needs its own change.
     return run_test(
         model_name, test, sampler,
-        host=host, transport=transport, locality="remote",
+        host=host, transport=transport,
     )

@@ -353,3 +353,45 @@ class TestTuiRunnerBusEvents:
             assert finished[0]["failure_reason"] == "TIMEOUT: no response in 90s"
 
         asyncio.run(_run())
+
+
+def test_tui_samples_local_hardware_when_the_host_is_this_machine():
+    """The TUI must not declare every host remote (hermia-metrics).
+
+    Introduced 2026-06-21 in the commit that added TuiRunner: the call site passed
+    locality="remote" unconditionally. run_test gates ALL metric capture on
+    is_local, so every row written through the TUI carried peak_cpu_pct=None,
+    peak_gpu_pct=None, peak_vram_used_gb=None -- including for a user running
+    against Ollama on their own laptop.
+
+    Measured over the corpus, bucketed by run_id month:
+        2026-05  9,778 rows, 66% with GPU data
+        2026-06 10,674 rows, 11%
+        2026-07  8,784 rows,  0%
+        2026-08  3,997 rows,  0%
+    The TUI became the way hermia is run, and the README's claim that "live system
+    metrics run alongside every eval" has been false since that date.
+
+    fleet.py's locality="remote" is DIFFERENT and correct: those hosts really are
+    remote, and the orchestrator's own hardware is irrelevant to them.
+    """
+    from unittest.mock import patch
+
+    seen = {}
+
+    def fake_run_test(model, test, sampler, **kwargs):
+        seen.update(kwargs)
+        return {"model": model, "test_id": test.get("id")}
+
+    from hermia.tui.runner_backend import _real_run_test
+
+    with patch("hermia.runner.run_test", side_effect=fake_run_test):
+        _real_run_test(
+            "m", {"id": "t"},
+            host="http://localhost:11434", engine="ollama", auth_env=None,
+        )
+
+    assert seen.get("locality") != "remote", (
+        "a host on this machine must not be declared remote -- that discards every "
+        "CPU, RAM, GPU and VRAM figure for the run"
+    )
