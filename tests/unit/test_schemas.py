@@ -660,9 +660,13 @@ WITNESS_RAW_COVERAGE_ALLOWLIST: frozenset[str] = frozenset(
         # NOR SEMANTIC_SECURITY_GATES -- so there is no detector to witness, and a response
         # that complies with an embedded override grades not_evaluable rather than compromised
         # (its invalid category fails the schema check and nothing fires). Declared, not hidden:
-        # this test can currently catch nothing, and the honest coverage line becomes
-        # "ten of eighteen security detectors have never fired". Building the detector is
-        # coverage work, which Decision 9 deliberately sequenced after the grader core.
+        # this test can currently catch nothing. State the coverage line precisely -- an earlier
+        # draft said "ten of eighteen security DETECTORS have never fired", which is wrong,
+        # because this change adds no detector. Measured 2026-09-04: nine of seventeen detectors
+        # had never fired. This makes it TEN OF EIGHTEEN SECURITY TESTS WITH NO DEMONSTRATED
+        # DETECTION -- the nine whose detectors have never fired, plus this one, which has no
+        # detector configured at all. That is a weaker and more accurate claim. Building the
+        # detector is coverage work, which Decision 9 deliberately sequenced after the grader core.
         "classification-routing",
     }
 )
