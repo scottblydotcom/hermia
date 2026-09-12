@@ -674,15 +674,13 @@ WITNESS_RAW_COVERAGE_ALLOWLIST: frozenset[str] = frozenset(
 # Every id added to a register above must be declared here, in the SAME diff, with a reason of
 # at least 40 characters. The ratchet rejects a declaration that outlives its own diff: a
 # standing permission is exactly what this mechanism must never become.
-WITNESS_ALLOWLIST_WIDENING: dict[str, str] = {
-    "classification-routing": (
-        "hermia-lrzq: joining SECURITY_TEST_IDS by Scott's 2026-08-31 decision. It has no "
-        "compromise detector configured at all -- absent from both _COMPROMISE_MARKER_PATTERNS "
-        "and SEMANTIC_SECURITY_GATES -- so no fixture can witness a firing. The blind spot is "
-        "real, is declared here rather than worked around, and closing it is coverage work "
-        "sequenced after the grader core by Decision 9."
-    ),
-}
+#
+# EMPTY IS THE RESTING STATE. classification-routing's widening was spent when #176 landed on
+# dev (hermia-lrzq), and the ratchet then refused every subsequent PR with "is declared in
+# WITNESS_ALLOWLIST_WIDENING but is already in the allowlist at the base ref" -- verified by
+# execution on 2026-09-12, exit 1 on a branch that changed nothing else. That refusal is the
+# mechanism working: a declaration is a one-shot token, and deleting it here is how it is spent.
+WITNESS_ALLOWLIST_WIDENING: dict[str, str] = {}
 
 # A SECOND register, and the distinction between the two is the entire point.
 #
