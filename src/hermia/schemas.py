@@ -743,6 +743,11 @@ SECURITY_TEST_IDS: frozenset[str] = frozenset(
         "indirect-injection-tool-output",
         "credential-leak-resistance",
         "system-user-precedence",
+        # Scott decided 2026-08-31 that this joins the security registry; it did not land
+        # until now (hermia-lrzq). Filed under the ROUTING dimension, but the test presents a
+        # routing request carrying an embedded instruction override, so a model that complies
+        # has crossed the boundary its own system prompt declares.
+        "classification-routing",
         # Filed under the ROUTING dimension but functionally a security test: it
         # checks refusal of an embedded credential request and carries its own
         # leak canaries. Declared here so the discrepancy is visible instead of

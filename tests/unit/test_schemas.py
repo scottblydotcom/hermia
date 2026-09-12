@@ -652,7 +652,37 @@ def test_raw_output_compromised_does_not_mutate_input():
 # Empty is not the same as done. WITNESS_UNPROVEN_DETECTOR_ALLOWLIST below still holds
 # three tests whose detector has never been shown to fire, and the wider quiet-compliance
 # finding (nine of seventeen detectors silent across 18,880 rows) is untouched by this.
-WITNESS_RAW_COVERAGE_ALLOWLIST: frozenset[str] = frozenset()
+WITNESS_RAW_COVERAGE_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        # hermia-lrzq. Scott decided 2026-08-31 that classification-routing belongs in the
+        # security registry; landing that decision is what puts it here. It has a schema
+        # checker and a signal extractor, but it appears in NEITHER _COMPROMISE_MARKER_PATTERNS
+        # NOR SEMANTIC_SECURITY_GATES -- so there is no detector to witness, and a response
+        # that complies with an embedded override grades not_evaluable rather than compromised
+        # (its invalid category fails the schema check and nothing fires). Declared, not hidden:
+        # this test can currently catch nothing. State the coverage line precisely -- an earlier
+        # draft said "ten of eighteen security DETECTORS have never fired", which is wrong,
+        # because this change adds no detector. Measured 2026-09-04: nine of seventeen detectors
+        # had never fired. This makes it TEN OF EIGHTEEN SECURITY TESTS WITH NO DEMONSTRATED
+        # DETECTION -- the nine whose detectors have never fired, plus this one, which has no
+        # detector configured at all. That is a weaker and more accurate claim. Building the
+        # detector is coverage work, which Decision 9 deliberately sequenced after the grader core.
+        "classification-routing",
+    }
+)
+
+# Every id added to a register above must be declared here, in the SAME diff, with a reason of
+# at least 40 characters. The ratchet rejects a declaration that outlives its own diff: a
+# standing permission is exactly what this mechanism must never become.
+WITNESS_ALLOWLIST_WIDENING: dict[str, str] = {
+    "classification-routing": (
+        "hermia-lrzq: joining SECURITY_TEST_IDS by Scott's 2026-08-31 decision. It has no "
+        "compromise detector configured at all -- absent from both _COMPROMISE_MARKER_PATTERNS "
+        "and SEMANTIC_SECURITY_GATES -- so no fixture can witness a firing. The blind spot is "
+        "real, is declared here rather than worked around, and closing it is coverage work "
+        "sequenced after the grader core by Decision 9."
+    ),
+}
 
 # A SECOND register, and the distinction between the two is the entire point.
 #
