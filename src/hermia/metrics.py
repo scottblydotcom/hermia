@@ -234,6 +234,22 @@ def _gpu_stats_intel() -> tuple[float, float, float]:
         return 0.0, 0.0, 0.0
 
 
+_GPU_DETECTED = False
+
+
+def ensure_gpu_detected() -> None:
+    """Run detect_gpu() once per process so the module globals mean something.
+
+    get_gpu_stats() answers from _NVIDIA_FOUND / _APPLE_SILICON / _INTEL_IGPU / _AMD_DEV,
+    which only detect_gpu() ever populates. Idempotent and cheap after the first call.
+    """
+    global _GPU_DETECTED  # noqa: PLW0603
+    if _GPU_DETECTED:
+        return
+    detect_gpu()
+    _GPU_DETECTED = True
+
+
 def detect_gpu() -> dict[str, Any]:
     """Detect GPU hardware at run start. Updates module-level cache.
 
@@ -432,6 +448,15 @@ class MetricsSampler:
         self.latest: dict[str, float] = {}
 
     def start(self) -> None:
+        # Sampling without detection reads GPU globals that are still at their defaults, so
+        # get_gpu_stats() returns (0.0, 0.0, 0.0) on a machine that plainly has a GPU. Before
+        # this, detect_gpu() was called from exactly one place -- submit.py -- and never on the
+        # run path, so enabling local sampling would have recorded a fabricated 0% GPU and
+        # 0.0 GB VRAM for real work. Verified on an Apple M1 Pro (hermia-dl2e).
+        #
+        # Detection shells out to system_profiler/sysctl/nvidia-smi, so it is done once per
+        # process, not once per test.
+        ensure_gpu_detected()
         self._stop.clear()
         self.samples = []
         self._thread = threading.Thread(target=self._run, daemon=True)

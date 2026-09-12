@@ -57,6 +57,11 @@ def get_ollama_host() -> str:
     return _normalize_host(os.environ.get("HERMIA_HOST", "http://localhost:11434"))
 
 
+def _round_or_none(value: float | None, digits: int) -> float | None:
+    """Round a measured value, or keep None. Never substitutes a fabricated zero."""
+    return None if value is None else round(value, digits)
+
+
 def detect_mode(host: str) -> str:
     """Return 'local' if host resolves to localhost/loopback, else 'fleet'."""
     hostname = urlparse(_normalize_host(host)).hostname or ""
@@ -590,10 +595,15 @@ def run_test(
         "raw_prompt": test.get("prompt") or "",
         "raw_response": "" if error_type else output,
         "raw_thinking": "" if error_type else thinking_text,
-        "peak_cpu_pct": round(peak.get("cpu_pct", 0), 1) if is_local else None,
-        "peak_ram_used_gb": round(peak.get("ram_used_gb", 0), 2) if is_local else None,
-        "peak_gpu_pct": round(peak.get("gpu_pct", 0), 1) if is_local else None,
-        "peak_vram_used_gb": round(peak.get("vram_used_gb", 0), 2) if is_local else None,
+        # `peak` is EMPTY when a trial fails before the sampler thread takes its first
+        # sample -- a connection refused by a stopped Ollama returns in milliseconds. The
+        # previous `peak.get(key, 0)` then wrote 0.0, claiming a running machine used 0.0 GB
+        # of RAM. An unmeasured field must stay None: None means "not measured", 0.0 means
+        # "measured, and it was zero", and a dashboard cannot tell them apart (hermia-dl2e).
+        "peak_cpu_pct": _round_or_none(peak.get("cpu_pct"), 1) if is_local else None,
+        "peak_ram_used_gb": _round_or_none(peak.get("ram_used_gb"), 2) if is_local else None,
+        "peak_gpu_pct": _round_or_none(peak.get("gpu_pct"), 1) if is_local else None,
+        "peak_vram_used_gb": _round_or_none(peak.get("vram_used_gb"), 2) if is_local else None,
         "mode": "local" if is_local else ("api" if is_api_mode else "fleet"),
         "host": _host,
         **ps_data,

@@ -355,43 +355,52 @@ class TestTuiRunnerBusEvents:
         asyncio.run(_run())
 
 
-def test_tui_samples_local_hardware_when_the_host_is_this_machine():
-    """The TUI must not declare every host remote (hermia-metrics).
+def test_tui_does_not_declare_a_host_on_this_machine_remote():
+    """hermia-dl2e: the TUI path itself, end to end, not a keyword-argument assertion.
 
-    Introduced 2026-06-21 in the commit that added TuiRunner: the call site passed
-    locality="remote" unconditionally. run_test gates ALL metric capture on
-    is_local, so every row written through the TUI carried peak_cpu_pct=None,
-    peak_gpu_pct=None, peak_vram_used_gb=None -- including for a user running
-    against Ollama on their own laptop.
+    An earlier version of this test mocked run_test and asserted
+    `seen.get("locality") != "remote"`. That was a tautology -- the kwarg had been removed, so
+    the expression read None != "remote" and passed for every input, including a remote host.
+    Caught by outside-family review.
 
-    Measured over the corpus, bucketed by run_id month:
-        2026-05  9,778 rows, 66% with GPU data
-        2026-06 10,674 rows, 11%
-        2026-07  8,784 rows,  0%
-        2026-08  3,997 rows,  0%
-    The TUI became the way hermia is run, and the README's claim that "live system
-    metrics run alongside every eval" has been false since that date.
-
-    fleet.py's locality="remote" is DIFFERENT and correct: those hosts really are
-    remote, and the orchestrator's own hardware is irrelevant to them.
+    This runs the real _real_run_test with a stubbed transport and checks the OUTCOME: a
+    localhost host must produce mode="local" (so its metrics are kept) and a fleet host must
+    produce mode="fleet" (so the orchestrator's hardware is not misattributed to it).
     """
-    from unittest.mock import patch
-
-    seen = {}
-
-    def fake_run_test(model, test, sampler, **kwargs):
-        seen.update(kwargs)
-        return {"model": model, "test_id": test.get("id")}
+    from unittest.mock import MagicMock, patch
 
     from hermia.tui.runner_backend import _real_run_test
 
-    with patch("hermia.runner.run_test", side_effect=fake_run_test):
-        _real_run_test(
-            "m", {"id": "t"},
+    payload = '{"action": "search_documentation", "params": {}}'
+    resp = MagicMock()
+    resp.text = payload
+    resp.tokens = 10
+    resp.elapsed_sec = 1.0
+    resp.orchestration = "ollama"
+    resp.orchestration_version = "0.24.0"
+    resp.is_api_mode = False
+
+    transport = MagicMock()
+    transport.is_api_mode = False
+    transport.generate.return_value = resp
+
+    test_case = {"id": "tool-calling-basic", "prompt": "go", "system": ""}
+
+    ps_empty = {"vram_server_gb": None, "model_size_server_gb": None}
+    with patch("hermia.transport.ollama.OllamaTransport", return_value=transport), patch(
+        "hermia.runner.fetch_server_ps_data", return_value=ps_empty
+    ):
+        local = _real_run_test(
+            "m", test_case,
             host="http://localhost:11434", engine="ollama", auth_env=None,
         )
+        remote = _real_run_test(
+            "m", test_case,
+            host="http://100.68.230.118:11434", engine="ollama", auth_env=None,
+        )
 
-    assert seen.get("locality") != "remote", (
-        "a host on this machine must not be declared remote -- that discards every "
-        "CPU, RAM, GPU and VRAM figure for the run"
+    assert local["mode"] == "local", (
+        "a host on this machine must not be declared remote -- that discards every CPU, RAM, "
+        "GPU and VRAM figure for the run"
     )
+    assert remote["mode"] == "fleet", "a fleet host must not be sampled as if it were local"
