@@ -4,6 +4,8 @@ import json
 import time
 from unittest.mock import MagicMock, mock_open, patch
 
+import pytest
+
 import hermia.metrics as metrics_mod
 from hermia.metrics import MetricsSampler, detect_gpu, get_gpu_stats
 
@@ -74,7 +76,26 @@ def _make_uevent_open(dev_path: str, driver: str = "amdgpu", vram_bytes: int = 8
 # AMD detection tests — patch subprocess.run so nvidia-smi detection is skipped
 # ---------------------------------------------------------------------------
 
-def test_detect_gpu_finds_amdgpu_card():
+@pytest.fixture
+def restore_gpu_globals():
+    """Save/restore every global detect_gpu() writes.
+
+    detect_gpu() mutates six module-level names. Without this, ``_AMD_DEV`` survives into later
+    tests, and any test calling get_gpu_stats() without detect_gpu() first would try to read a
+    sysfs path that does not exist on this host. Requested explicitly rather than autouse, so the
+    other tests in this file keep their existing preconditions.
+    """
+    names = (
+        "_AMD_DEV", "_NVIDIA_FOUND", "_NVIDIA_VRAM_TOTAL_GB",
+        "_APPLE_SILICON", "_APPLE_VRAM_TOTAL_GB", "_INTEL_IGPU",
+    )
+    saved = {n: getattr(metrics_mod, n) for n in names}
+    yield
+    for n, v in saved.items():
+        setattr(metrics_mod, n, v)
+
+
+def test_detect_gpu_finds_amdgpu_card(restore_gpu_globals):
     """detect_gpu() picks the amdgpu card and ignores non-amdgpu cards."""
     uevent_paths = [
         "/sys/class/drm/card1/device/uevent",
@@ -91,13 +112,13 @@ def test_detect_gpu_finds_amdgpu_card():
         return mock_open(read_data=uevent_data.get(path, ""))()
 
     with (
-        # detect_gpu() tries NVIDIA -> Apple -> AMD -> Intel, and _detect_apple_silicon() gates
-        # on sys.platform and platform.machine() -- neither of which the mocks below touch. On an
-        # Apple Silicon dev machine the Apple branch therefore returns before the simulated Linux
-        # sysfs is ever read, and this asserted 'amd' against 'apple' (hermia-rk3k). Pin the host
-        # so the Linux paths are the ones exercised, on every developer machine.
-        patch("sys.platform", "linux"),
-        patch("platform.machine", return_value="x86_64"),
+        # detect_gpu() tries NVIDIA -> Apple -> AMD -> Intel, and _detect_apple_silicon() returns
+        # immediately unless sys.platform == 'darwin' -- which the mocks below do not touch. On an
+        # Apple Silicon dev machine the Apple branch therefore returned before the simulated Linux
+        # sysfs was ever read, and this asserted 'amd' against 'apple' (hermia-rk3k). Pinning
+        # sys.platform alone is sufficient, and is the target the rest of this file already uses;
+        # the platform.machine() gate below it is unreachable once the darwin check has failed.
+        patch("hermia.metrics.sys.platform", "linux"),
         patch("subprocess.run", side_effect=FileNotFoundError),
         patch("hermia.metrics.glob.glob", return_value=uevent_paths),
         patch("builtins.open", side_effect=fake_open),
@@ -111,14 +132,13 @@ def test_detect_gpu_finds_amdgpu_card():
     assert metrics_mod._AMD_DEV == dev
 
 
-def test_detect_gpu_no_amdgpu():
+def test_detect_gpu_no_amdgpu(restore_gpu_globals):
     """detect_gpu() returns found=False when no GPU is present."""
     uevent_paths = ["/sys/class/drm/card0/device/uevent"]
     with (
         # Pin the host: the Apple branch would otherwise short-circuit before the
         # simulated Linux sysfs is read (hermia-rk3k).
-        patch("sys.platform", "linux"),
-        patch("platform.machine", return_value="x86_64"),
+        patch("hermia.metrics.sys.platform", "linux"),
         patch("subprocess.run", side_effect=FileNotFoundError),
         patch("hermia.metrics.glob.glob", return_value=uevent_paths),
         patch("builtins.open", mock_open(read_data="DRIVER=virtio\n")),
@@ -130,7 +150,7 @@ def test_detect_gpu_no_amdgpu():
     assert metrics_mod._AMD_DEV is None
 
 
-def test_detect_gpu_picks_highest_vram_when_multiple_amdgpu():
+def test_detect_gpu_picks_highest_vram_when_multiple_amdgpu(restore_gpu_globals):
     """When multiple AMD GPUs exist, detect_gpu() picks the one with the most VRAM."""
     uevent_paths = [
         "/sys/class/drm/card1/device/uevent",
@@ -149,8 +169,7 @@ def test_detect_gpu_picks_highest_vram_when_multiple_amdgpu():
     with (
         # Pin the host: the Apple branch would otherwise short-circuit before the
         # simulated Linux sysfs is read (hermia-rk3k).
-        patch("sys.platform", "linux"),
-        patch("platform.machine", return_value="x86_64"),
+        patch("hermia.metrics.sys.platform", "linux"),
         patch("subprocess.run", side_effect=FileNotFoundError),
         patch("hermia.metrics.glob.glob", return_value=uevent_paths),
         patch("builtins.open", side_effect=fake_open),
@@ -198,7 +217,7 @@ def test_detect_gpu_nvidia_3090():
     assert abs(info["vram_total_gb"] - 24.0) < 0.1
 
 
-def test_detect_gpu_nvidia_missing():
+def test_detect_gpu_nvidia_missing(restore_gpu_globals):
     """detect_gpu() falls through to AMD when nvidia-smi is not on PATH."""
     uevent_paths = ["/sys/class/drm/card1/device/uevent"]
     dev = "/sys/class/drm/card1/device"
@@ -213,8 +232,7 @@ def test_detect_gpu_nvidia_missing():
     with (
         # Pin the host: the Apple branch would otherwise short-circuit before the
         # simulated Linux sysfs is read (hermia-rk3k).
-        patch("sys.platform", "linux"),
-        patch("platform.machine", return_value="x86_64"),
+        patch("hermia.metrics.sys.platform", "linux"),
         patch("subprocess.run", side_effect=FileNotFoundError),
         patch("hermia.metrics.glob.glob", return_value=uevent_paths),
         patch("builtins.open", side_effect=fake_open),
@@ -225,7 +243,7 @@ def test_detect_gpu_nvidia_missing():
     assert metrics_mod._NVIDIA_FOUND is False
 
 
-def test_detect_gpu_nvidia_error_returncode():
+def test_detect_gpu_nvidia_error_returncode(restore_gpu_globals):
     """detect_gpu() treats non-zero nvidia-smi exit as no NVIDIA GPU."""
     bad_result = MagicMock()
     bad_result.returncode = 1
@@ -234,8 +252,7 @@ def test_detect_gpu_nvidia_error_returncode():
     with (
         # Pin the host: the Apple branch would otherwise short-circuit before the
         # simulated Linux sysfs is read (hermia-rk3k).
-        patch("sys.platform", "linux"),
-        patch("platform.machine", return_value="x86_64"),
+        patch("hermia.metrics.sys.platform", "linux"),
         patch("subprocess.run", return_value=bad_result),
         patch("hermia.metrics.glob.glob", return_value=[]),
     ):
@@ -339,7 +356,7 @@ def test_detect_gpu_nvidia_includes_compute_cap():
     assert info["compute_cap"] == 5.2
 
 
-def test_detect_gpu_non_nvidia_compute_cap_zero():
+def test_detect_gpu_non_nvidia_compute_cap_zero(restore_gpu_globals):
     """detect_gpu() returns compute_cap=0.0 for non-NVIDIA (AMD fallback) paths."""
     uevent_paths = ["/sys/class/drm/card1/device/uevent"]
     dev = "/sys/class/drm/card1/device"
@@ -354,8 +371,7 @@ def test_detect_gpu_non_nvidia_compute_cap_zero():
     with (
         # Pin the host: the Apple branch would otherwise short-circuit before the
         # simulated Linux sysfs is read (hermia-rk3k).
-        patch("sys.platform", "linux"),
-        patch("platform.machine", return_value="x86_64"),
+        patch("hermia.metrics.sys.platform", "linux"),
         patch("subprocess.run", side_effect=FileNotFoundError),
         patch("hermia.metrics.glob.glob", return_value=uevent_paths),
         patch("builtins.open", side_effect=fake_open),
