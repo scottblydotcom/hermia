@@ -98,6 +98,11 @@ def clean_gpu_globals():
         "_APPLE_SILICON": False,
         "_APPLE_VRAM_TOTAL_GB": 0.0,
         "_INTEL_IGPU": False,
+        # The detection latch, added with ensure_gpu_detected(). Omitting it left detection
+        # marked done while the six values above were reset, so ensure_gpu_detected() would
+        # not re-run and every later test saw a machine with no GPU. Exactly the pollution
+        # this fixture exists to prevent, reintroduced by the global that fixed it.
+        "_GPU_DETECTED": False,
     }
     for name, value in defaults.items():
         setattr(metrics_mod, name, value)
@@ -290,6 +295,8 @@ def _nvidia_stats_result(
 def test_get_gpu_stats_uses_nvidia_when_found():
     """get_gpu_stats() routes to nvidia-smi when _NVIDIA_FOUND is True."""
     with (
+        # detection has already happened; these tests describe its RESULT
+        patch.object(metrics_mod, "_GPU_DETECTED", True),
         patch.object(metrics_mod, "_NVIDIA_FOUND", True),
         patch.object(metrics_mod, "_NVIDIA_VRAM_TOTAL_GB", 32.0),
         patch("subprocess.run", return_value=_nvidia_stats_result(82.0, 12288.0, 32768.0)),
@@ -301,33 +308,37 @@ def test_get_gpu_stats_uses_nvidia_when_found():
     assert abs(vram_total - 32.0) < 0.01
 
 
-def test_get_gpu_stats_nvidia_subprocess_error_returns_zeros():
-    """nvidia-smi failure during stats returns zeros with cached vram_total."""
+def test_get_gpu_stats_nvidia_subprocess_error_reports_unmeasured():
+    """nvidia-smi crashing means UNMEASURED, not idle; the cached total stays known."""
     with (
+        # detection has already happened; these tests describe its RESULT
+        patch.object(metrics_mod, "_GPU_DETECTED", True),
         patch.object(metrics_mod, "_NVIDIA_FOUND", True),
         patch.object(metrics_mod, "_NVIDIA_VRAM_TOTAL_GB", 24.0),
         patch("subprocess.run", side_effect=OSError),
     ):
         gpu_pct, vram_used, vram_total = get_gpu_stats()
 
-    assert gpu_pct == 0.0
-    assert vram_used == 0.0
+    assert gpu_pct is None
+    assert vram_used is None
     assert vram_total == 24.0
 
 
-def test_get_gpu_stats_nvidia_nonzero_returncode_returns_zeros():
-    """Non-zero nvidia-smi exit during stats returns zeros with cached vram_total."""
+def test_get_gpu_stats_nvidia_nonzero_returncode_reports_unmeasured():
+    """A non-zero nvidia-smi exit means UNMEASURED, not 0% utilisation."""
     bad = MagicMock()
     bad.returncode = 1
     bad.stdout = ""
     with (
+        # detection has already happened; these tests describe its RESULT
+        patch.object(metrics_mod, "_GPU_DETECTED", True),
         patch.object(metrics_mod, "_NVIDIA_FOUND", True),
         patch.object(metrics_mod, "_NVIDIA_VRAM_TOTAL_GB", 24.0),
         patch("subprocess.run", return_value=bad),
     ):
         gpu_pct, vram_used, vram_total = get_gpu_stats()
 
-    assert gpu_pct == 0.0
+    assert gpu_pct is None
     assert vram_total == 24.0
 
 
@@ -417,6 +428,8 @@ def test_get_gpu_stats_falls_back_to_sysfs_when_rocm_returns_zeros():
         return mock_open(read_data=open_values.get(path, "0"))()
 
     with (
+        # detection has already happened; these tests describe its RESULT
+        patch.object(metrics_mod, "_GPU_DETECTED", True),
         patch.object(metrics_mod, "_NVIDIA_FOUND", False),
         patch.object(metrics_mod, "_APPLE_SILICON", False),
         patch.object(metrics_mod, "_INTEL_IGPU", False),
@@ -446,6 +459,8 @@ def test_get_gpu_stats_falls_back_to_sysfs_when_rocm_missing():
         return mock_open(read_data=open_values.get(path, "0"))()
 
     with (
+        # detection has already happened; these tests describe its RESULT
+        patch.object(metrics_mod, "_GPU_DETECTED", True),
         patch.object(metrics_mod, "_NVIDIA_FOUND", False),
         patch.object(metrics_mod, "_APPLE_SILICON", False),
         patch.object(metrics_mod, "_INTEL_IGPU", False),
@@ -560,6 +575,8 @@ def test_get_gpu_stats_apple_silicon_ioreg():
     mem_bytes = int(1.5 * 1024**3)
 
     with (
+        # detection has already happened; these tests describe its RESULT
+        patch.object(metrics_mod, "_GPU_DETECTED", True),
         patch.object(metrics_mod, "_APPLE_SILICON", True),
         patch.object(metrics_mod, "_NVIDIA_FOUND", False),
         patch.object(metrics_mod, "_APPLE_VRAM_TOTAL_GB", 18.0),
@@ -574,9 +591,11 @@ def test_get_gpu_stats_apple_silicon_ioreg():
     assert vram_total == 18.0
 
 
-def test_get_gpu_stats_apple_silicon_ioreg_error():
-    """get_gpu_stats() returns zeros with cached total on ioreg failure."""
+def test_get_gpu_stats_apple_silicon_ioreg_error_reports_unmeasured():
+    """ioreg failing means UNMEASURED; the total detection already found stays known."""
     with (
+        # detection has already happened; these tests describe its RESULT
+        patch.object(metrics_mod, "_GPU_DETECTED", True),
         patch.object(metrics_mod, "_APPLE_SILICON", True),
         patch.object(metrics_mod, "_NVIDIA_FOUND", False),
         patch.object(metrics_mod, "_APPLE_VRAM_TOTAL_GB", 16.0),
@@ -584,8 +603,8 @@ def test_get_gpu_stats_apple_silicon_ioreg_error():
     ):
         gpu_pct, vram_used, vram_total = get_gpu_stats()
 
-    assert gpu_pct == 0.0
-    assert vram_used == 0.0
+    assert gpu_pct is None
+    assert vram_used is None
     assert vram_total == 16.0
 
 
@@ -698,6 +717,8 @@ def test_detect_amd_takes_priority_over_intel(clean_gpu_globals):
 def test_get_gpu_stats_intel_routes_to_intel_stats():
     """get_gpu_stats() routes to _gpu_stats_intel() when _INTEL_IGPU is True."""
     with (
+        # detection has already happened; these tests describe its RESULT
+        patch.object(metrics_mod, "_GPU_DETECTED", True),
         patch.object(metrics_mod, "_INTEL_IGPU", True),
         patch.object(metrics_mod, "_NVIDIA_FOUND", False),
         patch.object(metrics_mod, "_APPLE_SILICON", False),
@@ -711,9 +732,11 @@ def test_get_gpu_stats_intel_routes_to_intel_stats():
     assert vram_total == 0.0
 
 
-def test_get_gpu_stats_intel_no_tool_returns_zeros():
-    """_gpu_stats_intel() returns zeros when intel_gpu_top is not installed."""
+def test_get_gpu_stats_intel_no_tool_reports_unmeasured():
+    """No intel_gpu_top means UNMEASURED, not a GPU sitting at 0%."""
     with (
+        # detection has already happened; these tests describe its RESULT
+        patch.object(metrics_mod, "_GPU_DETECTED", True),
         patch.object(metrics_mod, "_INTEL_IGPU", True),
         patch.object(metrics_mod, "_NVIDIA_FOUND", False),
         patch.object(metrics_mod, "_APPLE_SILICON", False),
@@ -723,9 +746,9 @@ def test_get_gpu_stats_intel_no_tool_returns_zeros():
     ):
         gpu_pct, vram_used, vram_total = get_gpu_stats()
 
-    assert gpu_pct == 0.0
-    assert vram_used == 0.0
-    assert vram_total == 0.0
+    assert gpu_pct is None
+    assert vram_used is None
+    assert vram_total is None
 
 
 def test_get_gpu_stats_intel_timeout_captures_partial_output():
@@ -736,6 +759,8 @@ def test_get_gpu_stats_intel_timeout_captures_partial_output():
     exc = sp.TimeoutExpired(cmd=["intel_gpu_top"], timeout=0.4, output=sample_json)
 
     with (
+        # detection has already happened; these tests describe its RESULT
+        patch.object(metrics_mod, "_GPU_DETECTED", True),
         patch.object(metrics_mod, "_INTEL_IGPU", True),
         patch.object(metrics_mod, "_NVIDIA_FOUND", False),
         patch.object(metrics_mod, "_APPLE_SILICON", False),
@@ -750,9 +775,11 @@ def test_get_gpu_stats_intel_timeout_captures_partial_output():
     assert vram_total == 0.0
 
 
-def test_get_gpu_stats_cpu_only_returns_zeros():
-    """get_gpu_stats() returns zeros when no GPU was detected (CPU-only)."""
+def test_get_gpu_stats_cpu_only_reports_unmeasured():
+    """No GPU at all means UNMEASURED. hermia-dl2e: 0.0 asserts a measurement we do not have."""
     with (
+        # detection has already happened; these tests describe its RESULT
+        patch.object(metrics_mod, "_GPU_DETECTED", True),
         patch.object(metrics_mod, "_NVIDIA_FOUND", False),
         patch.object(metrics_mod, "_APPLE_SILICON", False),
         patch.object(metrics_mod, "_INTEL_IGPU", False),
@@ -760,6 +787,84 @@ def test_get_gpu_stats_cpu_only_returns_zeros():
     ):
         gpu_pct, vram_used, vram_total = get_gpu_stats()
 
-    assert gpu_pct == 0.0
-    assert vram_used == 0.0
-    assert vram_total == 0.0
+    assert gpu_pct is None
+    assert vram_used is None
+    assert vram_total is None
+
+
+def test_cpu_only_host_reports_none_not_zero(clean_gpu_globals):
+    """hermia-dl2e: "no GPU" and "GPU idle" are different facts."""
+    with patch.object(metrics_mod, "_GPU_DETECTED", True):
+        m = metrics_mod.get_system_metrics()
+    assert m["gpu_pct"] is None, "a machine with no GPU has not measured 0% utilisation"
+    assert m["vram_used_gb"] is None
+    assert m["cpu_pct"] is not None, "CPU is always measurable"
+
+
+def test_peak_omits_a_field_it_never_measured():
+    """An omitted key is what lets runner.py write None instead of a fabricated 0.0."""
+    s = metrics_mod.MetricsSampler()
+    s.samples = [
+        {"cpu_pct": 10.0, "ram_used_gb": 4.0, "gpu_pct": None,
+         "vram_used_gb": None, "vram_total_gb": None},
+        {"cpu_pct": 50.0, "ram_used_gb": 5.0, "gpu_pct": None,
+         "vram_used_gb": None, "vram_total_gb": None},
+    ]
+    peak = s.peak()
+    assert peak["cpu_pct"] == 50.0
+    assert "gpu_pct" not in peak, "an unmeasured field must be absent, not zero"
+    assert "vram_used_gb" not in peak
+
+
+def test_get_gpu_stats_initialises_detection_itself(clean_gpu_globals):
+    """hermia-dl2e: three callers bypassed MetricsSampler.start() entirely.
+
+    runner.py's cold-load VRAM before/after and preflight.py -- the code that tells a user
+    whether a model fits in their VRAM -- call get_gpu_stats() directly. With detection
+    wired only into the sampler they read globals at their defaults and preflight would
+    have answered 0 GB. Initialising at the READ is the placement a new caller cannot bypass.
+    """
+    with patch.object(metrics_mod, "detect_gpu") as detect:
+        metrics_mod.get_gpu_stats()
+    assert detect.called, "get_gpu_stats() must ensure detection, not assume it"
+
+
+def test_no_collector_fabricates_a_zero_when_its_probe_fails(clean_gpu_globals):
+    """hermia-dl2e: finishing the class. 0.0 is a measurement; absence is not.
+
+    Every collector used to return 0.0 when its tool was missing or crashed, so a host with
+    no intel_gpu_top, no nvidia-smi, or a failing ioreg recorded "GPU at 0%" -- indistinguishable
+    from a real idle GPU. Found one layer at a time across three rounds of outside-family review.
+    """
+    cases = {
+        "no GPU": dict(_NVIDIA_FOUND=False, _APPLE_SILICON=False, _INTEL_IGPU=False, _AMD_DEV=None),
+        "intel, tool missing": dict(
+            _NVIDIA_FOUND=False, _APPLE_SILICON=False, _INTEL_IGPU=True, _AMD_DEV=None
+        ),
+        "nvidia, smi missing": dict(
+            _NVIDIA_FOUND=True, _APPLE_SILICON=False, _INTEL_IGPU=False, _AMD_DEV=None
+        ),
+    }
+    for label, globals_ in cases.items():
+        for name, value in globals_.items():
+            setattr(metrics_mod, name, value)
+        with patch.object(metrics_mod, "_GPU_DETECTED", True), patch(
+            "subprocess.run", side_effect=FileNotFoundError
+        ):
+            gpu_pct, vram_used, _ = metrics_mod.get_gpu_stats()
+            recorded = metrics_mod.get_system_metrics()
+        assert gpu_pct is None, f"{label}: utilisation was not measured, so it is not 0.0"
+        assert vram_used is None, f"{label}: VRAM was not measured, so it is not 0.0"
+        assert recorded["gpu_pct"] is None, f"{label}: a recorded row must not claim 0.0"
+
+
+def test_sampler_primes_the_cpu_counter(clean_gpu_globals):
+    """psutil.cpu_percent's first call in a process always returns 0.0 (hermia-dl2e)."""
+    calls = []
+    real = metrics_mod.MetricsSampler
+
+    with patch("psutil.cpu_percent", side_effect=lambda **kw: calls.append(1) or 5.0):
+        s = real()
+        s.start()
+        s.stop()
+    assert calls, "start() must take and discard a priming reading"

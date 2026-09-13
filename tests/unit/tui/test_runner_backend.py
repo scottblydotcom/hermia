@@ -353,3 +353,54 @@ class TestTuiRunnerBusEvents:
             assert finished[0]["failure_reason"] == "TIMEOUT: no response in 90s"
 
         asyncio.run(_run())
+
+
+def test_tui_does_not_declare_a_host_on_this_machine_remote():
+    """hermia-dl2e: the TUI path itself, end to end, not a keyword-argument assertion.
+
+    An earlier version of this test mocked run_test and asserted
+    `seen.get("locality") != "remote"`. That was a tautology -- the kwarg had been removed, so
+    the expression read None != "remote" and passed for every input, including a remote host.
+    Caught by outside-family review.
+
+    This runs the real _real_run_test with a stubbed transport and checks the OUTCOME: a
+    localhost host must produce mode="local" (so its metrics are kept) and a fleet host must
+    produce mode="fleet" (so the orchestrator's hardware is not misattributed to it).
+    """
+    from unittest.mock import MagicMock, patch
+
+    from hermia.tui.runner_backend import _real_run_test
+
+    payload = '{"action": "search_documentation", "params": {}}'
+    resp = MagicMock()
+    resp.text = payload
+    resp.tokens = 10
+    resp.elapsed_sec = 1.0
+    resp.orchestration = "ollama"
+    resp.orchestration_version = "0.24.0"
+    resp.is_api_mode = False
+
+    transport = MagicMock()
+    transport.is_api_mode = False
+    transport.generate.return_value = resp
+
+    test_case = {"id": "tool-calling-basic", "prompt": "go", "system": ""}
+
+    ps_empty = {"vram_server_gb": None, "model_size_server_gb": None}
+    with patch("hermia.transport.ollama.OllamaTransport", return_value=transport), patch(
+        "hermia.runner.fetch_server_ps_data", return_value=ps_empty
+    ):
+        local = _real_run_test(
+            "m", test_case,
+            host="http://localhost:11434", engine="ollama", auth_env=None,
+        )
+        remote = _real_run_test(
+            "m", test_case,
+            host="http://100.68.230.118:11434", engine="ollama", auth_env=None,
+        )
+
+    assert local["mode"] == "local", (
+        "a host on this machine must not be declared remote -- that discards every CPU, RAM, "
+        "GPU and VRAM figure for the run"
+    )
+    assert remote["mode"] == "fleet", "a fleet host must not be sampled as if it were local"

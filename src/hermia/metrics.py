@@ -133,7 +133,7 @@ def _detect_apple_silicon() -> tuple[bool, str, float]:
     return True, name, vram_total_gb
 
 
-def _gpu_stats_apple_silicon() -> tuple[float, float, float]:
+def _gpu_stats_apple_silicon() -> tuple[float | None, float | None, float | None]:
     """Read Apple Silicon GPU utilization and VRAM via ioreg (no sudo required).
 
     ioreg IOAccelerator PerformanceStatistics exposes:
@@ -149,7 +149,7 @@ def _gpu_stats_apple_silicon() -> tuple[float, float, float]:
             capture_output=True, text=True, timeout=5,
         )
         if r.returncode != 0 or not r.stdout:
-            return 0.0, 0.0, _APPLE_VRAM_TOTAL_GB
+            return None, None, _APPLE_VRAM_TOTAL_GB
         text = r.stdout
         gpu_pct = 0.0
         vram_used_gb = 0.0
@@ -162,7 +162,7 @@ def _gpu_stats_apple_silicon() -> tuple[float, float, float]:
             vram_used_gb = int(m.group(1)) / (1024**3)
         return gpu_pct, vram_used_gb, _APPLE_VRAM_TOTAL_GB
     except (subprocess.SubprocessError, OSError, ValueError):
-        return 0.0, 0.0, _APPLE_VRAM_TOTAL_GB
+        return None, None, _APPLE_VRAM_TOTAL_GB
 
 
 def _detect_intel_igpu() -> tuple[bool, str]:
@@ -200,7 +200,7 @@ def _detect_intel_igpu() -> tuple[bool, str]:
     return False, ""
 
 
-def _gpu_stats_intel() -> tuple[float, float, float]:
+def _gpu_stats_intel() -> tuple[float | None, float | None, float | None]:
     """Read Intel iGPU utilization via intel_gpu_top (Linux only).
 
     intel_gpu_top streams JSON objects continuously; we run it briefly and
@@ -209,7 +209,7 @@ def _gpu_stats_intel() -> tuple[float, float, float]:
     Returns (0.0, 0.0, 0.0) on any failure or when not on Linux.
     """
     if sys.platform != "linux":
-        return 0.0, 0.0, 0.0
+        return None, None, None
     try:
         try:
             r = subprocess.run(  # noqa: S603
@@ -222,16 +222,32 @@ def _gpu_stats_intel() -> tuple[float, float, float]:
             text = raw if isinstance(raw, str) else (raw.decode(errors="ignore") if raw else "")
 
         if not text:
-            return 0.0, 0.0, 0.0
+            return None, None, None
         lines = [ln for ln in text.splitlines() if ln.strip().startswith("{")]
         if not lines:
-            return 0.0, 0.0, 0.0
+            return None, None, None
         obj = json.loads(lines[-1])
         engines = obj.get("engines", {})
         render = engines.get("Render/3D/0", engines.get("Render/3D", {}))
         return float(render.get("busy", 0.0)), 0.0, 0.0
     except Exception:
-        return 0.0, 0.0, 0.0
+        return None, None, None
+
+
+_GPU_DETECTED = False
+
+
+def ensure_gpu_detected() -> None:
+    """Run detect_gpu() once per process so the module globals mean something.
+
+    get_gpu_stats() answers from _NVIDIA_FOUND / _APPLE_SILICON / _INTEL_IGPU / _AMD_DEV,
+    which only detect_gpu() ever populates. Idempotent and cheap after the first call.
+    """
+    global _GPU_DETECTED  # noqa: PLW0603
+    if _GPU_DETECTED:
+        return
+    detect_gpu()
+    _GPU_DETECTED = True
 
 
 def detect_gpu() -> dict[str, Any]:
@@ -317,7 +333,7 @@ def detect_gpu() -> dict[str, Any]:
     }
 
 
-def _gpu_stats_nvidia() -> tuple[float, float, float]:
+def _gpu_stats_nvidia() -> tuple[float | None, float | None, float | None]:
     """Read GPU utilization and VRAM via nvidia-smi."""
     try:
         result = subprocess.run(  # noqa: S603
@@ -331,29 +347,29 @@ def _gpu_stats_nvidia() -> tuple[float, float, float]:
             timeout=2,
         )
         if result.returncode != 0 or not result.stdout.strip():
-            return 0.0, 0.0, _NVIDIA_VRAM_TOTAL_GB
+            return None, None, _NVIDIA_VRAM_TOTAL_GB
         line = result.stdout.strip().splitlines()[0]
         parts = [p.strip() for p in line.split(",")]
         if len(parts) < 3:
-            return 0.0, 0.0, _NVIDIA_VRAM_TOTAL_GB
+            return None, None, _NVIDIA_VRAM_TOTAL_GB
         try:
             gpu_pct = float(parts[0])
             vram_used = float(parts[1]) / 1024  # MiB → GiB
             vram_total = float(parts[2]) / 1024  # MiB → GiB
         except ValueError:
-            return 0.0, 0.0, _NVIDIA_VRAM_TOTAL_GB
+            return None, None, _NVIDIA_VRAM_TOTAL_GB
         return gpu_pct, vram_used, vram_total
     except (subprocess.SubprocessError, ValueError, IndexError, OSError):
-        return 0.0, 0.0, _NVIDIA_VRAM_TOTAL_GB
+        return None, None, _NVIDIA_VRAM_TOTAL_GB
 
 
-def _gpu_stats_sysfs() -> tuple[float, float, float]:
+def _gpu_stats_sysfs() -> tuple[float | None, float | None, float | None]:
     """Read AMD GPU stats from amdgpu kernel sysfs — works without ROCm/Vulkan."""
     dev = _AMD_DEV
     if dev is None:
         dev = _find_amdgpu_dev()
     if dev is None:
-        return 0.0, 0.0, 0.0
+        return None, None, None
     try:
         with open(f"{dev}/gpu_busy_percent") as f:
             gpu_pct = float(f.read().strip())
@@ -363,16 +379,34 @@ def _gpu_stats_sysfs() -> tuple[float, float, float]:
             vram_total = float(f.read().strip()) / (1024**3)
         return gpu_pct, vram_used, vram_total
     except Exception:
-        return 0.0, 0.0, 0.0
+        return None, None, None
 
 
-def get_gpu_stats() -> tuple[float, float, float]:
+def gpu_present() -> bool:
+    """Is there a GPU at all? Distinguishes "no GPU" from "GPU idle" (hermia-dl2e)."""
+    ensure_gpu_detected()
+    return _NVIDIA_FOUND or _APPLE_SILICON or _INTEL_IGPU or _AMD_DEV is not None
+
+
+def get_gpu_stats() -> tuple[float | None, float | None, float | None]:
     """Return (gpu_pct, vram_used_gb, vram_total_gb).
 
     Routes to nvidia-smi, Apple Silicon ioreg, Intel i915, or AMD rocm-smi/sysfs
-    based on what detect_gpu() found at startup. Returns (0.0, 0.0, 0.0) on
-    CPU-only systems.
+    based on what detect_gpu() found.
+
+    A field is None when it was NOT MEASURED — no GPU, or the probe failed. 0.0 means
+    measured and idle. Those are different claims and a recorded row must not confuse
+    them; a cached total that detection genuinely found stays populated even when the
+    live probe fails, because that value IS known (hermia-dl2e).
+
+    Detection is ensured HERE, where the globals are read, rather than at any one
+    call site. An earlier fix put it only in MetricsSampler.start(), which left three
+    direct callers reading uninitialised globals — runner.py's cold-load VRAM
+    before/after, and preflight.py, which is what tells a user whether a model fits
+    in their VRAM and would have answered 0 GB. Initialising at the read is the only
+    placement that cannot be bypassed by a new caller.
     """
+    ensure_gpu_detected()
     if _NVIDIA_FOUND:
         return _gpu_stats_nvidia()
 
@@ -383,7 +417,7 @@ def get_gpu_stats() -> tuple[float, float, float]:
         return _gpu_stats_intel()
 
     if _AMD_DEV is None:
-        return 0.0, 0.0, 0.0
+        return None, None, None
 
     try:
         result = subprocess.run(  # noqa: S603
@@ -405,13 +439,22 @@ def get_gpu_stats() -> tuple[float, float, float]:
         return _gpu_stats_sysfs()
 
 
-def get_system_metrics() -> dict[str, float]:
+def get_system_metrics() -> dict[str, float | None]:
     """Return CPU%, RAM, GPU%, VRAM as a flat dict."""
     import psutil
 
     cpu = psutil.cpu_percent(interval=None)
     ram = psutil.virtual_memory()
-    gpu_pct, vram_used, vram_total = get_gpu_stats()
+    # "No GPU" and "GPU idle" are different facts and must not both read as 0.0.
+    # On a CPU-only host the GPU fields are None — absent, not measured-as-zero —
+    # which is the same distinction _round_or_none defends in runner.py (hermia-dl2e).
+    gpu_pct: float | None
+    vram_used: float | None
+    vram_total: float | None
+    if gpu_present():
+        gpu_pct, vram_used, vram_total = get_gpu_stats()
+    else:
+        gpu_pct = vram_used = vram_total = None
     return {
         "cpu_pct": cpu,
         "ram_used_gb": ram.used / (1024**3),
@@ -426,12 +469,30 @@ class MetricsSampler:
     """Background thread sampling system metrics every 2 s during a run."""
 
     def __init__(self) -> None:
-        self.samples: list[dict[str, float]] = []
+        self.samples: list[dict[str, float | None]] = []
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self.latest: dict[str, float] = {}
+        self.latest: dict[str, float | None] = {}
 
     def start(self) -> None:
+        # psutil.cpu_percent(interval=None) returns 0.0 on its FIRST call in a process: it
+        # reports usage since the previous call, and there was none. On a short trial that
+        # zero is the only sample, so a busy machine records 0.0% CPU. Priming here discards
+        # that first meaningless reading (hermia-dl2e).
+        import psutil
+
+        psutil.cpu_percent(interval=None)
+        # Sampling without detection reads GPU globals that are still at their defaults, so
+        # get_gpu_stats() returns (0.0, 0.0, 0.0) on a machine that plainly has a GPU. Before
+        # this, detect_gpu() was called from exactly one place -- submit.py -- and never on the
+        # run path, so enabling local sampling would have recorded a fabricated 0% GPU and
+        # 0.0 GB VRAM for real work. Verified on an Apple M1 Pro (hermia-dl2e).
+        #
+        # Detection shells out to system_profiler/sysctl/nvidia-smi, so it is done once per
+        # process, not once per test. Kept here as well as in get_gpu_stats(): starting a
+        # sampler is the moment the cost is affordable, so the first read is not the one
+        # paying for it.
+        ensure_gpu_detected()
         self._stop.clear()
         self.samples = []
         self._thread = threading.Thread(target=self._run, daemon=True)
@@ -451,12 +512,20 @@ class MetricsSampler:
             self._stop.wait(2)
 
     def peak(self) -> dict[str, float]:
+        """Peak of each measured field. A field never measured is OMITTED, not zeroed.
+
+        On a CPU-only host the GPU fields are None in every sample, and an omitted key is
+        what lets runner.py's _round_or_none write None rather than claiming a measurement
+        of 0.0. Taking max() over None would also raise (hermia-dl2e).
+        """
         if not self.samples:
             return {}
-        return {
-            "cpu_pct": max(s["cpu_pct"] for s in self.samples),
-            "ram_used_gb": max(s["ram_used_gb"] for s in self.samples),
-            "gpu_pct": max(s["gpu_pct"] for s in self.samples),
-            "vram_used_gb": max(s["vram_used_gb"] for s in self.samples),
-            "vram_total_gb": self.samples[-1]["vram_total_gb"],
-        }
+        out: dict[str, float] = {}
+        for key in ("cpu_pct", "ram_used_gb", "gpu_pct", "vram_used_gb"):
+            seen = [s[key] for s in self.samples if s.get(key) is not None]
+            if seen:
+                out[key] = max(v for v in seen if v is not None)
+        last_total = self.samples[-1].get("vram_total_gb")
+        if last_total is not None:
+            out["vram_total_gb"] = last_total
+        return out
