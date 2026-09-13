@@ -1,7 +1,9 @@
 """Unit tests for MetricsSampler and GPU detection."""
 
 import json
+import sys
 import time
+from pathlib import Path
 from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
@@ -868,3 +870,153 @@ def test_sampler_primes_the_cpu_counter(clean_gpu_globals):
         s.start()
         s.stop()
     assert calls, "start() must take and discard a priming reading"
+
+
+# ---------------------------------------------------------------------------
+# hermia-j6a8 — an unprobed GPU is UNKNOWN, never zero
+# ---------------------------------------------------------------------------
+
+def _no_gpu_anywhere(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make every probe come up empty, as they all do on Windows for a non-NVIDIA card."""
+    monkeypatch.setattr(metrics_mod, "_detect_nvidia", lambda: (False, "", 0.0, 0.0))
+    monkeypatch.setattr(metrics_mod, "_detect_apple_silicon", lambda: (False, "", 0.0))
+    monkeypatch.setattr(metrics_mod, "_find_amdgpu_dev", lambda: None)
+    monkeypatch.setattr(metrics_mod, "_detect_intel_igpu", lambda: (False, ""))
+
+
+def test_unprobed_platform_reports_unknown_not_none(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """On Windows, "no GPU" is a claim hermia is not entitled to make.
+
+    Confirmed on real hardware 2026-09-12: a 16 GB RX 7800 XT reported vendor='none'.
+    The AMD probe is `glob('/sys/class/drm/card*/device/uevent')` -- Linux sysfs -- and the
+    Intel probe is equally POSIX, so on Windows neither can find a card that is physically
+    present. nvidia-smi DOES work on Windows, so an NVIDIA card is still detected; it is
+    specifically the AMD and Intel paths that have no Windows implementation. An empty
+    result there means NOT PROBED, which is a different fact from NO GPU PRESENT.
+    """
+    _no_gpu_anywhere(monkeypatch)
+    monkeypatch.setattr(sys, "platform", "win32")
+    info = metrics_mod.detect_gpu()
+    assert info["vendor"] == "unknown", (
+        "a platform with no AMD/Intel probe must not claim there is no GPU"
+    )
+    assert info["found"] is False
+
+
+def test_unprobed_platform_does_not_fabricate_a_vram_measurement(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """0.0 GB is a MEASUREMENT. None is the absence of one. They are not interchangeable."""
+    _no_gpu_anywhere(monkeypatch)
+    monkeypatch.setattr(sys, "platform", "win32")
+    assert metrics_mod.detect_gpu()["vram_total_gb"] is None
+
+
+def test_genuinely_gpu_less_posix_host_still_reports_none_vendor(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """On Linux every probe is implemented, so an empty result IS evidence of no GPU.
+
+    This is the negative control for the test above: the fix must not turn every
+    CPU-only host into "unknown", which would destroy a real signal.
+    """
+    _no_gpu_anywhere(monkeypatch)
+    monkeypatch.setattr(sys, "platform", "linux")
+    info = metrics_mod.detect_gpu()
+    assert info["vendor"] == "none"
+    assert info["vram_total_gb"] is None, "absent VRAM is still not a measurement of zero"
+
+
+def test_intel_mac_with_discrete_amd_gpu_is_unknown_not_none(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """macOS has no /sys/class/drm either, so the AMD probe is as blind there as on Windows.
+
+    Found by the outside-family review gate on the first version of this fix, which keyed on
+    `sys.platform != "win32"` and so still published a darwin host reaching this fallback as
+    vendor='none' -> 'local:cpu' -> system RAM -- the exact defect this bead exists to remove,
+    reproduced one platform over.
+
+    ⚠️ SCOPE, narrowed after a SECOND gate pass called out the original wording. This proves
+    only what it mocks: a darwin host where every probe came up empty. It does NOT prove the
+    2019 16-inch MacBook Pro case its first docstring claimed, because that machine has an
+    Intel UHD 630 alongside its discrete AMD card, `_detect_intel_igpu` matches ANY darwin
+    display whose model contains "Intel", and it is checked BEFORE this fallback -- so such a
+    machine exits at vendor='intel' and never reaches the code under test. That shadowing is
+    a real, separate defect (hermia-mont) and this test must not be read as covering it.
+    """
+    _no_gpu_anywhere(monkeypatch)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    info = metrics_mod.detect_gpu()
+    assert info["vendor"] == "unknown", (
+        "the AMD sysfs probe cannot run on darwin, so 'no GPU' is not a claim we can make"
+    )
+    assert info["vram_total_gb"] is None
+
+
+def test_found_amd_card_with_unreadable_vram_reports_none(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, clean_gpu_globals: None
+) -> None:
+    """Same fabrication, one layer down: the card IS found, the measurement is not.
+
+    `mem_info_vram_total` can be absent or unreadable (permissions, a kernel that does not
+    export it, a driver mid-reload). The except arm used to substitute 0.0, publishing a
+    measurement of zero for a card hermia had just successfully identified.
+    """
+    monkeypatch.setattr(metrics_mod, "_detect_nvidia", lambda: (False, "", 0.0, 0.0))
+    monkeypatch.setattr(metrics_mod, "_detect_apple_silicon", lambda: (False, "", 0.0))
+    # A real device path whose mem_info_vram_total does not exist -> the except arm.
+    dev = tmp_path / "sys" / "class" / "drm" / "card0" / "device"
+    dev.mkdir(parents=True)
+    monkeypatch.setattr(metrics_mod, "_find_amdgpu_dev", lambda: str(dev))
+
+    info = metrics_mod.detect_gpu()
+
+    assert info["found"] is True, "positive control: the card must still be detected"
+    assert info["vendor"] == "amd"
+    assert info["vram_total_gb"] is None, "an unreadable measurement is not a measurement of 0"
+
+
+def test_amd_vram_file_that_is_empty_or_garbage_does_not_crash_detection(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, clean_gpu_globals: None
+) -> None:
+    """`int("")` raises ValueError, which an `except OSError` does not catch.
+
+    The file can exist and be readable yet hold nothing useful -- a driver mid-reload, a
+    kernel that exports the node before populating it. The original except arm named only
+    OSError, so this escaped as an unhandled crash out of detect_gpu() rather than being
+    recorded as an unmeasured value. Found by the outside-family gate.
+    """
+    dev = tmp_path / "sys" / "class" / "drm" / "card0" / "device"
+    dev.mkdir(parents=True)
+    monkeypatch.setattr(metrics_mod, "_detect_nvidia", lambda: (False, "", 0.0, 0.0))
+    monkeypatch.setattr(metrics_mod, "_detect_apple_silicon", lambda: (False, "", 0.0))
+    monkeypatch.setattr(metrics_mod, "_find_amdgpu_dev", lambda: str(dev))
+
+    for garbage in ("", "   ", "not-a-number", "12.5GB"):
+        (dev / "mem_info_vram_total").write_text(garbage, encoding="utf-8")
+        info = metrics_mod.detect_gpu()
+        assert info["found"] is True, f"card must still be found for {garbage!r}"
+        assert info["vram_total_gb"] is None, f"{garbage!r} is not a measurement"
+
+
+def test_amd_enumeration_survives_a_garbage_vram_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, clean_gpu_globals: None
+) -> None:
+    """The same flaw sits one level earlier, in _find_amdgpu_dev's ranking read.
+
+    It crashes during card ENUMERATION, before detect_gpu() reaches the VRAM read at all,
+    so fixing only the later site would leave the earlier one live.
+    """
+    drm = tmp_path / "sys" / "class" / "drm"
+    dev = drm / "card0" / "device"
+    dev.mkdir(parents=True)
+    (dev / "uevent").write_text("DRIVER=amdgpu\n", encoding="utf-8")
+    (dev / "mem_info_vram_total").write_text("", encoding="utf-8")
+    monkeypatch.setattr(metrics_mod.glob, "glob", lambda _p: [str(dev / "uevent")])
+
+    assert metrics_mod._find_amdgpu_dev() == str(dev), (
+        "a card with an unreadable VRAM value still exists and must still be enumerated"
+    )
