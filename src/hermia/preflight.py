@@ -206,7 +206,12 @@ def run_preflight(
     checks: list[ModelCheck] = []
     for name in selected_models:
         size_gb = size_map.get(name, 0.0)
-        fits_total_vram = size_gb <= vram_total
+        # hermia-iqf4: the same rule the next line already applies to `fits_current_vram`.
+        # get_gpu_stats returns None for a field it did not measure -- a CPU-only host, an
+        # unprobed platform, an AMD card whose sysfs value is unreadable -- and comparing a
+        # float to None raises. `vram_available` two lines up guards for exactly this and
+        # this line did not, so a preflight on any GPU-less machine crashed outright.
+        fits_total_vram = True if vram_total is None else size_gb <= vram_total
         # Unknown VRAM is not a failing check. Refusing to guess beats guessing wrong in
         # either direction -- a false "will not fit" is as unhelpful as a false "will".
         fits_current_vram = True if vram_available is None else size_gb <= vram_available

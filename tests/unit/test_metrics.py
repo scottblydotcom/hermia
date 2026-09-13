@@ -934,10 +934,18 @@ def test_intel_mac_with_discrete_amd_gpu_is_unknown_not_none(
 ) -> None:
     """macOS has no /sys/class/drm either, so the AMD probe is as blind there as on Windows.
 
-    Found by the outside-family review gate on the first version of this fix, which keyed
-    on `sys.platform != "win32"` and so still published an Intel Mac with a discrete AMD
-    card (Mac Pro, 2019 16-inch, any eGPU) as vendor='none' -> 'local:cpu' -> system RAM.
-    That is the exact defect this bead exists to remove, reproduced one platform over.
+    Found by the outside-family review gate on the first version of this fix, which keyed on
+    `sys.platform != "win32"` and so still published a darwin host reaching this fallback as
+    vendor='none' -> 'local:cpu' -> system RAM -- the exact defect this bead exists to remove,
+    reproduced one platform over.
+
+    ⚠️ SCOPE, narrowed after a SECOND gate pass called out the original wording. This proves
+    only what it mocks: a darwin host where every probe came up empty. It does NOT prove the
+    2019 16-inch MacBook Pro case its first docstring claimed, because that machine has an
+    Intel UHD 630 alongside its discrete AMD card, `_detect_intel_igpu` matches ANY darwin
+    display whose model contains "Intel", and it is checked BEFORE this fallback -- so such a
+    machine exits at vendor='intel' and never reaches the code under test. That shadowing is
+    a real, separate defect (hermia-mont) and this test must not be read as covering it.
     """
     _no_gpu_anywhere(monkeypatch)
     monkeypatch.setattr(sys, "platform", "darwin")
