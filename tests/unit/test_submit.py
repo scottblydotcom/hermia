@@ -700,3 +700,56 @@ def test_submit_command_no_results_file_exits_1(
     with pytest.raises(SystemExit) as exc:
         submit_command(results_path=None, dry_run=False, yes=True)
     assert exc.value.code == 1
+
+
+# ---------------------------------------------------------------------------
+# hermia-j6a8 — an unprobed GPU must not become a system-RAM figure
+# ---------------------------------------------------------------------------
+
+def test_unknown_vendor_does_not_fall_back_to_system_ram() -> None:
+    """The existing guard is keyed on the vendor being KNOWN; Windows fails the other way.
+
+    `compute_unified_memory_gb` already refuses to substitute system RAM for a discrete GPU
+    whose VRAM probe failed -- its own comment says so. But that branch is reached only when
+    the vendor is 'nvidia' or 'amd'. On Windows the AMD probe cannot run at all, so the
+    vendor is not known, control falls through to the CPU-only branch, and the machine
+    publishes total system RAM as its memory figure -- a plausible number of the wrong
+    quantity, indistinguishable from a genuine CPU-only host.
+
+    Confirmed on real hardware 2026-09-12 with a 16 GB RX 7800 XT.
+    """
+    assert compute_unified_memory_gb({"vendor": "unknown", "vram_total_gb": None}) is None
+
+
+def test_discrete_gpu_with_unmeasured_vram_is_none_not_zero() -> None:
+    """vram_total_gb is now None rather than 0.0 when nothing was measured.
+
+    Previously this arrived as 0.0 and was caught by `vram > 0.0`. With None that comparison
+    would raise, and the bare `except Exception` would return None by ACCIDENT rather than by
+    decision. Pin the decision.
+    """
+    assert compute_unified_memory_gb({"vendor": "amd", "vram_total_gb": None}) is None
+
+
+def test_genuine_cpu_only_host_still_reports_system_ram() -> None:
+    """Negative control: the fix must not blind hermia to real CPU-only machines.
+
+    A POSIX host where every probe ran and found nothing is genuinely GPU-less, and system
+    RAM is the meaningful figure there. That behaviour is deliberate and must survive.
+    """
+    result = compute_unified_memory_gb({"vendor": "none", "vram_total_gb": None})
+    assert result is not None
+    assert result > 0.0
+
+
+def test_unprobed_host_is_not_classified_as_cpu_only() -> None:
+    """The most user-visible consequence of the old fabrication.
+
+    vendor='none' maps to 'local:cpu'. Before hermia-j6a8 a Windows machine with a 16 GB
+    discrete card arrived here as 'none' and was published as a CPU-only host -- the
+    taxonomy value used to interpret every result row from that machine. 'unknown' falls
+    through to 'local:other', which is the honest answer: not a CPU host, and not a class
+    we can name.
+    """
+    assert compute_host_class({"vendor": "unknown", "card": ""}) == "local:other"
+    assert compute_host_class({"vendor": "none", "card": ""}) == "local:cpu"

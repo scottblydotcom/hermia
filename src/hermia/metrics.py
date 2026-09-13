@@ -256,8 +256,10 @@ def detect_gpu() -> dict[str, Any]:
     Tries NVIDIA first (via nvidia-smi), then Apple Silicon (via ioreg/sysctl),
     then AMD (via sysfs), then Intel iGPU (via i915/system_profiler).
     Returns a dict with keys: found (bool), vendor (str), card (str),
-    dev_path (str), vram_total_gb (float).
-    vendor is one of: nvidia, apple, amd, intel, none.
+    dev_path (str), vram_total_gb (float | None -- None means NOT MEASURED, never 0.0).
+    vendor is one of: nvidia, apple, amd, intel, none, unknown.
+    "none" asserts no GPU is present; "unknown" means no probe for this platform
+    could run, so hermia is not entitled to make that assertion (hermia-j6a8).
     """
     global _AMD_DEV, _NVIDIA_FOUND, _NVIDIA_VRAM_TOTAL_GB  # noqa: PLW0603
     global _APPLE_SILICON, _APPLE_VRAM_TOTAL_GB, _INTEL_IGPU  # noqa: PLW0603
@@ -300,17 +302,22 @@ def detect_gpu() -> dict[str, Any]:
     if _AMD_DEV is not None:
         _INTEL_IGPU = False
         card = _AMD_DEV.split("/sys/class/drm/")[-1].split("/")[0]
+        amd_vram: float | None
         try:
             with open(f"{_AMD_DEV}/mem_info_vram_total") as f:
-                vram_total_gb = int(f.read().strip()) / (1024**3)
+                amd_vram = int(f.read().strip()) / (1024**3)
         except OSError:
-            vram_total_gb = 0.0
+            # hermia-j6a8: the card WAS found; only the measurement failed. Substituting
+            # 0.0 here publishes a measurement of zero for hardware just identified as
+            # present -- `mem_info_vram_total` can be absent, unreadable, or served by a
+            # driver mid-reload. None says "not measured", which is the true statement.
+            amd_vram = None
         return {
             "found": True,
             "vendor": "amd",
             "card": card,
             "dev_path": _AMD_DEV,
-            "vram_total_gb": vram_total_gb,
+            "vram_total_gb": amd_vram,
             "compute_cap": 0.0,
         }
 
@@ -327,9 +334,25 @@ def detect_gpu() -> dict[str, Any]:
         }
 
     _INTEL_IGPU = False
+    # hermia-j6a8: "there is no GPU" is a CLAIM, and on some platforms we are not entitled
+    # to make it. The AMD probe is `glob('/sys/class/drm/card*/device/uevent')` and the Intel
+    # probe is equally POSIX, so on Windows neither can see a card that is physically
+    # present -- confirmed on real hardware 2026-09-12, where a 16 GB RX 7800 XT arrived here
+    # and was published as vendor='none'. (nvidia-smi does run on Windows, so an NVIDIA card
+    # is still found; it is the AMD and Intel paths that have no Windows implementation.)
+    # Reaching this point on such a platform means NOT PROBED, which is a different fact from
+    # NO GPU PRESENT, and collapsing the two is what let a real card be reported as absent.
+    probed = sys.platform != "win32"
     return {
-        "found": False, "vendor": "none", "card": "",
-        "dev_path": "", "vram_total_gb": 0.0, "compute_cap": 0.0,
+        "found": False,
+        "vendor": "none" if probed else "unknown",
+        "card": "",
+        "dev_path": "",
+        # Never 0.0. A zero here is a measurement claim about hardware nobody measured --
+        # the same fabrication hermia-dl2e removed from the collectors in PR #180. Absence
+        # of a measurement is None.
+        "vram_total_gb": None,
+        "compute_cap": 0.0,
     }
 
 
