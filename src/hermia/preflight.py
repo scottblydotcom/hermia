@@ -139,9 +139,13 @@ def check_engine_security(
 
 @dataclass
 class PreflightReport:
-    vram_total_gb: float
-    vram_used_gb: float
-    vram_available_gb: float
+    # None when this machine's GPU could not be measured -- no GPU, or the probe failed.
+    # Distinct from 0.0, which asserts a measurement. A preflight that reports 0 GB free
+    # on an unmeasured host tells a user their model will not fit when we simply do not
+    # know (hermia-dl2e).
+    vram_total_gb: float | None
+    vram_used_gb: float | None
+    vram_available_gb: float | None
     ram_total_gb: float
     ram_available_gb: float
     disk_free_gb: float
@@ -171,6 +175,8 @@ class PreflightReport:
                 out.append(
                     f"WARN {m.name} ({m.size_gb:.1f} GB): tight fit — "
                     f"{self.vram_available_gb:.1f} GB VRAM free, may stall"
+                    if self.vram_available_gb is not None
+                    else "VRAM could not be measured on this host"
                 )
         return out
 
@@ -182,7 +188,10 @@ def run_preflight(
     fleet_mode: bool = False,
 ) -> PreflightReport:
     _, vram_used, vram_total = get_gpu_stats()
-    vram_available = max(0.0, vram_total - vram_used - VRAM_OVERHEAD_GB)
+    vram_available = (
+        None if vram_total is None or vram_used is None
+        else max(0.0, vram_total - vram_used - VRAM_OVERHEAD_GB)
+    )
 
     vm = psutil.virtual_memory()
     ram_total_gb = vm.total / (1024**3)
@@ -198,7 +207,9 @@ def run_preflight(
     for name in selected_models:
         size_gb = size_map.get(name, 0.0)
         fits_total_vram = size_gb <= vram_total
-        fits_current_vram = size_gb <= vram_available
+        # Unknown VRAM is not a failing check. Refusing to guess beats guessing wrong in
+        # either direction -- a false "will not fit" is as unhelpful as a false "will".
+        fits_current_vram = True if vram_available is None else size_gb <= vram_available
         fits_ram = (size_gb * RAM_LOAD_MULTIPLIER) <= ram_available_gb
 
         if name in VULKAN_GFX900_BLOCKLIST and not fleet_mode:

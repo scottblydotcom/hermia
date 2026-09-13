@@ -72,7 +72,11 @@ def detect_mode(host: str) -> str:
     discarded every metric for a run that was in fact local (hermia-dl2e).
     """
     hostname = urlparse(_normalize_host(host)).hostname or ""
-    if hostname in ("localhost", "0.0.0.0"):  # noqa: S104 - a comparison, not a bind
+    # "0.0.0.0" and "::" are the unspecified addresses -- "this machine, every interface".
+    # A HOSTNAME is deliberately NOT treated as local even when it resolves here: that would
+    # make locality depend on DNS, and a name can resolve to a different box on the LAN,
+    # which is the misattribution hazard the SSH-tunnel note below is about.
+    if hostname in ("localhost", "0.0.0.0", "::"):  # noqa: S104 - a comparison, not a bind
         return "local"
     try:
         return "local" if ipaddress.ip_address(hostname).is_loopback else "fleet"
@@ -200,10 +204,13 @@ def unload_model(model_name: str) -> None:
         pass
 
 
-def prewarm_timed(model_name: str) -> tuple[float, float, float]:
+def prewarm_timed(model_name: str) -> tuple[float, float | None, float | None]:
     """Unload cached model, then time a cold load.
 
-    Returns (load_time_sec, vram_before_gb, vram_after_gb).
+    Returns (load_time_sec, vram_before_gb, vram_after_gb). The two VRAM figures are None
+    when this machine's GPU could not be measured -- no GPU, or the probe failed. The load
+    time is always real. Reporting 0.0 GB before and after would make a cold load look like
+    it consumed no memory, which is a measurement claim we cannot support (hermia-dl2e).
     """
     host = get_ollama_host()
     _, vram_before, _ = get_gpu_stats()

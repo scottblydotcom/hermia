@@ -1468,7 +1468,10 @@ def test_detect_mode_treats_the_whole_loopback_range_as_local() -> None:
     for host in (
         "http://localhost:11434", "http://127.0.0.1:11434",
         "http://127.0.0.53:11434", "http://0.0.0.0:11434", "http://[::1]:11434",
+        "http://[::]:11434",
     ):
         assert detect_mode(host) == "local", host
+    # A HOSTNAME stays fleet even when it resolves to this machine: making locality depend
+    # on DNS invites the same misattribution as an SSH tunnel on localhost.
     for host in ("http://100.68.230.118:11434", "http://my-box.local:11434"):
         assert detect_mode(host) == "fleet", host
