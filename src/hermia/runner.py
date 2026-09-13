@@ -72,11 +72,16 @@ def detect_mode(host: str) -> str:
     discarded every metric for a run that was in fact local (hermia-dl2e).
     """
     hostname = urlparse(_normalize_host(host)).hostname or ""
+    # Suppressed twice on purpose: ruff reports S104 and bandit reports B104 for the same
+    # literal, and each needs its own marker. Both are false here -- this COMPARES a parsed
+    # hostname, it does not bind a socket. The repo already carries this dual-suppression
+    # pattern elsewhere (ruff S310 / bandit B310).
+    #
     # "0.0.0.0" and "::" are the unspecified addresses -- "this machine, every interface".
     # A HOSTNAME is deliberately NOT treated as local even when it resolves here: that would
     # make locality depend on DNS, and a name can resolve to a different box on the LAN,
     # which is the misattribution hazard the SSH-tunnel note below is about.
-    if hostname in ("localhost", "0.0.0.0", "::"):  # noqa: S104 - a comparison, not a bind
+    if hostname in ("localhost", "0.0.0.0", "::"):  # noqa: S104  # nosec B104
         return "local"
     try:
         return "local" if ipaddress.ip_address(hostname).is_loopback else "fleet"
