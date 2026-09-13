@@ -1,7 +1,9 @@
 """Unit tests for MetricsSampler and GPU detection."""
 
 import json
+import sys
 import time
+from pathlib import Path
 from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
@@ -868,3 +870,81 @@ def test_sampler_primes_the_cpu_counter(clean_gpu_globals):
         s.start()
         s.stop()
     assert calls, "start() must take and discard a priming reading"
+
+
+# ---------------------------------------------------------------------------
+# hermia-j6a8 — an unprobed GPU is UNKNOWN, never zero
+# ---------------------------------------------------------------------------
+
+def _no_gpu_anywhere(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make every probe come up empty, as they all do on Windows for a non-NVIDIA card."""
+    monkeypatch.setattr(metrics_mod, "_detect_nvidia", lambda: (False, "", 0.0, 0.0))
+    monkeypatch.setattr(metrics_mod, "_detect_apple_silicon", lambda: (False, "", 0.0))
+    monkeypatch.setattr(metrics_mod, "_find_amdgpu_dev", lambda: None)
+    monkeypatch.setattr(metrics_mod, "_detect_intel_igpu", lambda: (False, ""))
+
+
+def test_unprobed_platform_reports_unknown_not_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    """On Windows, "no GPU" is a claim hermia is not entitled to make.
+
+    Confirmed on real hardware 2026-09-12: a 16 GB RX 7800 XT reported vendor='none'.
+    The AMD probe is `glob('/sys/class/drm/card*/device/uevent')` -- Linux sysfs -- and the
+    Intel probe is equally POSIX, so on Windows neither can find a card that is physically
+    present. nvidia-smi DOES work on Windows, so an NVIDIA card is still detected; it is
+    specifically the AMD and Intel paths that have no Windows implementation. An empty
+    result there means NOT PROBED, which is a different fact from NO GPU PRESENT.
+    """
+    _no_gpu_anywhere(monkeypatch)
+    monkeypatch.setattr(sys, "platform", "win32")
+    info = metrics_mod.detect_gpu()
+    assert info["vendor"] == "unknown", (
+        "a platform with no AMD/Intel probe must not claim there is no GPU"
+    )
+    assert info["found"] is False
+
+
+def test_unprobed_platform_does_not_fabricate_a_vram_measurement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """0.0 GB is a MEASUREMENT. None is the absence of one. They are not interchangeable."""
+    _no_gpu_anywhere(monkeypatch)
+    monkeypatch.setattr(sys, "platform", "win32")
+    assert metrics_mod.detect_gpu()["vram_total_gb"] is None
+
+
+def test_genuinely_gpu_less_posix_host_still_reports_none_vendor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """On Linux every probe is implemented, so an empty result IS evidence of no GPU.
+
+    This is the negative control for the test above: the fix must not turn every
+    CPU-only host into "unknown", which would destroy a real signal.
+    """
+    _no_gpu_anywhere(monkeypatch)
+    monkeypatch.setattr(sys, "platform", "linux")
+    info = metrics_mod.detect_gpu()
+    assert info["vendor"] == "none"
+    assert info["vram_total_gb"] is None, "absent VRAM is still not a measurement of zero"
+
+
+def test_found_amd_card_with_unreadable_vram_reports_none(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Same fabrication, one layer down: the card IS found, the measurement is not.
+
+    `mem_info_vram_total` can be absent or unreadable (permissions, a kernel that does not
+    export it, a driver mid-reload). The except arm used to substitute 0.0, publishing a
+    measurement of zero for a card hermia had just successfully identified.
+    """
+    monkeypatch.setattr(metrics_mod, "_detect_nvidia", lambda: (False, "", 0.0, 0.0))
+    monkeypatch.setattr(metrics_mod, "_detect_apple_silicon", lambda: (False, "", 0.0))
+    # A real device path whose mem_info_vram_total does not exist -> the except arm.
+    dev = tmp_path / "sys" / "class" / "drm" / "card0" / "device"
+    dev.mkdir(parents=True)
+    monkeypatch.setattr(metrics_mod, "_find_amdgpu_dev", lambda: str(dev))
+
+    info = metrics_mod.detect_gpu()
+
+    assert info["found"] is True, "positive control: the card must still be detected"
+    assert info["vendor"] == "amd"
+    assert info["vram_total_gb"] is None, "an unreadable measurement is not a measurement of 0"

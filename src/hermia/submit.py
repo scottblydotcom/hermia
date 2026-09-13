@@ -187,15 +187,27 @@ def compute_unified_memory_gb(gpu_info: dict[str, Any]) -> float | None:
     to reject the submission.
     """
     vendor: str = gpu_info.get("vendor", "none")
-    vram: float = gpu_info.get("vram_total_gb", 0.0)
+    vram: float | None = gpu_info.get("vram_total_gb")
 
     try:
+        # hermia-j6a8: "unknown" means no probe for this platform could run -- not that the
+        # machine has no GPU. The guard below deliberately refuses to substitute system RAM
+        # for a discrete card, but it is keyed on the vendor being KNOWN, and this is the
+        # failure mode where it is not. Without this branch a Windows box with a 16 GB card
+        # publishes its system RAM instead: a plausible number of the wrong quantity, and
+        # indistinguishable from a genuine CPU-only host. Confirmed on hardware 2026-09-12.
+        if vendor == "unknown":
+            return None
         if vendor in ("nvidia", "amd"):
             # Discrete GPUs do NOT share system RAM. If VRAM detection failed
-            # (vram == 0.0), report None rather than a misleading system-RAM
-            # figure — let the server decide how to handle the missing value.
-            return float(vram) if vram > 0.0 else None
-        if vendor == "apple" and vram > 0.0:
+            # (vram is None, or 0.0 on an older row), report None rather than a
+            # misleading system-RAM figure — let the server decide how to handle
+            # the missing value. The None check is explicit rather than left to
+            # the handler below: a TypeError swallowed by `except Exception`
+            # produces the right answer for the wrong reason, and would stop
+            # doing so the moment that handler is narrowed.
+            return float(vram) if vram is not None and vram > 0.0 else None
+        if vendor == "apple" and vram is not None and vram > 0.0:
             # Apple Silicon: unified memory == measured VRAM when available.
             return float(vram)
         # Apple w/o measured VRAM, Intel iGPU, and CPU-only systems: total
