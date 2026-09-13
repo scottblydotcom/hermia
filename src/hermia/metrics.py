@@ -382,13 +382,27 @@ def _gpu_stats_sysfs() -> tuple[float, float, float]:
         return 0.0, 0.0, 0.0
 
 
+def gpu_present() -> bool:
+    """Is there a GPU at all? Distinguishes "no GPU" from "GPU idle" (hermia-dl2e)."""
+    ensure_gpu_detected()
+    return _NVIDIA_FOUND or _APPLE_SILICON or _INTEL_IGPU or _AMD_DEV is not None
+
+
 def get_gpu_stats() -> tuple[float, float, float]:
     """Return (gpu_pct, vram_used_gb, vram_total_gb).
 
     Routes to nvidia-smi, Apple Silicon ioreg, Intel i915, or AMD rocm-smi/sysfs
-    based on what detect_gpu() found at startup. Returns (0.0, 0.0, 0.0) on
-    CPU-only systems.
+    based on what detect_gpu() found. Returns (0.0, 0.0, 0.0) on CPU-only systems —
+    callers that must tell that apart from an idle GPU should ask `gpu_present()`.
+
+    Detection is ensured HERE, where the globals are read, rather than at any one
+    call site. An earlier fix put it only in MetricsSampler.start(), which left three
+    direct callers reading uninitialised globals — runner.py's cold-load VRAM
+    before/after, and preflight.py, which is what tells a user whether a model fits
+    in their VRAM and would have answered 0 GB. Initialising at the read is the only
+    placement that cannot be bypassed by a new caller.
     """
+    ensure_gpu_detected()
     if _NVIDIA_FOUND:
         return _gpu_stats_nvidia()
 
@@ -421,13 +435,22 @@ def get_gpu_stats() -> tuple[float, float, float]:
         return _gpu_stats_sysfs()
 
 
-def get_system_metrics() -> dict[str, float]:
+def get_system_metrics() -> dict[str, float | None]:
     """Return CPU%, RAM, GPU%, VRAM as a flat dict."""
     import psutil
 
     cpu = psutil.cpu_percent(interval=None)
     ram = psutil.virtual_memory()
-    gpu_pct, vram_used, vram_total = get_gpu_stats()
+    # "No GPU" and "GPU idle" are different facts and must not both read as 0.0.
+    # On a CPU-only host the GPU fields are None — absent, not measured-as-zero —
+    # which is the same distinction _round_or_none defends in runner.py (hermia-dl2e).
+    gpu_pct: float | None
+    vram_used: float | None
+    vram_total: float | None
+    if gpu_present():
+        gpu_pct, vram_used, vram_total = get_gpu_stats()
+    else:
+        gpu_pct = vram_used = vram_total = None
     return {
         "cpu_pct": cpu,
         "ram_used_gb": ram.used / (1024**3),
@@ -442,10 +465,10 @@ class MetricsSampler:
     """Background thread sampling system metrics every 2 s during a run."""
 
     def __init__(self) -> None:
-        self.samples: list[dict[str, float]] = []
+        self.samples: list[dict[str, float | None]] = []
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
-        self.latest: dict[str, float] = {}
+        self.latest: dict[str, float | None] = {}
 
     def start(self) -> None:
         # Sampling without detection reads GPU globals that are still at their defaults, so
@@ -455,7 +478,9 @@ class MetricsSampler:
         # 0.0 GB VRAM for real work. Verified on an Apple M1 Pro (hermia-dl2e).
         #
         # Detection shells out to system_profiler/sysctl/nvidia-smi, so it is done once per
-        # process, not once per test.
+        # process, not once per test. Kept here as well as in get_gpu_stats(): starting a
+        # sampler is the moment the cost is affordable, so the first read is not the one
+        # paying for it.
         ensure_gpu_detected()
         self._stop.clear()
         self.samples = []
@@ -476,12 +501,20 @@ class MetricsSampler:
             self._stop.wait(2)
 
     def peak(self) -> dict[str, float]:
+        """Peak of each measured field. A field never measured is OMITTED, not zeroed.
+
+        On a CPU-only host the GPU fields are None in every sample, and an omitted key is
+        what lets runner.py's _round_or_none write None rather than claiming a measurement
+        of 0.0. Taking max() over None would also raise (hermia-dl2e).
+        """
         if not self.samples:
             return {}
-        return {
-            "cpu_pct": max(s["cpu_pct"] for s in self.samples),
-            "ram_used_gb": max(s["ram_used_gb"] for s in self.samples),
-            "gpu_pct": max(s["gpu_pct"] for s in self.samples),
-            "vram_used_gb": max(s["vram_used_gb"] for s in self.samples),
-            "vram_total_gb": self.samples[-1]["vram_total_gb"],
-        }
+        out: dict[str, float] = {}
+        for key in ("cpu_pct", "ram_used_gb", "gpu_pct", "vram_used_gb"):
+            seen = [s[key] for s in self.samples if s.get(key) is not None]
+            if seen:
+                out[key] = max(v for v in seen if v is not None)
+        last_total = self.samples[-1].get("vram_total_gb")
+        if last_total is not None:
+            out["vram_total_gb"] = last_total
+        return out

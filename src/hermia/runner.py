@@ -1,6 +1,7 @@
 """Ollama model management and test execution."""
 
 import hashlib
+import ipaddress
 import json
 import os
 import threading
@@ -63,9 +64,20 @@ def _round_or_none(value: float | None, digits: int) -> float | None:
 
 
 def detect_mode(host: str) -> str:
-    """Return 'local' if host resolves to localhost/loopback, else 'fleet'."""
+    """Return 'local' if host resolves to localhost/loopback, else 'fleet'.
+
+    The whole of 127.0.0.0/8 is loopback, not just 127.0.0.1 — systemd-resolved uses
+    127.0.0.53 and container setups bind elsewhere in the range. 0.0.0.0 means "this
+    machine, all interfaces". Matching three literals sent those to 'fleet' and silently
+    discarded every metric for a run that was in fact local (hermia-dl2e).
+    """
     hostname = urlparse(_normalize_host(host)).hostname or ""
-    return "local" if hostname in ("localhost", "127.0.0.1", "::1") else "fleet"
+    if hostname in ("localhost", "0.0.0.0"):  # noqa: S104 - a comparison, not a bind
+        return "local"
+    try:
+        return "local" if ipaddress.ip_address(hostname).is_loopback else "fleet"
+    except ValueError:
+        return "fleet"
 
 
 _ps_cache: dict[tuple[Any, ...], dict[str, float | None]] = {}
@@ -420,13 +432,21 @@ def run_test(
     is_api_mode = getattr(transport, "is_api_mode", False) is True
     resolved_locality = locality if locality is not None else detect_mode(_host)
     is_local = (not is_api_mode) and (resolved_locality == "local")
+    # NOT widened to include api-mode-on-localhost. A local OpenAI-compatible server
+    # (llama.cpp, vLLM, LM Studio) is an API *shape* doing work on this machine, so it
+    # arguably should be sampled -- but `test_run_test_api_mode_short_circuits_locality`
+    # asserts the opposite in the repo's own voice, with this exact host and locality:
+    # "is_api_mode=True wins over any locality value". That is a deliberate, tested
+    # contract, and changing what the corpus records is a product decision, not a tidy-up.
+    # Raised by outside-family review as LOW; carried to Scott rather than changed here.
+    samples_local_hardware = is_local
 
     error_type: str = ""
     response = None
     # Only sample local hardware when the work runs on this machine; in
     # fleet/api mode the orchestrator's own hardware is irrelevant and the
     # sampler thread would be pure overhead (the peak is discarded anyway).
-    if is_local:
+    if samples_local_hardware:
         sampler.start()
     t0 = time.monotonic()
     try:
@@ -454,7 +474,7 @@ def run_test(
     except Exception as e:  # noqa: BLE001
         error_type = f"ERROR: {e}"
     finally:
-        if is_local:
+        if samples_local_hardware:
             sampler.stop()
     error_elapsed = time.monotonic() - t0
 
@@ -476,7 +496,11 @@ def run_test(
     orchestration_version: str | None = (
         response.orchestration_version if response is not None else None
     )
-    peak = sampler.peak() if is_local else {}
+    peak = sampler.peak() if samples_local_hardware else {}
+
+    def _peak_of(key: str, digits: int) -> float | None:
+        """A peak only exists if this machine did the work AND the field was measured."""
+        return _round_or_none(peak.get(key), digits) if samples_local_hardware else None
 
     json_valid = False
     schema_ok = False
@@ -600,10 +624,10 @@ def run_test(
         # previous `peak.get(key, 0)` then wrote 0.0, claiming a running machine used 0.0 GB
         # of RAM. An unmeasured field must stay None: None means "not measured", 0.0 means
         # "measured, and it was zero", and a dashboard cannot tell them apart (hermia-dl2e).
-        "peak_cpu_pct": _round_or_none(peak.get("cpu_pct"), 1) if is_local else None,
-        "peak_ram_used_gb": _round_or_none(peak.get("ram_used_gb"), 2) if is_local else None,
-        "peak_gpu_pct": _round_or_none(peak.get("gpu_pct"), 1) if is_local else None,
-        "peak_vram_used_gb": _round_or_none(peak.get("vram_used_gb"), 2) if is_local else None,
+        "peak_cpu_pct": _peak_of("cpu_pct", 1),
+        "peak_ram_used_gb": _peak_of("ram_used_gb", 2),
+        "peak_gpu_pct": _peak_of("gpu_pct", 1),
+        "peak_vram_used_gb": _peak_of("vram_used_gb", 2),
         "mode": "local" if is_local else ("api" if is_api_mode else "fleet"),
         "host": _host,
         **ps_data,

@@ -1454,3 +1454,21 @@ def test_sampler_start_initialises_gpu_detection() -> None:
         sampler.start()
         sampler.stop()
     assert detect.called, "MetricsSampler.start() must ensure detect_gpu() has run"
+
+
+def test_detect_mode_treats_the_whole_loopback_range_as_local() -> None:
+    """hermia-dl2e: 127.0.0.0/8 is all loopback, not just 127.0.0.1.
+
+    systemd-resolved uses 127.0.0.53 and containers bind elsewhere in the range. Matching
+    three string literals sent those to 'fleet' and silently discarded every metric for a
+    run that was in fact on this machine.
+    """
+    from hermia.runner import detect_mode
+
+    for host in (
+        "http://localhost:11434", "http://127.0.0.1:11434",
+        "http://127.0.0.53:11434", "http://0.0.0.0:11434", "http://[::1]:11434",
+    ):
+        assert detect_mode(host) == "local", host
+    for host in ("http://100.68.230.118:11434", "http://my-box.local:11434"):
+        assert detect_mode(host) == "fleet", host
