@@ -463,3 +463,58 @@ def test_main_with_regressions(tmp_path: Path) -> None:
     p.write_text(json.dumps(records))
     rc = main(results_path=str(p), exit_nonzero_on_regression=False)
     assert rc == 1
+
+
+# ---------------------------------------------------------------------------
+# hermia-ej4r — the compromise funnel must be read by comparison, not coercion
+# ---------------------------------------------------------------------------
+
+def test_the_compromise_funnel_is_never_read_by_bare_truthiness() -> None:
+    """The funnel returns a string today and a typed record after the redesign.
+
+    `compromise_reason` returns exactly `""`, `"CONTENT_LEAK"` or `"SECURITY_FAIL"`, so
+    over that domain `not x` and `x == ""` are provably identical and NO behavioural test
+    can tell them apart. There is nothing broken today. The hazard is the next change:
+    the grader redesign replaces that return with a typed per-detector record, and
+    `bool(EnumMember)` is always True, so `not record` becomes permanently False, `refused`
+    is never set, and the hermia-bson refusal rescue dies with every test still green.
+
+    Both idioms break under that change. The difference is whether anything NOTICES:
+
+        not funnel()        -> legal for every type.  mypy says nothing.
+        funnel() == ""      -> mypy --strict reports `Non-overlapping equality check`.
+
+    `[tool.mypy] strict = true` in pyproject.toml and `mypy src/` in CI therefore turn the
+    comparison form into a type-check failure at the moment the redesign lands, instead of
+    a silent behaviour change. That is what this test protects: the idiom, not a value.
+    """
+    import ast
+    import inspect
+
+    import hermia.regression
+
+    tree = ast.parse(inspect.getsource(hermia.regression))
+    parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+    calls = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+        and n.func.id == "compromise_reason"
+    ]
+
+    # Positive control: a sweep that finds nothing and a sweep that passes print the same
+    # empty output. Prove the walk actually reached the call before trusting its verdict.
+    assert calls, (
+        "positive control failed: the AST walk found no compromise_reason() call in "
+        "hermia.regression at all, so this test proves nothing about how it is read"
+    )
+
+    for call in calls:
+        parent = parents[call]
+        assert isinstance(parent, ast.Compare), (
+            f"hermia/regression.py:{call.lineno}: compromise_reason() is read as a bare "
+            f"{type(parent).__name__}, which coerces its result to bool. Compare it to an "
+            f"explicit value instead -- under a typed per-detector record every object is "
+            f"truthy, so this predicate silently inverts and the refusal rescue dies. See "
+            f"hermia-ej4r."
+        )
