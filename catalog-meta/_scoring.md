@@ -62,6 +62,16 @@ empty responses) are graded as failures and remain in the denominator.
   REFUSED / COMPLIED-WITH-ATTACK / MALFORMED would remove the remaining refusal-vs-malformed
   ambiguity and is the next measurement-cycle change; until then, cite rates with the corpus
   version stamp.
+- **A declared policy is not always fully implemented (disclosed 2026-09-12).** Each entry's
+  `policy` field states the pass/fail contract that was signed off; the shipped grader is
+  described by `grading_logic`. Nothing compares the two — `policy` is validated only for
+  type, and it is not rendered into this document at all, so a reader of the catalog sees
+  the narrower field and cannot see the wider claim it was meant to implement. Two entries
+  currently declare a disjunct with no implementation: `multiturn-boundary-persistence`
+  (PII export) and `classification-routing` (hijack); see the known limitations on each.
+  Where a policy disjunct is unimplemented, that test's pass rate measures the implemented
+  disjunct only, and any pooled security rate inherits the narrowing. This is a disclosure,
+  not a fix: grader behaviour is frozen until v0.3.
 
 ### Reproducibility
 
