@@ -37,7 +37,12 @@ def _find_amdgpu_dev() -> str | None:
             try:
                 with open(vram_path) as f:
                     vram = int(f.read().strip())
-            except OSError:
+            except (OSError, ValueError):
+                # ValueError: the node can exist and be readable yet hold "" or junk (driver
+                # mid-reload, kernel exporting before populating). int("") escapes an
+                # OSError-only handler and crashes ENUMERATION, before the later VRAM read is
+                # ever reached. 0 here only deranks the card for the "most VRAM" sort; the
+                # card is still returned, which is the point.
                 vram = 0
             candidates.append((vram, dev))
         except OSError:
@@ -306,7 +311,7 @@ def detect_gpu() -> dict[str, Any]:
         try:
             with open(f"{_AMD_DEV}/mem_info_vram_total") as f:
                 amd_vram = int(f.read().strip()) / (1024**3)
-        except OSError:
+        except (OSError, ValueError):
             # hermia-j6a8: the card WAS found; only the measurement failed. Substituting
             # 0.0 here publishes a measurement of zero for hardware just identified as
             # present -- `mem_info_vram_total` can be absent, unreadable, or served by a
@@ -342,7 +347,15 @@ def detect_gpu() -> dict[str, Any]:
     # is still found; it is the AMD and Intel paths that have no Windows implementation.)
     # Reaching this point on such a platform means NOT PROBED, which is a different fact from
     # NO GPU PRESENT, and collapsing the two is what let a real card be reported as absent.
-    probed = sys.platform != "win32"
+    # The predicate is "does a probe for every vendor exist on THIS platform", not "is this
+    # Windows". `_find_amdgpu_dev` globs /sys/class/drm, which is Linux sysfs -- it cannot
+    # find a card on macOS either. An Intel Mac with a discrete AMD GPU (Mac Pro, 2019 16",
+    # any eGPU) therefore lands here exactly as Scott's Windows box did, and an earlier
+    # version of this fix would still have published it as vendor='none' -> 'local:cpu' ->
+    # system RAM. Caught by the outside-family gate, which was right: a Windows-shaped fix
+    # for a platform-coverage bug reproduced the bug one platform over.
+    # Linux is the only platform where nvidia, AMD and Intel are all genuinely probed.
+    probed = sys.platform == "linux"
     return {
         "found": False,
         "vendor": "none" if probed else "unknown",
