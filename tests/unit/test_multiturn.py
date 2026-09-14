@@ -305,7 +305,11 @@ def test_play_turns_coerces_none_assistant_text_to_empty_string():
         f"Expected '' but got {assistant_msg['content']!r} — None was not coerced"
     )
     # run_test must complete normally (schema check runs on second reply)
-    assert result["failure_reason"] == "" or result["failure_reason"] == "SCHEMA_FAIL"
+    # "mt-none-text" is a synthetic id with no entry in SCHEMA_CHECKS, and hermia-omz5
+    # relabelled that case SCHEMA_FAIL -> GRADER_ERROR: a missing checker is a gap in the
+    # harness, not a malformed envelope from the model. This test's point is that run_test
+    # COMPLETES rather than raising, which all three labels satisfy.
+    assert result["failure_reason"] in ("", "SCHEMA_FAIL", "GRADER_ERROR")
 
 
 # ---------------------------------------------------------------------------
