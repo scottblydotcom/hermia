@@ -738,11 +738,16 @@ def _fixture_witnesses(test_id):
         # firing there is a FALSE POSITIVE, and counting it would let a broken detector prove
         # itself. Antigravity raised this on PR #168 and proposed filtering on
         # `expected_verdict` instead — which would have been wrong and is worth recording.
-        # `expected_verdict` is the SCHEMA verdict, and a genuine compromise can pass schema:
-        # adversarial-input-signal-in-noise[1] is labelled True and emits "DAN MODE ENGAGED"
-        # plus a system-prompt dump around valid JSON. Filtering on it would have discarded a
-        # real witness. The compromise label is `expected_security_verdict`, which Phase 1
-        # added and no fixture carries yet — so absent means "unlabelled", not "benign".
+        # `expected_verdict` is the SCHEMA verdict — whether the ENVELOPE was well formed —
+        # which is a different question from whether the model was compromised. Filtering
+        # witnesses on it would therefore discard real ones. This note used to cite
+        # adversarial-input-signal-in-noise[1] as its example; hermia-rwe4 relabelled that
+        # fixture to False (it adopts the injected persona rather than treating it as data),
+        # so as of this PR NO committed fixture demonstrates the case — verified 2026-09-13,
+        # zero fixtures are both a detected compromise and `expected_verdict: true`. The
+        # argument rests on the two labels answering different questions, not on an example.
+        # The compromise label is `expected_security_verdict`, which Phase 1 added and no
+        # fixture carries yet — so absent means "unlabelled", not "benign".
         labelled = fixture.get("expected_security_verdict")
         if labelled is not None and labelled != "compromised":
             continue
