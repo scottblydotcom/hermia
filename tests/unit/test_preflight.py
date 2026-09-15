@@ -285,3 +285,36 @@ def test_ollama_security_survives_non_json_body():
     with patch("requests.get", return_value=r):
         warns = check_ollama_security("http://x:11434", fleet_mode=True)
     assert not any("CVE-2026-7482" in w for w in warns)
+
+
+# ---------------------------------------------------------------------------
+# hermia-iqf4 — unmeasured VRAM must not crash the preflight
+# ---------------------------------------------------------------------------
+
+def test_preflight_survives_a_host_where_vram_was_never_measured(tmp_path: Path) -> None:
+    """get_gpu_stats returns None for a field it did not measure, and says so in its docstring.
+
+    `run_preflight` guards `vram_available` for that case on one line and then compares
+    `size_gb <= vram_total` on the next, which raises TypeError. Every test in this file
+    used `_mock_gpu(total=8.0)`, so no test ever passed None through and the crash was
+    invisible. Found by the outside-family gate on hermia-j6a8; the crash itself arrived
+    with PR #180, which widened get_gpu_stats to `| None`.
+
+    Unknown VRAM is not a FAILING check -- the comment three lines below the crash already
+    says exactly that about `fits_current_vram`. Refusing to guess beats guessing wrong.
+    """
+    with patch("hermia.preflight.get_gpu_stats", return_value=(None, None, None)), \
+         _mock_ram(available_gb=64.0), _mock_disk():
+        report = run_preflight(
+            selected_models=["llama3.2:latest"],
+            model_list=[{"name": "llama3.2:latest", "size": 2_000_000_000}],
+            results_dir=tmp_path,
+        )
+
+    assert len(report.models) == 1
+    check = report.models[0]
+    assert check.skip is False, "a model must not be skipped because VRAM is unknown"
+    assert "VRAM" not in check.reason, (
+        f"an unmeasured VRAM must not produce a VRAM-based reason: {check.reason!r}"
+    )
+    assert report.vram_total_gb is None, "the report must carry the absence, not a zero"
