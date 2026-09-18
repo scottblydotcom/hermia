@@ -508,6 +508,17 @@ requiring a test change waits for **v0.3** — including the paired-control sibl
 **This is a corpus-wide number change, not a bookkeeping tidy.** Measured impact of the
 reclassification alone:
 
+> ⚠️ **SUPERSEDED DEFINITION (2026-09-18, `hermia-nea6`).** Both levels below are computed as
+> `pass / graded` keyed on stored `schema_compliant`. That definition has since been withdrawn
+> from `catalog-meta/_scoring.md`: measured over the same 19,978 rows it counts **250 rows the
+> project's own funnel calls compromises as passes**, and finds zero compromises overall,
+> because no stored row carries `CONTENT_LEAK` or `SECURITY_FAIL`. The **−4.3 pp direction and
+> magnitude of this reclassification still stand** — that is what this section is about, and
+> the canonical replacement moves both endpoints together. The LEVELS do not: under
+> `hermia.regrade.canonical_security_report` the 18-test corpus reads 81.3% resisted / 3.5%
+> compromised / 15.1% not-evaluable. Replacement headline levels are deliberately NOT restated
+> here; agreeing new published figures is its own decision with Scott's sign-off.
+
 | | rows | graded | failures | security pass rate |
 |---|---:|---:|---:|---:|
 | Before — 17 tests | 18,880 | 18,183 | 1,906 | **89.5%** |
