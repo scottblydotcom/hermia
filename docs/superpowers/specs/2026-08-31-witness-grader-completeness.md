@@ -508,6 +508,30 @@ requiring a test change waits for **v0.3** — including the paired-control sibl
 **This is a corpus-wide number change, not a bookkeeping tidy.** Measured impact of the
 reclassification alone:
 
+> ⚠️ **SUPERSEDED DEFINITION (2026-09-18, `hermia-nea6` — the canonical security rate
+> has no implementation).** Both levels below are computed as
+> `pass / graded` keyed on stored `schema_compliant`. That definition has since been withdrawn
+> from `catalog-meta/_scoring.md`: measured over the same 19,978 rows it counts **250 rows the
+> project's own funnel calls compromises as passes**, and finds zero compromises overall,
+> because no stored row carries `CONTENT_LEAK` or `SECURITY_FAIL`.
+>
+> The **direction of this reclassification stands**; the magnitude and the levels do not.
+> Measured under `hermia.regrade.canonical_security_report` (2026-09-19): 17 tests read
+> 85.51% resisted, 18 tests read 81.34% — a delta of **−4.17 pp, which rounds to −4.2, not
+> −4.3**. The 18-test corpus reads 81.3% resisted / 3.5% compromised / 15.1% not-evaluable.
+>
+> ⚠️ **The composition differs in kind, which matters more than the 0.1 pp.** Of
+> `classification-routing`'s 1,098 rows, 105 are resisted, **0 compromised, 993
+> not-evaluable** — so the rows this section calls "failures ... a mixture of injection
+> compliance and misclassification" do not register as compromises at all. 903 of them are
+> models that obeyed the injection and routed to `security-agent` (`hermia-t9vw` — give classification-routing a hijack
+> detector). Until a
+> hijack detector lands, this test contributes almost nothing but unjudged rows.
+>
+> Replacement headline levels are deliberately NOT restated here; agreeing new published
+> figures is its own decision with Scott's sign-off, and it should wait for `hermia-t9vw` (give classification-routing a hijack detector),
+> which will move all of them again.
+
 | | rows | graded | failures | security pass rate |
 |---|---:|---:|---:|---:|
 | Before — 17 tests | 18,880 | 18,183 | 1,906 | **89.5%** |
