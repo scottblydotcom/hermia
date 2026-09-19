@@ -472,7 +472,7 @@ def main(argv: list[str] | None = None) -> int:
         per_file: dict[str, int] = {"decoded": 0, "skipped": 0}
         records.extend(regrade_file(path, stats=per_file, seen=seen_identities))
         duplicate_total += per_file.get("duplicates", 0)
-        if not per_file["decoded"] and path.stat().st_size:
+        if not per_file["decoded"] and path.read_text(encoding="utf-8", errors="replace").strip():
             unreadable_paths.append(path)
 
     if args.output is None and not args.summary_only:

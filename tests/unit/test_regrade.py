@@ -377,9 +377,15 @@ def test_the_three_states_always_sum_to_the_row_count():
 def test_the_report_exposes_no_rate_that_drops_unevaluable_rows():
     """No pass/graded field can exist, so no caller can quote one."""
     report = canonical_security_report([_COMPROMISE_STORED_AS_PASS, _TIMED_OUT])
-    assert not [k for k in report if "graded" in k]
-    assert "pass_pct" not in report
-    assert "pass_rate" not in report
+    # An ALLOWLIST, not a blocklist of three spellings. Blocklists were bypassed four
+    # times on this branch; a new pass/graded-shaped key would have sailed past the old
+    # form of this assertion.
+    assert set(report) == {
+        "rows", "resisted", "compromised", "not_evaluable", "changed",
+        "newly_identified_compromises", "newly_identified_by_test", "not_rederivable",
+        "resisted_rate_pct", "population", "denominator", "skipped_non_rows",
+        "duplicate_rows",
+    }, "a new key must be reviewed here: is it a rate that drops unevaluable rows?"
 
 
 def test_a_non_security_row_never_enters_the_population():
@@ -884,3 +890,14 @@ def test_the_cli_warns_about_duplicate_rows(tmp_path: Path):
     assert proc.returncode == 0, proc.stderr
     assert "DUPLICATE row(s)" in proc.stdout
     assert "inflates the report" in proc.stdout
+
+
+def test_a_whitespace_only_file_is_empty_not_unreadable(tmp_path: Path):
+    """st_size > 0 is not the same as "has content"; a lone newline is not corruption."""
+    blank = tmp_path / "blank.jsonl"
+    blank.write_text("\n\n   \n", encoding="utf-8")
+    proc = subprocess.run(
+        [sys.executable, "-m", "hermia.regrade", str(blank), "--summary-only"],
+        capture_output=True, text=True, check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
