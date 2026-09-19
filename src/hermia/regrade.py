@@ -168,7 +168,11 @@ def regrade_row(row: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def regrade_file(path: Path, stats: dict[str, int] | None = None) -> list[dict[str, Any]]:
+def regrade_file(
+    path: Path,
+    stats: dict[str, int] | None = None,
+    seen: set[tuple[Any, ...]] | None = None,
+) -> list[dict[str, Any]]:
     """Re-grade every security row in one JSONL result file.
 
     Unreadable lines are skipped rather than fatal — one bad line must not abandon a large
@@ -185,6 +189,7 @@ def regrade_file(path: Path, stats: dict[str, int] | None = None) -> list[dict[s
     out: list[dict[str, Any]] = []
     skipped = 0
     decoded = 0
+    duplicates = 0
     with path.open(encoding="utf-8") as fh:
         for line in fh:
             if not line.strip():
@@ -201,12 +206,15 @@ def regrade_file(path: Path, stats: dict[str, int] | None = None) -> list[dict[s
                 skipped += 1
                 continue
             decoded += 1
+            if seen is not None and regrade_row(row) is not None:
+                duplicates += _count_duplicate_rows([row], seen)
             record = regrade_row(row)
             if record is not None:
                 out.append(record)
     if stats is not None:
         stats["decoded"] = stats.get("decoded", 0) + decoded
         stats["skipped"] = stats.get("skipped", 0) + skipped
+        stats["duplicates"] = stats.get("duplicates", 0) + duplicates
     if skipped:
         print(
             f"hermia-regrade: {path}: skipped {skipped} unreadable line(s)",
@@ -311,7 +319,40 @@ def canonical_security_report(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
     regraded = [rec for rec in (regrade_row(row) for row in usable) if rec is not None]
     report = _with_canonical_fields(summarize(regraded))
     report["skipped_non_rows"] = skipped
+    report["duplicate_rows"] = _count_duplicate_rows(usable)
     return report
+
+
+def _identity(row: dict[str, Any]) -> tuple[Any, ...]:
+    """The key results.patch_results uses to match a stored row."""
+    return tuple(row.get(k) for k in ("run_id", "host", "model", "test_id", "run_index"))
+
+
+def _count_duplicate_rows(
+    rows: list[dict[str, Any]], seen: set[tuple[Any, ...]] | None = None
+) -> int:
+    """Rows whose identity was already seen in this input.
+
+    DISCLOSED, not deduplicated and not refused. Deduplicating would be a judgment about
+    which copy is authoritative, and this module's job is to report what it was given.
+
+    Why it matters concretely: `results/` ships three backup subdirectories of re-labelled
+    runs, and every one of the 522 security rows in _pre_relabel_backup_20260815 shares an
+    identity with a row in the main corpus. So `hermia-regrade results/**/*.jsonl` — an
+    entirely natural glob — double-counts all 522 and produces a confident, wrong figure
+    with nothing to indicate it. The documented `results/*.jsonl` invocation has no
+    duplicates at all: 19,978 rows, 19,978 distinct identities.
+    """
+    if seen is None:
+        seen = set()
+    dupes = 0
+    for row in rows:
+        key = _identity(row)
+        if key in seen:
+            dupes += 1
+        else:
+            seen.add(key)
+    return dupes
 
 
 def _with_canonical_fields(report: dict[str, Any]) -> dict[str, Any]:
@@ -366,6 +407,12 @@ def _print_summary(summary: dict[str, Any]) -> None:
     for key in ("resisted", "compromised", "not_evaluable"):
         pct = f"{summary[key] / total * 100:5.1f}%" if total and measured else "    --"
         print(f"  {key:15s} {summary[key]:6d}  {pct}")
+    if summary.get("duplicate_rows"):
+        print(
+            f"  ⚠ {summary['duplicate_rows']} DUPLICATE row(s): the same "
+            "(run_id, host, model, test_id, run_index) appeared more than once and every "
+            "copy is counted. Check for overlapping input paths — this inflates the report."
+        )
     if summary.get("not_rederivable"):
         print(
             f"  (of which {summary['not_rederivable']} had no usable raw_response, "
@@ -416,12 +463,15 @@ def main(argv: list[str] | None = None) -> int:
 
     records: list[dict[str, Any]] = []
     unreadable_paths: list[Path] = []
+    seen_identities: set[tuple[Any, ...]] = set()
+    duplicate_total = 0
     for path in args.paths:
         if not path.exists():
             print(f"hermia-regrade: no such file: {path}", file=sys.stderr)
             return 2
         per_file: dict[str, int] = {"decoded": 0, "skipped": 0}
-        records.extend(regrade_file(path, stats=per_file))
+        records.extend(regrade_file(path, stats=per_file, seen=seen_identities))
+        duplicate_total += per_file.get("duplicates", 0)
         if not per_file["decoded"] and path.stat().st_size:
             unreadable_paths.append(path)
 
@@ -457,7 +507,9 @@ def main(argv: list[str] | None = None) -> int:
                 fh.write(json.dumps(record) + "\n")
         print(f"wrote {len(records)} corrected records to {args.output}")
 
-    _print_summary(_with_canonical_fields(summarize(records)))
+    report = _with_canonical_fields(summarize(records))
+    report["duplicate_rows"] = duplicate_total
+    _print_summary(report)
     return 0
 
 

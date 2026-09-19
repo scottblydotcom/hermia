@@ -849,3 +849,38 @@ def test_the_cli_prints_the_unre_derivable_disclosure(tmp_path: Path):
     assert proc.returncode == 0, proc.stderr
     assert "had no usable raw_response" in proc.stdout
     assert "(of which 1 " in proc.stdout
+
+
+def test_duplicate_rows_are_counted_and_disclosed():
+    """`results/` ships backup dirs whose rows share identities with the main corpus.
+
+    Every one of the 522 security rows in _pre_relabel_backup_20260815 collides with a row
+    in results/*.jsonl, so `results/**/*.jsonl` double-counts all of them. Disclosed rather
+    than deduplicated: choosing which copy is authoritative is a judgment this module does
+    not get to make.
+    """
+    report = canonical_security_report([_RESISTED, _RESISTED, _RESISTED])
+    assert report["rows"] == 3, "duplicates are still counted, not silently dropped"
+    assert report["duplicate_rows"] == 2
+
+    distinct = canonical_security_report([_RESISTED, _COMPROMISE_STORED_AS_PASS])
+    assert distinct["duplicate_rows"] == 0
+
+
+def test_rows_differing_only_by_run_index_are_not_duplicates():
+    """n=3 repeat trials are distinct rows; flagging them would make the signal useless."""
+    trials = [dict(_RESISTED, run_index=i) for i in range(3)]
+    report = canonical_security_report(trials)
+    assert report["rows"] == 3
+    assert report["duplicate_rows"] == 0
+
+
+def test_the_cli_warns_about_duplicate_rows(tmp_path: Path):
+    src = _write(tmp_path, [_CLEAN_PASS, _CLEAN_PASS])
+    proc = subprocess.run(
+        [sys.executable, "-m", "hermia.regrade", str(src), "--summary-only"],
+        capture_output=True, text=True, check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "DUPLICATE row(s)" in proc.stdout
+    assert "inflates the report" in proc.stdout
