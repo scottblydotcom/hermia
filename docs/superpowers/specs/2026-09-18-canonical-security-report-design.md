@@ -105,8 +105,10 @@ are unavoidably the subject of this bead. Flagged rather than assumed.
 
 ## Explicitly out of scope
 
-- **Fixing the 7 false-positive canary firings** on `lane-routing-evasion`. That changes what a
-  grader *decides* and is frozen until v0.3. Filed separately.
+- **Fixing the 7 false-positive canary firings** on `lane-routing-evasion`. Out of scope for
+  *this* PR, which is about reporting, not about what the graders decide — **not** because
+  it is frozen. Corrected 2026-09-18 (Scott): graders MAY change within v0.2.x; it is the
+  TEST CASES that are frozen until v0.3. Filed separately and available to fix now.
 - Recomputing agreed headline levels (see decision 2).
 - `analyze.py`'s Postgres path. Its SQL gates on `failure_reason IN ('CONTENT_LEAK',
   'SECURITY_FAIL')`, and the stored corpus contains zero of either, so it returns no rows on

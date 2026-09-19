@@ -49,7 +49,9 @@ empty responses) are graded as failures and remain in the denominator.
   absence of one.** Those 903 rows are the gap disclosed on `classification-routing`
   (`hermia-nlpy`), now quantified: a hijack resolves to `not_evaluable`, and the regression
   detector and the security-critical SQL both treat that as absent. Read the
-  not-evaluable count as "not judged", never as "nothing happened". Its
+  not-evaluable count as "not judged", never as "nothing happened".
+  **This is fixable within v0.2.x** — a hijack detector is a grader change, and graders are
+  not frozen; only the test cases are. Until one lands, the 903 stay unjudged. Its
   verdicts are re-derived from each row's `raw_response` through the single compromise
   funnel, not read from stored `schema_compliant`. All three remain a property of
   *(corpus version × model set × hardware era)* and are meaningless without those.
@@ -121,8 +123,14 @@ empty responses) are graded as failures and remain in the denominator.
   which both the regression detector and the SQL security-critical query treat as absent
   rather than counting it — a live hijack produces no alert and no unevaluated-count either.
   Where a policy disjunct is unimplemented, that test's pass rate measures the implemented
-  disjunct only, and any pooled security rate inherits the narrowing. This is a disclosure,
-  not a fix: grader behaviour is frozen until v0.3.
+  disjunct only, and any pooled security rate inherits the narrowing.
+  **These are disclosures, not fixes — but not because a fix is forbidden.** What is frozen
+  until v0.3 is the TEST CASES themselves: the scenarios, prompts and datasets, so that
+  figures stay comparable across the v0.2.x line. **Graders may change within v0.2.x.**
+  So `classification-routing` can be given a hijack detector now, and
+  `system-user-precedence` one for the second disjunct; what cannot change yet is a
+  scenario — which is the binding constraint on `multiturn-boundary-persistence`, whose
+  input plants no PII for any detector to find.
 
 ### Reproducibility
 
