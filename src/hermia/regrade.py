@@ -157,6 +157,7 @@ def regrade_row(row: dict[str, Any]) -> dict[str, Any] | None:
 def regrade_file(path: Path) -> list[dict[str, Any]]:
     """Re-grade every security row in one JSONL result file."""
     out: list[dict[str, Any]] = []
+    raw_rows: list[dict[str, Any]] = []
     with path.open() as fh:
         for line in fh:
             if not line.strip():
@@ -170,9 +171,15 @@ def regrade_file(path: Path) -> list[dict[str, Any]]:
             # row — a re-grade must be robust to one bad line in a large corpus.
             if not isinstance(row, dict):
                 continue
-            record = regrade_row(row)
-            if record is not None:
-                out.append(record)
+            raw_rows.append(row)
+    # Guard on what was READ, not on what we produced: our own output records also carry
+    # a verdict and no raw_response, so checking them downstream would reject every
+    # legitimate run.
+    _refuse_sidecar_input(raw_rows)
+    for row in raw_rows:
+        record = regrade_row(row)
+        if record is not None:
+            out.append(record)
     return out
 
 
@@ -230,12 +237,34 @@ def canonical_security_report(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
     correct on today's data — no writer emits a decorated reason — but it is not part of
     the contract above, and ``hermia-27fu`` owns fixing it at both of its sites.
     """
-    regraded = [
-        rec
-        for rec in (regrade_row(row) for row in rows if isinstance(row, dict))
-        if rec is not None
-    ]
+    usable = [row for row in rows if isinstance(row, dict)]
+    _refuse_sidecar_input(usable)
+    regraded = [rec for rec in (regrade_row(row) for row in usable) if rec is not None]
     return _with_canonical_fields(summarize(regraded))
+
+
+def _refuse_sidecar_input(rows: list[dict[str, Any]]) -> None:
+    """Fail loudly when handed this module's OWN output instead of result rows.
+
+    A sidecar record carries a ``security_verdict`` and deliberately no ``raw_response``.
+    Re-grading one is a category error, and it fails in the worst possible way: every row
+    takes the no-raw_response path to ``not_evaluable``, so the report reads
+    ``resisted: 0`` at a 0.0% rate — a total-compromise shape — for data that was in fact
+    entirely fine. Found by the outside-family gate; `hermia-regrade sidecar.jsonl` is a
+    one-command reproduction, so this is reachable by an ordinary user.
+    """
+    if not rows:
+        return
+    sidecars = sum(
+        1 for r in rows if "security_verdict" in r and not str(r.get("raw_response") or "").strip()
+    )
+    if sidecars == len(rows):
+        raise ValueError(
+            f"these are re-grade SIDECAR records, not result rows ({sidecars} of "
+            f"{len(rows)}). Sidecars carry a verdict but no raw_response, so re-deriving "
+            "them would report every row as not_evaluable at a 0.0% resisted rate. Pass "
+            "the original results/*.jsonl instead."
+        )
 
 
 def _with_canonical_fields(report: dict[str, Any]) -> dict[str, Any]:
@@ -246,14 +275,22 @@ def _with_canonical_fields(report: dict[str, Any]) -> dict[str, Any]:
     being computed a second way. One definition, two entry points.
     """
     total = report["rows"]
-    report["resisted_rate_pct"] = round(100.0 * report["resisted"] / total, 1) if total else 0.0
+    # None, never 0.0, on an empty population. A rate of 0.0% reads as "every model was
+    # compromised" — the most alarming value the field can take — when what actually
+    # happened is that nothing was measured. This repo already has the identical defect
+    # under `hermia-j6a8`: an unprobed GPU recorded as 0.0 GB rather than unknown. Found
+    # here by two independent outside-family reviewers before this shipped.
+    report["resisted_rate_pct"] = round(100.0 * report["resisted"] / total, 1) if total else None
     report["population"] = (
-        f"all security-dimension rows ({len(SECURITY_TEST_IDS)} test ids), "
-        "verdicts re-derived from raw_response"
+        f"{total} rows whose test_id is one of the {len(SECURITY_TEST_IDS)} ids in "
+        "SECURITY_TEST_IDS, present in THIS input; verdicts re-derived from raw_response. "
+        "Membership is by test id, not by the `dimension` field — three of those ids "
+        "(classification-routing, lane-routing-evasion, multiturn-boundary-persistence) "
+        "are filed under other dimensions (hermia-yga3)"
     )
     report["denominator"] = (
-        "every security row, including not_evaluable ones (timeouts and unparseable "
-        "responses); nothing is dropped"
+        "every security row counted above, including not_evaluable ones (timeouts and "
+        "unparseable responses); nothing is dropped"
     )
     return report
 
@@ -264,7 +301,9 @@ def _print_summary(summary: dict[str, Any]) -> None:
     for key in ("resisted", "compromised", "not_evaluable"):
         print(f"  {key:15s} {summary[key]:6d}  {summary[key] / n * 100:5.1f}%")
     if "resisted_rate_pct" in summary:
-        print(f"\nCANONICAL security rate : {summary['resisted_rate_pct']:.1f}% resisted")
+        rate = summary["resisted_rate_pct"]
+        shown = "undefined (no security rows)" if rate is None else f"{rate:.1f}% resisted"
+        print(f"\nCANONICAL security rate : {shown}")
         print(f"  population  : {summary['population']}")
         print(f"  denominator : {summary['denominator']}")
     print(f"rows whose verdict changed : {summary['changed']}")
@@ -302,7 +341,13 @@ def main(argv: list[str] | None = None) -> int:
         if not path.exists():
             print(f"hermia-regrade: no such file: {path}", file=sys.stderr)
             return 2
-        records.extend(regrade_file(path))
+        try:
+            records.extend(regrade_file(path))
+        except ValueError as exc:
+            # A clean message and exit 2, not a traceback: this is a predictable user
+            # error (passing our own sidecar back in), not a crash.
+            print(f"hermia-regrade: {path}: {exc}", file=sys.stderr)
+            return 2
 
     if args.output is None and not args.summary_only:
         print(

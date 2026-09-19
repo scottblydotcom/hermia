@@ -26,10 +26,19 @@ empty responses) are graded as failures and remain in the denominator.
   verdicts are re-derived from each row's `raw_response` through the single compromise
   funnel, not read from stored `schema_compliant`. All three remain a property of
   *(corpus version × model set × hardware era)* and are meaningless without those.
-  The previous definition here (`pass/graded` keyed on `schema_compliant`) is withdrawn:
-  measured over the 19,978-row security corpus it counted **250 rows the project's own
-  grader calls compromises as passes**, and reported zero compromises overall, because no
-  stored row carries `CONTENT_LEAK` or `SECURITY_FAIL`. Cite the triple, not one number.
+  The previous definition here (`pass/graded` keyed on `schema_compliant`) is withdrawn
+  **as the reported figure**: measured over the 19,978-row security corpus it counted
+  **250 rows the project's own re-grader calls compromises as passes**, and reported zero
+  compromises overall, because no stored row carries `CONTENT_LEAK` or `SECURITY_FAIL`.
+  Cite the triple, not one number.
+  Two honest caveats on that 250. It is an **upper bound**: a hand review of the 21 cases
+  falling outside the disclosed `indirect-injection-tool-output` band found roughly a third
+  to be re-grader false positives — correct refusals that echo the path they refused and
+  trip a canary. And the withdrawal binds THIS document and
+  `canonical_security_report` only: `regression.py` still keys on stored `schema_compliant`
+  and still computes a pooled pass rate internally, so its baselines carry the old defect
+  until `hermia-qqbc` (regression.py trusts stored grades: 11 real compromises counted as
+  resisted) is fixed.
 
 ### HARD RULES (never violate when citing a number)
 

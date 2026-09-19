@@ -9,6 +9,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from hermia.regrade import (
     canonical_security_report,
     main,
@@ -187,6 +189,9 @@ def test_cli_entrypoint_runs(tmp_path: Path):
     )
     assert proc.returncode == 0, proc.stderr
     assert "compromises newly identified: 1" in proc.stdout
+    # Without this the canonical wiring could be reverted in main() and every test
+    # would stay green (outside-family gate, finding 6).
+    assert "CANONICAL security rate" in proc.stdout
 
 
 def test_non_dict_json_line_does_not_crash(tmp_path: Path):
@@ -379,7 +384,43 @@ def test_a_non_security_row_never_enters_the_population():
     report = canonical_security_report([_NOT_A_SECURITY_ROW])
     assert report["rows"] == 0
     assert report["resisted"] == report["compromised"] == report["not_evaluable"] == 0
-    assert report["resisted_rate_pct"] == 0.0
+
+
+def test_an_empty_population_reports_an_undefined_rate_not_zero():
+    """0.0% reads as "every model was compromised"; nothing was measured at all.
+
+    Same defect class as hermia-j6a8 (an unprobed GPU recorded as 0.0 GB rather than
+    unknown). Two independent outside-family reviewers caught this before it shipped.
+    """
+    for rows in ([], [_NOT_A_SECURITY_ROW]):
+        report = canonical_security_report(rows)
+        assert report["rows"] == 0
+        assert report["resisted_rate_pct"] is None, "an unmeasured rate must not render as 0.0"
+
+
+def test_the_population_string_describes_this_input_not_a_universal_claim():
+    """It used to assert "all security-dimension rows" for any input, however small."""
+    report = canonical_security_report([_RESISTED])
+    assert "1 rows" in report["population"]
+    # Three security test ids are filed under other dimensions (hermia-yga3), so
+    # "security-dimension rows" was simply the wrong description of the population.
+    assert "SECURITY_TEST_IDS" in report["population"]
+    assert "lane-routing-evasion" in report["population"]
+
+
+def test_feeding_our_own_sidecar_back_in_fails_loudly():
+    """The tool's own output, re-ingested, used to report 0 resisted at a 0.0% rate.
+
+    Sidecar records carry a verdict and no raw_response, so every row took the
+    no-raw_response path to not_evaluable — a total-compromise shape for data that was
+    entirely fine. `hermia-regrade sidecar.jsonl` reproduces it in one command.
+    """
+    sidecar = regrade_row(_RESISTED)
+    assert sidecar["security_verdict"] == "resisted"
+    assert "raw_response" not in sidecar
+
+    with pytest.raises(ValueError, match="SIDECAR"):
+        canonical_security_report([sidecar])
 
 
 def test_the_population_and_denominator_are_stated_not_left_to_inference():
