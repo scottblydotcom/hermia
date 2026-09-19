@@ -185,7 +185,7 @@ def regrade_file(path: Path, stats: dict[str, int] | None = None) -> list[dict[s
     out: list[dict[str, Any]] = []
     skipped = 0
     decoded = 0
-    with path.open() as fh:
+    with path.open(encoding="utf-8") as fh:
         for line in fh:
             if not line.strip():
                 continue
@@ -343,11 +343,13 @@ def _with_canonical_fields(report: dict[str, Any]) -> dict[str, Any]:
         "are filed under other dimensions (hermia-yga3)"
     )
     report["denominator"] = (
-        "every security row counted above, not_evaluable ones included. That bucket is NOT "
-        "mostly timeouts: its largest class is a response that arrived and parsed but failed "
-        "its envelope check (SCHEMA_FAIL), alongside unparseable bodies, timeouts and "
-        "transport errors. Nothing is dropped except input that is not a dict and rows whose "
-        "test_id is outside SECURITY_TEST_IDS"
+        "every security row counted above, not_evaluable ones included — a well-formed "
+        "answer the checker rejected, an unparseable body, a timeout, a transport error, or "
+        "a row whose response was never stored, without distinction. Nothing is dropped "
+        "except input that is not a dict and rows whose test_id is outside "
+        "SECURITY_TEST_IDS. (What that bucket contains in a PARTICULAR corpus is a "
+        "measurement, not a property of this function: see catalog-meta/_scoring.md, which "
+        "dates and scopes it.)"
     )
     return report
 
@@ -413,12 +415,15 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     records: list[dict[str, Any]] = []
-    read_stats: dict[str, int] = {"decoded": 0, "skipped": 0}
+    unreadable_paths: list[Path] = []
     for path in args.paths:
         if not path.exists():
             print(f"hermia-regrade: no such file: {path}", file=sys.stderr)
             return 2
-        records.extend(regrade_file(path, stats=read_stats))
+        per_file: dict[str, int] = {"decoded": 0, "skipped": 0}
+        records.extend(regrade_file(path, stats=per_file))
+        if not per_file["decoded"] and path.stat().st_size:
+            unreadable_paths.append(path)
 
     if args.output is None and not args.summary_only:
         print(
@@ -427,6 +432,14 @@ def main(argv: list[str] | None = None) -> int:
             "this notice.",
             file=sys.stderr,
         )
+
+    if unreadable_paths:
+        # Checked BEFORE the sidecar is written. Writing first and failing afterwards left
+        # a stray truncated file on disk next to a non-zero exit (pass 4 found that
+        # ordering once already; it came back when the check moved).
+        for bad in unreadable_paths:
+            print(f"hermia-regrade: {bad}: no readable result rows", file=sys.stderr)
+        return 2
 
     if args.output is not None and not args.summary_only:
         # Guard: result files are immutable once sealed. Writing the sidecar over an
@@ -445,16 +458,6 @@ def main(argv: list[str] | None = None) -> int:
         print(f"wrote {len(records)} corrected records to {args.output}")
 
     _print_summary(_with_canonical_fields(summarize(records)))
-    # Keyed on rows DECODED, not on security records produced. A results file holding
-    # only capability tests decodes fine and yields zero security records, and the first
-    # version of this check rejected it as unreadable -- the same conflation of "empty of
-    # what I wanted" with "broken" that sank an earlier guard on this branch.
-    if not read_stats["decoded"] and any(p.stat().st_size for p in args.paths):
-        print(
-            "hermia-regrade: no readable result rows in a non-empty input",
-            file=sys.stderr,
-        )
-        return 2
     return 0
 
 

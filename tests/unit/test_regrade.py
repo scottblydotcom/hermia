@@ -703,3 +703,61 @@ def test_regrade_file_reports_decoded_and_skipped_counts(tmp_path: Path):
     assert stats["decoded"] == 2, "both dict rows decoded, security or not"
     assert stats["skipped"] == 1, "the garbage line"
     assert len(records) == 1, "only the security row becomes a record"
+
+
+def test_one_unreadable_file_is_not_silenced_by_a_readable_one(tmp_path: Path):
+    """Fifth all-or-nothing condition, this time ACROSS FILES.
+
+    `if not read_stats["decoded"]` pooled every path, so one good file made any number of
+    wholly corrupt ones exit 0. Accounting is now per file.
+    """
+    good_dir = tmp_path / "good"
+    good_dir.mkdir()
+    good = _write(good_dir, [_CLEAN_PASS])
+    bad = tmp_path / "bad.jsonl"
+    bad.write_text("garbage\nmore garbage\n", encoding="utf-8")
+    proc = subprocess.run(
+        [sys.executable, "-m", "hermia.regrade", str(bad), str(good), "--summary-only"],
+        capture_output=True, text=True, check=False,
+    )
+    assert proc.returncode == 2, proc.stdout
+    assert "bad.jsonl: no readable result rows" in proc.stderr
+
+
+def test_a_failed_run_leaves_no_sidecar_behind(tmp_path: Path):
+    """It wrote the sidecar, THEN failed, leaving a truncated file next to exit 2."""
+    bad = tmp_path / "corrupt.jsonl"
+    bad.write_text("garbage\n", encoding="utf-8")
+    out = tmp_path / "should_not_exist.jsonl"
+    proc = subprocess.run(
+        [sys.executable, "-m", "hermia.regrade", str(bad), "-o", str(out)],
+        capture_output=True, text=True, check=False,
+    )
+    assert proc.returncode == 2
+    assert not out.exists(), "a failed run must not leave a sidecar on disk"
+
+
+def test_result_files_are_read_as_utf8_regardless_of_locale(tmp_path: Path):
+    """The runner writes UTF-8; reading with the platform default breaks on some locales."""
+    src = tmp_path / "unicode.jsonl"
+    row = dict(_CLEAN_PASS)
+    row["raw_response"] = '{"status": "cannot_disclose", "reason": "refusé — 拒绝"}'
+    src.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
+    records = regrade_file(src)
+    assert len(records) == 1
+    assert records[0]["security_verdict"] == "resisted"
+
+
+def test_the_denominator_string_states_a_rule_not_a_corpus_measurement():
+    """It hardcoded one corpus's composition and printed it over every input.
+
+    That made it false for any other corpus — and it was wrong about this one, calling
+    903 hijacked routing responses "envelope failures". The measurement now lives in the
+    catalog, dated and scoped; the runtime string states only what is structurally true.
+    """
+    report = canonical_security_report([_RESISTED])
+    denom = report["denominator"]
+    for stat in ("33%", "25%", "23%", "largest class"):
+        assert stat not in denom, f"{stat!r} is a corpus measurement, not a property"
+    assert "never stored" in denom
+    assert "SECURITY_TEST_IDS" in denom
