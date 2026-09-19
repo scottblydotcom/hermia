@@ -1005,6 +1005,75 @@ def test_the_cli_and_library_agree_on_duplicates_and_skipped(tmp_path: Path):
     lib = canonical_security_report([_CLEAN_PASS, _CLEAN_PASS])
     assert lib["duplicate_rows"] == 1
     assert f"⚠ {lib['duplicate_rows']} DUPLICATE row(s)" in proc.stdout
-    # And the dropped line is reported on STDOUT, not only stderr: stdout is what gets
-    # pasted into a talk, and it was asserting "nothing is dropped" while dropping lines.
-    assert "1 input line(s) were NOT rows" in proc.stdout
+    # The undecodable line is surfaced on stderr. It is deliberately NOT counted as a
+    # "non row": that field now means the same thing here as in the library, which never
+    # sees raw text and so can have no undecodable input.
+    assert "skipped 1 unreadable line(s)" in proc.stderr
+    assert "input line(s) were NOT rows" not in proc.stdout
+
+
+def test_a_duplicate_spanning_two_files_is_caught(tmp_path: Path):
+    """`seen_identities` exists in main() for exactly this, and nothing tested it.
+
+    The hazard it was built for is `results/**/*.jsonl`, where 522 backup rows collide
+    with the main corpus and move the headline 81.3% -> 80.8%. Every prior duplicate test
+    used a single file or a single list, so a regression that built the identity set
+    inside the per-path loop would pass the whole suite while the warning went silent on
+    the one case it exists for.
+    """
+    a_dir = tmp_path / "a"
+    a_dir.mkdir()
+    b_dir = tmp_path / "b"
+    b_dir.mkdir()
+    # The SAME row in both files — the backup-directory shape.
+    first = _write(a_dir, [_CLEAN_PASS])
+    second = _write(b_dir, [_CLEAN_PASS])
+
+    proc = subprocess.run(
+        [sys.executable, "-m", "hermia.regrade", str(first), str(second), "--summary-only"],
+        capture_output=True, text=True, check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "security rows re-graded : 2" in proc.stdout
+    assert "⚠ 1 DUPLICATE row(s)" in proc.stdout, "a cross-file duplicate must be caught"
+
+    # And each file alone is clean, so the duplicate is genuinely the CROSS-file one.
+    alone = subprocess.run(
+        [sys.executable, "-m", "hermia.regrade", str(first), "--summary-only"],
+        capture_output=True, text=True, check=False,
+    )
+    assert "DUPLICATE" not in alone.stdout
+
+
+def test_skipped_non_rows_means_the_same_thing_in_both_entry_points(tmp_path: Path):
+    """One name, one printed sentence — so it must be one quantity.
+
+    The CLI folded undecodable LINES and non-object lines into this field while the
+    library counted only non-objects, and the equivalence test compared each side to
+    itself rather than to the other. Undecodable lines now have their own stderr line and
+    are NOT part of this count.
+    """
+    payload = [
+        json.dumps(_CLEAN_PASS),   # a real row
+        "not json at all",         # undecodable: reported separately on stderr
+        '["a list"]',              # parsed, but not a row object
+        '"a string"',              # parsed, but not a row object
+    ]
+    src = tmp_path / "mixed.jsonl"
+    src.write_text("\n".join(payload) + "\n", encoding="utf-8")
+
+    proc = subprocess.run(
+        [sys.executable, "-m", "hermia.regrade", str(src), "--summary-only"],
+        capture_output=True, text=True, check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+
+    # The library, handed the equivalent already-parsed input: one row plus two non-objects.
+    lib = canonical_security_report([_CLEAN_PASS, ["a list"], "a string"])
+    assert lib["skipped_non_rows"] == 2
+
+    assert f"⚠ {lib['skipped_non_rows']} input line(s) were NOT rows" in proc.stdout, (
+        "the CLI must publish the same quantity under the same name"
+    )
+    # The undecodable line is still surfaced, just not conflated into that count.
+    assert "skipped 3 unreadable line(s)" in proc.stderr

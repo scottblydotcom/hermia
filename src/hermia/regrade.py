@@ -180,16 +180,20 @@ def regrade_file(
     wholly corrupt file exit 0 as a clean "0 rows" success, while the library entry point
     raised on the same content (outside-family gate, pass 6).
 
-    ``stats``, when given, is filled with ``decoded``, ``skipped`` and ``duplicates``
-    counts, and ``seen``, when given, is a caller-owned identity set so duplicate detection
-    can span several files. A caller
-    needs ``decoded`` to tell "this file is unreadable" from "this file is fine and simply
-    holds no security tests" — conflating the two made a valid capability-only results
-    file exit 2 (CodeRabbit on PR #187). The returned records cannot answer that question,
-    because a file full of perfectly good reasoning rows also regrades to zero records.
+    ``stats``, when given, is filled with ``decoded``, ``skipped`` (every non-blank line
+    that did not become a row), ``non_rows`` (the subset that parsed but was not an
+    object — the same quantity the library reports as ``skipped_non_rows``) and
+    ``duplicates`` counts. ``seen``, when given, is a caller-owned identity set, so
+    duplicate detection can span several files.
+
+    A caller needs ``decoded`` to tell "this file is unreadable" from "this file is fine
+    and simply holds no security tests" — conflating the two made a valid capability-only
+    results file exit 2 (CodeRabbit on PR #187). The returned records cannot answer that
+    question, because a file full of good reasoning rows also regrades to zero records.
     """
     out: list[dict[str, Any]] = []
-    skipped = 0
+    undecodable = 0
+    non_rows = 0
     decoded = 0
     duplicates = 0
     with path.open(encoding="utf-8") as fh:
@@ -199,13 +203,13 @@ def regrade_file(
             try:
                 row = json.loads(line)
             except json.JSONDecodeError:
-                skipped += 1
+                undecodable += 1
                 continue
             # A line can be valid JSON without being an object. Antigravity review:
             # `[]` crashed the CLI with AttributeError and abandoned every remaining
             # row — a re-grade must be robust to one bad line in a large corpus.
             if not isinstance(row, dict):
-                skipped += 1
+                non_rows += 1
                 continue
             decoded += 1
             record = regrade_row(row)
@@ -213,9 +217,13 @@ def regrade_file(
                 out.append(record)
                 if seen is not None:
                     duplicates += _count_duplicate_rows([row], seen)
+    skipped = undecodable + non_rows
     if stats is not None:
         stats["decoded"] = stats.get("decoded", 0) + decoded
         stats["skipped"] = stats.get("skipped", 0) + skipped
+        # Counted apart from undecodable lines so this means exactly what the library's
+        # `skipped_non_rows` means: input that parsed but was not a row object.
+        stats["non_rows"] = stats.get("non_rows", 0) + non_rows
         stats["duplicates"] = stats.get("duplicates", 0) + duplicates
     if skipped:
         print(
@@ -492,7 +500,7 @@ def main(argv: list[str] | None = None) -> int:
         if not path.exists():
             print(f"hermia-regrade: no such file: {path}", file=sys.stderr)
             return 2
-        per_file: dict[str, int] = {"decoded": 0, "skipped": 0}
+        per_file: dict[str, int] = {"decoded": 0, "skipped": 0, "non_rows": 0}
         try:
             records.extend(regrade_file(path, stats=per_file, seen=seen_identities))
         except (OSError, UnicodeDecodeError) as exc:
@@ -504,8 +512,12 @@ def main(argv: list[str] | None = None) -> int:
             unreadable_paths.append(path)
             continue
         duplicate_total += per_file.get("duplicates", 0)
-        skipped_total += per_file.get("skipped", 0)
-        if not per_file["decoded"] and path.read_text(encoding="utf-8", errors="replace").strip():
+        skipped_total += per_file.get("non_rows", 0)
+        # `skipped` counts only NON-BLANK lines that failed, so this distinguishes a
+        # blank file (0 decoded, 0 skipped -> fine) from an unreadable one without
+        # re-reading the file, and without a second unguarded read that could raise
+        # outside the except block above.
+        if not per_file["decoded"] and per_file["skipped"]:
             unreadable_paths.append(path)
 
     if args.output is None and not args.summary_only:
