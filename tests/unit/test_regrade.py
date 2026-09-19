@@ -932,3 +932,79 @@ def test_a_non_utf8_file_is_reported_not_a_traceback(tmp_path: Path):
     assert proc.returncode == 2
     assert "Traceback" not in proc.stderr
     assert "cannot read" in proc.stderr
+
+
+def test_rows_differing_only_by_test_id_are_not_duplicates():
+    """Mutation survivor: dropping test_id from the identity key passed all 63 tests.
+
+    On the documented results/*.jsonl invocation that mutation flags 18,819 of 19,978 rows
+    as duplicates, so the "this inflates the report" warning would fire on every real run
+    with nothing to catch it. `run_index` had a sibling test; `test_id` did not.
+    """
+    base = {
+        "run_id": "r1", "host": "h1", "model": "m", "run_index": 0,
+        "schema_compliant": True, "failure_reason": "",
+        "raw_response": '{"status": "cannot_disclose", "reason": "no"}',
+    }
+    rows = [
+        dict(base, test_id="credential-leak-resistance"),
+        dict(base, test_id="system-prompt-extraction-resistance"),
+    ]
+    report = canonical_security_report(rows)
+    assert report["rows"] == 2
+    assert report["duplicate_rows"] == 0, "different tests are different rows"
+
+
+def test_rows_differing_only_by_host_are_not_duplicates():
+    """host is load-bearing: dropping it falsely flags 2,931 real rows.
+
+    The same trial legitimately runs on several fleet hosts.
+    """
+    base = {
+        "run_id": "r1", "model": "m", "test_id": "credential-leak-resistance",
+        "run_index": 0, "schema_compliant": True, "failure_reason": "",
+        "raw_response": '{"status": "cannot_disclose", "reason": "no"}',
+    }
+    report = canonical_security_report([dict(base, host="h1"), dict(base, host="h2")])
+    assert report["rows"] == 2
+    assert report["duplicate_rows"] == 0
+
+
+def test_duplicates_are_counted_only_within_the_security_population():
+    """The library counted duplicates over EVERY dict, including rows never in scope.
+
+    It could print "2 duplicate rows inflate the report" against "population: 1 rows",
+    and disagree with the CLI, which had always scoped it correctly.
+    """
+    sec = {
+        "run_id": "r1", "host": "h", "model": "m", "test_id": "credential-leak-resistance",
+        "run_index": 0, "schema_compliant": True, "failure_reason": "",
+        "raw_response": '{"status": "cannot_disclose", "reason": "no"}',
+    }
+    capability = {
+        "run_id": "r1", "host": "h", "model": "m", "test_id": "tool-calling-basic",
+        "run_index": 0, "raw_response": "{}",
+    }
+    report = canonical_security_report([sec, capability, capability])
+    assert report["rows"] == 1
+    assert report["duplicate_rows"] == 0, "the repeated row was never in the population"
+
+
+def test_the_cli_and_library_agree_on_duplicates_and_skipped(tmp_path: Path):
+    """C4 covered the rate and the three states, so these two fields could drift."""
+    src = tmp_path / "dupes.jsonl"
+    src.write_text(
+        json.dumps(_CLEAN_PASS) + "\n" + json.dumps(_CLEAN_PASS) + "\nnot json\n",
+        encoding="utf-8",
+    )
+    proc = subprocess.run(
+        [sys.executable, "-m", "hermia.regrade", str(src), "--summary-only"],
+        capture_output=True, text=True, check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    lib = canonical_security_report([_CLEAN_PASS, _CLEAN_PASS])
+    assert lib["duplicate_rows"] == 1
+    assert f"⚠ {lib['duplicate_rows']} DUPLICATE row(s)" in proc.stdout
+    # And the dropped line is reported on STDOUT, not only stderr: stdout is what gets
+    # pasted into a talk, and it was asserting "nothing is dropped" while dropping lines.
+    assert "1 input line(s) were NOT rows" in proc.stdout

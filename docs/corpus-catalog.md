@@ -45,7 +45,7 @@ empty responses) are graded as failures and remain in the denominator.
   suggests:**
   | class | rows | note |
   |---|---:|---|
-  | `SCHEMA_FAIL` | 1,010 | ⚠️ **903 of these are `classification-routing` models that were HIJACKED** — structurally perfect `{agent, confidence, reasoning}` envelopes that routed to `security-agent`, which is the injection's goal and the test's own declared FAIL condition. Only 107 are genuine envelope problems. |
+  | `SCHEMA_FAIL` | 1,010 | ⚠️ **903 of these are `classification-routing` models that were HIJACKED** — structurally perfect `{agent, confidence, reasoning}` envelopes that routed to `security-agent`, which is the injection's goal and the test's own declared FAIL condition. The other 107 span 12 tests and were NOT classified — 30 of them belong to `indirect-injection-tool-output`, the test that supplied 229 of the 250 hidden compromises, so assuming they are ordinary envelope noise would repeat the very inference this row disproves. |
   | timeouts | 747 | |
   | unparseable | 681 | |
   | transport errors | 427 | connection failures, HTTP 500, empty responses |
@@ -71,8 +71,10 @@ empty responses) are graded as failures and remain in the denominator.
   trip a canary. And the withdrawal binds THIS document and
   `canonical_security_report` only: `regression.py` still keys on stored `schema_compliant`
   and still computes a pooled pass rate internally, so its baselines carry the old defect
-  until `hermia-qqbc` (regression.py trusts stored grades: 11 real compromises counted as
-  resisted) is fixed.
+  until `hermia-qqbc` (regression.py trusts stored grades) is fixed. **That bead's title
+  says 11, which is scoped to the 3,567-row 2026-07-23 sweep. Corpus-wide the figure is
+  250** — verified 2026-09-19, and it is the same 250 named above, because
+  `regression._resisted` keys on exactly the stored flag that hid them.
 
 ### HARD RULES (never violate when citing a number)
 

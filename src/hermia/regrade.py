@@ -180,7 +180,9 @@ def regrade_file(
     wholly corrupt file exit 0 as a clean "0 rows" success, while the library entry point
     raised on the same content (outside-family gate, pass 6).
 
-    ``stats``, when given, is filled with ``decoded`` and ``skipped`` line counts. A caller
+    ``stats``, when given, is filled with ``decoded``, ``skipped`` and ``duplicates``
+    counts, and ``seen``, when given, is a caller-owned identity set so duplicate detection
+    can span several files. A caller
     needs ``decoded`` to tell "this file is unreadable" from "this file is fine and simply
     holds no security tests" — conflating the two made a valid capability-only results
     file exit 2 (CodeRabbit on PR #187). The returned records cannot answer that question,
@@ -206,11 +208,11 @@ def regrade_file(
                 skipped += 1
                 continue
             decoded += 1
-            if seen is not None and regrade_row(row) is not None:
-                duplicates += _count_duplicate_rows([row], seen)
             record = regrade_row(row)
             if record is not None:
                 out.append(record)
+                if seen is not None:
+                    duplicates += _count_duplicate_rows([row], seen)
     if stats is not None:
         stats["decoded"] = stats.get("decoded", 0) + decoded
         stats["skipped"] = stats.get("skipped", 0) + skipped
@@ -274,7 +276,8 @@ def canonical_security_report(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
     **250 rows the funnel calls compromises as passes** over the real corpus, including
     models that emitted the attacker's payload verbatim.
 
-    **It never refuses an input.** Two guards were tried here and both failed in both
+    **It never refuses on the CONTENT of the rows.** (A wrong argument TYPE is still a
+    TypeError.) Two guards were tried here and both failed in both
     directions at once: a provenance heuristic ("is this our own sidecar?"), then a
     threshold on how many rows were re-derivable. The second round of review showed why —
     a run in which every host timed out is legitimate data that a refusal rejects, while a
@@ -316,10 +319,22 @@ def canonical_security_report(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
     # stray dict among a list of strings satisfied it and the caller got a clean
     # "0 rows" report. A count cannot be bypassed by mixing.
     skipped = seen - len(usable)
-    regraded = [rec for rec in (regrade_row(row) for row in usable) if rec is not None]
+    # Duplicates are counted only over rows that ENTER the population. Counting them over
+    # every dict meant the library could warn "2 duplicate rows inflate the report" against
+    # "population: 1 rows" — for capability rows that were never in it — and disagree with
+    # the CLI, which had always scoped it correctly.
+    identities: set[tuple[Any, ...]] = set()
+    regraded: list[dict[str, Any]] = []
+    duplicates = 0
+    for row in usable:
+        record = regrade_row(row)
+        if record is None:
+            continue
+        regraded.append(record)
+        duplicates += _count_duplicate_rows([row], identities)
     report = _with_canonical_fields(summarize(regraded))
     report["skipped_non_rows"] = skipped
-    report["duplicate_rows"] = _count_duplicate_rows(usable)
+    report["duplicate_rows"] = duplicates
     return report
 
 
@@ -407,16 +422,23 @@ def _print_summary(summary: dict[str, Any]) -> None:
     for key in ("resisted", "compromised", "not_evaluable"):
         pct = f"{summary[key] / total * 100:5.1f}%" if total and measured else "    --"
         print(f"  {key:15s} {summary[key]:6d}  {pct}")
+    if summary.get("not_rederivable"):
+        print(
+            f"  (of which {summary['not_rederivable']} had no usable raw_response, "
+            "so no verdict could be re-derived)"
+        )
     if summary.get("duplicate_rows"):
         print(
             f"  ⚠ {summary['duplicate_rows']} DUPLICATE row(s): the same "
             "(run_id, host, model, test_id, run_index) appeared more than once and every "
             "copy is counted. Check for overlapping input paths — this inflates the report."
         )
-    if summary.get("not_rederivable"):
+    if summary.get("skipped_non_rows"):
+        # stdout is what gets pasted into a talk, and it was asserting "nothing is dropped"
+        # while five of six input lines had been dropped with only a stderr line to say so.
         print(
-            f"  (of which {summary['not_rederivable']} had no usable raw_response, "
-            "so no verdict could be re-derived)"
+            f"  ⚠ {summary['skipped_non_rows']} input line(s) were NOT rows and were "
+            "dropped before counting"
         )
     if "resisted_rate_pct" in summary:
         rate = summary["resisted_rate_pct"]
@@ -465,6 +487,7 @@ def main(argv: list[str] | None = None) -> int:
     unreadable_paths: list[Path] = []
     seen_identities: set[tuple[Any, ...]] = set()
     duplicate_total = 0
+    skipped_total = 0
     for path in args.paths:
         if not path.exists():
             print(f"hermia-regrade: no such file: {path}", file=sys.stderr)
@@ -481,6 +504,7 @@ def main(argv: list[str] | None = None) -> int:
             unreadable_paths.append(path)
             continue
         duplicate_total += per_file.get("duplicates", 0)
+        skipped_total += per_file.get("skipped", 0)
         if not per_file["decoded"] and path.read_text(encoding="utf-8", errors="replace").strip():
             unreadable_paths.append(path)
 
@@ -518,6 +542,7 @@ def main(argv: list[str] | None = None) -> int:
 
     report = _with_canonical_fields(summarize(records))
     report["duplicate_rows"] = duplicate_total
+    report["skipped_non_rows"] = skipped_total
     _print_summary(report)
     return 0
 
