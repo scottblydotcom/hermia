@@ -168,16 +168,23 @@ def regrade_row(row: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def regrade_file(path: Path) -> list[dict[str, Any]]:
+def regrade_file(path: Path, stats: dict[str, int] | None = None) -> list[dict[str, Any]]:
     """Re-grade every security row in one JSONL result file.
 
     Unreadable lines are skipped rather than fatal — one bad line must not abandon a large
     corpus — but the count is reported on stderr. Skipping them in total silence let a
     wholly corrupt file exit 0 as a clean "0 rows" success, while the library entry point
     raised on the same content (outside-family gate, pass 6).
+
+    ``stats``, when given, is filled with ``decoded`` and ``skipped`` line counts. A caller
+    needs ``decoded`` to tell "this file is unreadable" from "this file is fine and simply
+    holds no security tests" — conflating the two made a valid capability-only results
+    file exit 2 (CodeRabbit on PR #187). The returned records cannot answer that question,
+    because a file full of perfectly good reasoning rows also regrades to zero records.
     """
     out: list[dict[str, Any]] = []
     skipped = 0
+    decoded = 0
     with path.open() as fh:
         for line in fh:
             if not line.strip():
@@ -193,9 +200,13 @@ def regrade_file(path: Path) -> list[dict[str, Any]]:
             if not isinstance(row, dict):
                 skipped += 1
                 continue
+            decoded += 1
             record = regrade_row(row)
             if record is not None:
                 out.append(record)
+    if stats is not None:
+        stats["decoded"] = stats.get("decoded", 0) + decoded
+        stats["skipped"] = stats.get("skipped", 0) + skipped
     if skipped:
         print(
             f"hermia-regrade: {path}: skipped {skipped} unreadable line(s)",
@@ -402,11 +413,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     records: list[dict[str, Any]] = []
+    read_stats: dict[str, int] = {"decoded": 0, "skipped": 0}
     for path in args.paths:
         if not path.exists():
             print(f"hermia-regrade: no such file: {path}", file=sys.stderr)
             return 2
-        records.extend(regrade_file(path))
+        records.extend(regrade_file(path, stats=read_stats))
 
     if args.output is None and not args.summary_only:
         print(
@@ -433,11 +445,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"wrote {len(records)} corrected records to {args.output}")
 
     _print_summary(_with_canonical_fields(summarize(records)))
-    if not records and any(p.stat().st_size for p in args.paths):
-        # Non-empty input, nothing recovered: the file is unreadable or is not a results
-        # file. Exiting 0 here let a pipeline checking $? treat that as a clean run.
+    # Keyed on rows DECODED, not on security records produced. A results file holding
+    # only capability tests decodes fine and yields zero security records, and the first
+    # version of this check rejected it as unreadable -- the same conflation of "empty of
+    # what I wanted" with "broken" that sank an earlier guard on this branch.
+    if not read_stats["decoded"] and any(p.stat().st_size for p in args.paths):
         print(
-            "hermia-regrade: no usable rows were recovered from a non-empty input",
+            "hermia-regrade: no readable result rows in a non-empty input",
             file=sys.stderr,
         )
         return 2

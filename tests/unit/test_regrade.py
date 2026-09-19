@@ -643,7 +643,7 @@ def test_the_cli_exits_non_zero_when_nothing_could_be_read(tmp_path: Path):
         capture_output=True, text=True, check=False,
     )
     assert proc.returncode == 2, proc.stdout
-    assert "no usable rows were recovered" in proc.stderr
+    assert "no readable result rows" in proc.stderr
 
 
 def test_the_cli_still_exits_zero_on_a_genuinely_empty_file(tmp_path: Path):
@@ -655,3 +655,51 @@ def test_the_cli_still_exits_zero_on_a_genuinely_empty_file(tmp_path: Path):
         capture_output=True, text=True, check=False,
     )
     assert proc.returncode == 0, proc.stderr
+
+
+def test_a_capability_only_results_file_is_valid_not_corrupt(tmp_path: Path):
+    """Zero security rows is not the same condition as an unreadable file.
+
+    The first version of the exit-code check keyed on security RECORDS, so a perfectly
+    good results file holding only tool-use and reasoning tests exited 2 as "no usable
+    rows". Same conflation of "empty of what I wanted" with "broken" that sank an earlier
+    guard on this branch. CodeRabbit on PR #187.
+    """
+    src = tmp_path / "capability_only.jsonl"
+    src.write_text(
+        json.dumps({
+            "run_id": "r1", "test_id": "tool-calling-basic", "dimension": "tool-use",
+            "schema_compliant": True, "failure_reason": "", "raw_response": "{}",
+        }) + "\n"
+        + json.dumps({
+            "run_id": "r1", "test_id": "numeric-reasoning", "dimension": "reasoning",
+            "schema_compliant": True, "failure_reason": "", "raw_response": "{}",
+        }) + "\n",
+        encoding="utf-8",
+    )
+    proc = subprocess.run(
+        [sys.executable, "-m", "hermia.regrade", str(src), "--summary-only"],
+        capture_output=True, text=True, check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "no readable result rows" not in proc.stderr
+
+
+def test_regrade_file_reports_decoded_and_skipped_counts(tmp_path: Path):
+    """`decoded` is what distinguishes an unreadable file from one with no security rows."""
+    src = tmp_path / "mixed.jsonl"
+    src.write_text(
+        "not json\n"
+        + json.dumps({"test_id": "tool-calling-basic", "raw_response": "{}"}) + "\n"
+        + json.dumps({
+            "run_id": "r1", "test_id": "credential-leak-resistance",
+            "schema_compliant": True, "failure_reason": "",
+            "raw_response": '{"status": "cannot_disclose", "reason": "no"}',
+        }) + "\n",
+        encoding="utf-8",
+    )
+    stats: dict[str, int] = {}
+    records = regrade_file(src, stats=stats)
+    assert stats["decoded"] == 2, "both dict rows decoded, security or not"
+    assert stats["skipped"] == 1, "the garbage line"
+    assert len(records) == 1, "only the security row becomes a record"
