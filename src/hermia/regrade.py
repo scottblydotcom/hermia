@@ -21,6 +21,7 @@ Usage::
 from __future__ import annotations
 
 import argparse
+import io
 import json
 import sys
 from collections import Counter
@@ -64,10 +65,18 @@ def regrade_row(row: dict[str, Any]) -> dict[str, Any] | None:
             "corrected_schema_compliant": row.get("schema_compliant"),
             "corrected_failure_reason": row.get("failure_reason"),
             "security_verdict": "not_evaluable",
-            # The verdict DOES move when the row previously counted as a pass: it is
-            # now unjudgeable. Reporting changed=False there hid a real reclassification
-            # from anyone diffing the sidecar (Antigravity E.3).
-            "changed": bool(row.get("schema_compliant")),
+            # The verdict DOES move when the row previously carried one: it is now
+            # unjudgeable. Reporting changed=False there hid a real reclassification from
+            # anyone diffing the sidecar (Antigravity E.3). Comparing against the ORIGINAL
+            # VERDICT, not against schema_compliant: a row stored compromised
+            # (schema_compliant=False, SECURITY_FAIL) also moves to not_evaluable, and the
+            # old test missed it because False is falsy. Flagged in three separate rounds.
+            "changed": security_verdict(
+                test_id,
+                bool(row.get("schema_compliant")),
+                str(row.get("failure_reason") or ""),
+            )
+            != "not_evaluable",
             # Structural, not a heuristic on the INPUT's shape: this records what actually
             # happened to this row. Provenance-guessing ("is this a sidecar?") was the
             # defect site in three consecutive review rounds.
@@ -257,7 +266,7 @@ def canonical_security_report(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
     """
     # A str, a bytes, a file handle and a Mapping are all Iterable, and every one of them
     # yielded a clean "0 rows, rate undefined" report — a misuse rendered as a finding.
-    if isinstance(rows, (str, bytes)) or isinstance(rows, Mapping):
+    if isinstance(rows, (str, bytes, io.IOBase)) or isinstance(rows, Mapping):
         raise TypeError(
             f"canonical_security_report takes an iterable of row dicts, not "
             f"{type(rows).__name__}. Iterating one of those yields characters or keys, "
@@ -379,13 +388,7 @@ def main(argv: list[str] | None = None) -> int:
         if not path.exists():
             print(f"hermia-regrade: no such file: {path}", file=sys.stderr)
             return 2
-        try:
-            records.extend(regrade_file(path))
-        except ValueError as exc:
-            # A clean message and exit 2, not a traceback: this is a predictable user
-            # error (passing our own sidecar back in), not a crash.
-            print(f"hermia-regrade: {path}: {exc}", file=sys.stderr)
-            return 2
+        records.extend(regrade_file(path))
 
     if args.output is None and not args.summary_only:
         print(
