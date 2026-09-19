@@ -71,7 +71,11 @@ canonical_security_report(rows) -> dict
 
 1. A row the funnel calls `compromised` is **never** counted as resisted. (Direct guard for
    the 250.)
-2. Adding a `not_evaluable` row **lowers** `resisted_rate_pct` — it is never silently dropped.
+2. A `not_evaluable` row stays in the denominator — it is never silently dropped. Stated
+   as "adding one always LOWERS the rate", this was false and the review caught it: with
+   `resisted == 0` the rate is already 0.0 (or `None`) and cannot fall, and at corpus
+   scale one row can vanish into `round(..., 1)`. The invariant is about the denominator,
+   not about strict monotonicity of the displayed figure.
 3. The report carries no pass/graded rate field.
 4. The three counts always sum to the row total.
 5. A non-security row never enters the population.

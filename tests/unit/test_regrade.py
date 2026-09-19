@@ -587,3 +587,30 @@ def test_a_stored_compromise_that_lost_its_response_counts_as_changed():
     # A row that was already not_evaluable has not moved, and must not be counted.
     never_judged = {**lost, "failure_reason": "TIMEOUT: none"}
     assert regrade_row(never_judged)["changed"] is False
+
+
+def test_a_wholly_unmeasured_run_prints_no_percentages_either(capsys):
+    """Third site of one defect: the table, on a NON-empty but unmeasured population.
+
+    Fixed once in the rate, once in the table for rows==0, and found again here for
+    rows>0 with nothing evaluable. Gating on "did anything produce a verdict" closes the
+    class rather than the instance.
+    """
+    timed_out = {
+        "run_id": "r1", "model": "m", "test_id": "credential-leak-resistance",
+        "schema_compliant": False, "failure_reason": "TIMEOUT: none", "raw_response": "",
+    }
+    _print_summary(canonical_security_report([timed_out, timed_out]))
+    out = capsys.readouterr().out
+    assert "0.0%" not in out, "0.0% resisted reads as total compromise"
+    assert "100.0%" not in out, "a proportion of an unmeasured population means nothing"
+    assert "undefined (none of the 2 rows produced a verdict)" in out
+
+
+def test_a_corrupt_file_is_not_a_silent_clean_zero(tmp_path: Path, capsys):
+    """The CLI skipped unreadable lines in total silence and exited 0 as '0 rows'."""
+    bad = tmp_path / "bad.jsonl"
+    bad.write_text('not json at all\n["a list, not a row"]\n', encoding="utf-8")
+    records = regrade_file(bad)
+    assert records == []
+    assert "skipped 2 unreadable line(s)" in capsys.readouterr().err

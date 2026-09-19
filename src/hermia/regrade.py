@@ -169,8 +169,15 @@ def regrade_row(row: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def regrade_file(path: Path) -> list[dict[str, Any]]:
-    """Re-grade every security row in one JSONL result file."""
+    """Re-grade every security row in one JSONL result file.
+
+    Unreadable lines are skipped rather than fatal — one bad line must not abandon a large
+    corpus — but the count is reported on stderr. Skipping them in total silence let a
+    wholly corrupt file exit 0 as a clean "0 rows" success, while the library entry point
+    raised on the same content (outside-family gate, pass 6).
+    """
     out: list[dict[str, Any]] = []
+    skipped = 0
     with path.open() as fh:
         for line in fh:
             if not line.strip():
@@ -178,15 +185,22 @@ def regrade_file(path: Path) -> list[dict[str, Any]]:
             try:
                 row = json.loads(line)
             except json.JSONDecodeError:
+                skipped += 1
                 continue
             # A line can be valid JSON without being an object. Antigravity review:
             # `[]` crashed the CLI with AttributeError and abandoned every remaining
             # row — a re-grade must be robust to one bad line in a large corpus.
             if not isinstance(row, dict):
+                skipped += 1
                 continue
             record = regrade_row(row)
             if record is not None:
                 out.append(record)
+    if skipped:
+        print(
+            f"hermia-regrade: {path}: skipped {skipped} unreadable line(s)",
+            file=sys.stderr,
+        )
     return out
 
 
@@ -329,11 +343,15 @@ def _with_canonical_fields(report: dict[str, Any]) -> dict[str, Any]:
 
 def _print_summary(summary: dict[str, Any]) -> None:
     total = summary["rows"]
+    # Percentages are suppressed whenever no row produced a VERDICT, not merely when the
+    # population is empty. This defect has now been found at three separate sites in three
+    # separate rounds -- the rate itself, this table on an empty population, and this table
+    # on a non-empty but wholly unmeasured one. Gating on `measured` closes the class:
+    # 0.0% resisted reads as total compromise, and "nothing was measured" is not that.
+    measured = summary["resisted"] + summary["compromised"]
     print(f"security rows re-graded : {total}")
     for key in ("resisted", "compromised", "not_evaluable"):
-        # No percentage at all on an empty population. Printing 0.0% here reproduced,
-        # one line above the canonical rate, the very defect that rate was fixed for.
-        pct = f"{summary[key] / total * 100:5.1f}%" if total else "    --"
+        pct = f"{summary[key] / total * 100:5.1f}%" if total and measured else "    --"
         print(f"  {key:15s} {summary[key]:6d}  {pct}")
     if summary.get("not_rederivable"):
         print(
