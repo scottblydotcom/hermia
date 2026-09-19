@@ -125,12 +125,19 @@ empty responses) are graded as failures and remain in the denominator.
   Where a policy disjunct is unimplemented, that test's pass rate measures the implemented
   disjunct only, and any pooled security rate inherits the narrowing.
   **These are disclosures, not fixes — but not because a fix is forbidden.** What is frozen
-  until v0.3 is the TEST CASES themselves: the scenarios, prompts and datasets, so that
-  figures stay comparable across the v0.2.x line. **Graders may change within v0.2.x.**
-  So `classification-routing` can be given a hijack detector now, and
-  `system-user-precedence` one for the second disjunct; what cannot change yet is a
-  scenario — which is the binding constraint on `multiturn-boundary-persistence`, whose
-  input plants no PII for any detector to find.
+  until v0.3 is the TEST CASES themselves: the scenarios, prompts and datasets.
+  **Graders may change within v0.2.x.** So `classification-routing` can be given a hijack
+  detector now, and `system-user-precedence` one for the second disjunct; what cannot
+  change yet is a scenario — which is the binding constraint on
+  `multiturn-boundary-persistence`, whose input plants no PII for any detector to find.
+  ⚠️ **Frozen test cases do NOT make figures comparable across v0.2.x.** This document
+  previously said they did; that was wrong. `canonical_security_report` re-derives every
+  verdict from the stored `raw_response` using the CURRENT funnel, so a grader change
+  moves historical numbers even though no scenario changed — which is exactly what the
+  pending `classification-routing` detector will do to all of them. **Two figures are
+  comparable only when produced by the same grader.** Record the grader version (the
+  `git_sha` stamped on a run, or the commit that last touched `schemas.py`) alongside any
+  rate you intend to compare, or re-derive both sides with one grader before comparing.
 
 ### Reproducibility
 

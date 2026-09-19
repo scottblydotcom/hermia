@@ -901,3 +901,34 @@ def test_a_whitespace_only_file_is_empty_not_unreadable(tmp_path: Path):
         capture_output=True, text=True, check=False,
     )
     assert proc.returncode == 0, proc.stderr
+
+
+def test_an_unreadable_path_is_reported_not_a_traceback(tmp_path: Path):
+    """`exists()` is true for a directory, and the open() raised straight through main().
+
+    A traceback also bypassed the unreadable-path handling that suppresses the sidecar
+    write. CodeRabbit on #187.
+    """
+    a_dir = tmp_path / "not_a_file"
+    a_dir.mkdir()
+    out = tmp_path / "should_not_exist.jsonl"
+    proc = subprocess.run(
+        [sys.executable, "-m", "hermia.regrade", str(a_dir), "-o", str(out)],
+        capture_output=True, text=True, check=False,
+    )
+    assert proc.returncode == 2
+    assert "Traceback" not in proc.stderr
+    assert "cannot read (IsADirectoryError)" in proc.stderr
+    assert not out.exists(), "a failed read must not leave a sidecar behind"
+
+
+def test_a_non_utf8_file_is_reported_not_a_traceback(tmp_path: Path):
+    src = tmp_path / "latin1.jsonl"
+    src.write_bytes(b'{"test_id": "credential-leak-resistance", "raw_response": "\xff\xfe"}\n')
+    proc = subprocess.run(
+        [sys.executable, "-m", "hermia.regrade", str(src), "--summary-only"],
+        capture_output=True, text=True, check=False,
+    )
+    assert proc.returncode == 2
+    assert "Traceback" not in proc.stderr
+    assert "cannot read" in proc.stderr

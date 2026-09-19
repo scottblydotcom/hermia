@@ -470,7 +470,16 @@ def main(argv: list[str] | None = None) -> int:
             print(f"hermia-regrade: no such file: {path}", file=sys.stderr)
             return 2
         per_file: dict[str, int] = {"decoded": 0, "skipped": 0}
-        records.extend(regrade_file(path, stats=per_file, seen=seen_identities))
+        try:
+            records.extend(regrade_file(path, stats=per_file, seen=seen_identities))
+        except (OSError, UnicodeDecodeError) as exc:
+            # `exists()` is true for a directory, and a non-UTF-8 byte raises mid-read.
+            # Both escaped as a traceback, before the unreadable-path handling below could
+            # report them or suppress the sidecar write (CodeRabbit on #187).
+            print(f"hermia-regrade: {path}: cannot read ({exc.__class__.__name__})",
+                  file=sys.stderr)
+            unreadable_paths.append(path)
+            continue
         duplicate_total += per_file.get("duplicates", 0)
         if not per_file["decoded"] and path.read_text(encoding="utf-8", errors="replace").strip():
             unreadable_paths.append(path)
