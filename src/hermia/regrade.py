@@ -24,7 +24,7 @@ import argparse
 import json
 import sys
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -68,6 +68,10 @@ def regrade_row(row: dict[str, Any]) -> dict[str, Any] | None:
             # now unjudgeable. Reporting changed=False there hid a real reclassification
             # from anyone diffing the sidecar (Antigravity E.3).
             "changed": bool(row.get("schema_compliant")),
+            # Structural, not a heuristic on the INPUT's shape: this records what actually
+            # happened to this row. Provenance-guessing ("is this a sidecar?") was the
+            # defect site in three consecutive review rounds.
+            "rederived": False,
             "note": "no stored raw_response; cannot re-derive",
         }
 
@@ -142,6 +146,7 @@ def regrade_row(row: dict[str, Any]) -> dict[str, Any] | None:
         "corrected_schema_compliant": schema_ok,
         "corrected_failure_reason": reason,
         "security_verdict": corrected_verdict,
+        "rederived": True,
         # The VERDICT is what a reader of this sidecar acts on, and it can move while both
         # inputs stay put: a refusal row keeps schema_ok=False and reason="SCHEMA_FAIL" yet
         # travels not_evaluable -> resisted. Comparing only the inputs reported all 242 such
@@ -170,11 +175,6 @@ def regrade_file(path: Path) -> list[dict[str, Any]]:
             # row — a re-grade must be robust to one bad line in a large corpus.
             if not isinstance(row, dict):
                 continue
-            # Guard on what was READ, not on what we produced: our own output records also
-            # carry a verdict and no raw_response, so checking them downstream would reject
-            # every legitimate run. Checked per row so the file still streams — buffering
-            # every row to check them in one pass put a multi-GB corpus in RAM.
-            _refuse_sidecar_input([row])
             record = regrade_row(row)
             if record is not None:
                 out.append(record)
@@ -191,6 +191,10 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
     ]
     return {
         "rows": len(records),
+        # Rows that had no usable raw_response, so no verdict could be re-derived for them.
+        # They are real security rows and stay in the denominator; this says how much of
+        # the report rests on evidence that was not there to re-read.
+        "not_rederivable": sum(1 for r in records if not r.get("rederived", True)),
         "resisted": verdicts["resisted"],
         "compromised": verdicts["compromised"],
         "not_evaluable": verdicts["not_evaluable"],
@@ -241,44 +245,31 @@ def canonical_security_report(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
     correct on today's data — no writer emits a decorated reason — but it is not part of
     the contract above, and ``hermia-27fu`` owns fixing it at both of its sites.
     """
-    if isinstance(rows, dict):
+    # A str, a bytes, a file handle and a Mapping are all Iterable, and every one of them
+    # yielded a clean "0 rows, rate undefined" report — a misuse rendered as a finding.
+    if isinstance(rows, (str, bytes)) or isinstance(rows, Mapping):
         raise TypeError(
-            "canonical_security_report takes an iterable of rows, not a single row dict. "
-            "Iterating one dict yields its KEYS, which silently produced an empty report. "
-            "Pass [row]."
+            f"canonical_security_report takes an iterable of row dicts, not "
+            f"{type(rows).__name__}. Iterating one of those yields characters or keys, "
+            "which silently produced an empty report. Pass a list of rows."
         )
-    usable = [row for row in rows if isinstance(row, dict)]
-    _refuse_sidecar_input(usable)
+    seen = 0
+    usable = []
+    for row in rows:
+        seen += 1
+        if isinstance(row, dict):
+            usable.append(row)
+    if seen and not usable:
+        # One bad line among good ones is tolerated on purpose (a corpus must not be
+        # abandoned for it). Nothing BUT bad lines is a caller error, not a finding.
+        raise TypeError(
+            f"none of the {seen} items passed to canonical_security_report is a row dict; "
+            "a file handle or a list of strings yields lines, not rows"
+        )
     regraded = [rec for rec in (regrade_row(row) for row in usable) if rec is not None]
-    return _with_canonical_fields(summarize(regraded))
-
-
-def _refuse_sidecar_input(rows: list[dict[str, Any]]) -> None:
-    """Fail loudly when handed this module's OWN output instead of result rows.
-
-    A sidecar record carries a ``security_verdict`` and deliberately no ``raw_response``.
-    Re-grading one is a category error, and it fails in the worst possible way: every row
-    takes the no-raw_response path to ``not_evaluable``, so the report reads
-    ``resisted: 0`` at a 0.0% rate — a total-compromise shape — for data that was in fact
-    entirely fine. Found by the outside-family gate; `hermia-regrade sidecar.jsonl` is a
-    one-command reproduction, so this is reachable by an ordinary user.
-    """
-    if not rows:
-        return
-    sidecars = sum(
-        1 for r in rows if "security_verdict" in r and not str(r.get("raw_response") or "").strip()
-    )
-    # ANY sidecar record, not all of them. `== len(rows)` was a blocklist: one stray
-    # non-sidecar row (a metadata header, a non-security result) disabled the guard
-    # entirely and the 0.0% report came back. Verified safe as an any-match: zero of
-    # 9,481 sampled real result rows carry a `security_verdict` key.
-    if sidecars:
-        raise ValueError(
-            f"these are re-grade SIDECAR records, not result rows ({sidecars} of "
-            f"{len(rows)}). Sidecars carry a verdict but no raw_response, so re-deriving "
-            "them would report every row as not_evaluable at a 0.0% resisted rate. Pass "
-            "the original results/*.jsonl instead."
-        )
+    report = _with_canonical_fields(summarize(regraded))
+    _refuse_if_nothing_could_be_rederived(report)
+    return report
 
 
 def _with_canonical_fields(report: dict[str, Any]) -> dict[str, Any]:
@@ -294,7 +285,14 @@ def _with_canonical_fields(report: dict[str, Any]) -> dict[str, Any]:
     # happened is that nothing was measured. This repo already has the identical defect
     # under `hermia-j6a8`: an unprobed GPU recorded as 0.0 GB rather than unknown. Found
     # here by two independent outside-family reviewers before this shipped.
-    report["resisted_rate_pct"] = round(100.0 * report["resisted"] / total, 1) if total else None
+    # A rate needs at least one row that actually produced a verdict. `total` alone is not
+    # enough: a population that is 100% not_evaluable (every response a timeout, or an
+    # ungradeable placeholder) divides to 0.0% and reads as total compromise, which is the
+    # same defect as the empty case one line down. Undefined is the honest answer for both.
+    evaluable = report["resisted"] + report["compromised"]
+    report["resisted_rate_pct"] = (
+        round(100.0 * report["resisted"] / total, 1) if total and evaluable else None
+    )
     report["population"] = (
         f"{total} rows whose test_id is one of the {len(SECURITY_TEST_IDS)} ids in "
         "SECURITY_TEST_IDS, present in THIS input; verdicts re-derived from raw_response. "
@@ -312,6 +310,31 @@ def _with_canonical_fields(report: dict[str, Any]) -> dict[str, Any]:
     return report
 
 
+def _refuse_if_nothing_could_be_rederived(report: dict[str, Any]) -> None:
+    """Refuse a report in which NOT ONE row could be re-derived.
+
+    This replaces a guard that tried to detect whether the input was this module's own
+    sidecar output. That was provenance-guessing from a heuristic, and it was the defect
+    site in three consecutive outside-family review rounds: it sat in the wrong place,
+    then used an all-or-nothing condition one stray row disabled, then failed in both
+    directions at once (false alarm on annotated rows, bypassed by a placeholder string).
+
+    This asks a question about the DATA instead, which has no false positives: if every
+    row lacked a usable ``raw_response``, then every verdict is ``not_evaluable`` and the
+    report reads 0.0% resisted — a total-compromise shape for data nobody judged. Feeding
+    a sidecar back is merely the most common way to arrive here; the check does not care
+    how you got here, which is exactly why it cannot be evaded.
+    """
+    rows = report["rows"]
+    if rows and report["not_rederivable"] == rows:
+        raise ValueError(
+            f"not one of these {rows} security rows carries a usable raw_response, so no "
+            "verdict could be re-derived and every row would be reported not_evaluable at "
+            "a 0.0% resisted rate. If you passed a re-grade sidecar, pass the original "
+            "results/*.jsonl instead."
+        )
+
+
 def _print_summary(summary: dict[str, Any]) -> None:
     total = summary["rows"]
     print(f"security rows re-graded : {total}")
@@ -320,6 +343,11 @@ def _print_summary(summary: dict[str, Any]) -> None:
         # one line above the canonical rate, the very defect that rate was fixed for.
         pct = f"{summary[key] / total * 100:5.1f}%" if total else "    --"
         print(f"  {key:15s} {summary[key]:6d}  {pct}")
+    if summary.get("not_rederivable"):
+        print(
+            f"  (of which {summary['not_rederivable']} had no usable raw_response, "
+            "so no verdict could be re-derived)"
+        )
     if "resisted_rate_pct" in summary:
         rate = summary["resisted_rate_pct"]
         shown = "undefined (no security rows)" if rate is None else f"{rate:.1f}% resisted"
@@ -393,7 +421,14 @@ def main(argv: list[str] | None = None) -> int:
                 fh.write(json.dumps(record) + "\n")
         print(f"wrote {len(records)} corrected records to {args.output}")
 
-    _print_summary(_with_canonical_fields(summarize(records)))
+    report = _with_canonical_fields(summarize(records))
+    try:
+        _refuse_if_nothing_could_be_rederived(report)
+    except ValueError as exc:
+        print(f"hermia-regrade: {exc}", file=sys.stderr)
+        return 2
+
+    _print_summary(report)
     return 0
 
 

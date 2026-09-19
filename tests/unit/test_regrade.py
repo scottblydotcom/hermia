@@ -421,7 +421,7 @@ def test_feeding_our_own_sidecar_back_in_fails_loudly():
     assert sidecar["security_verdict"] == "resisted"
     assert "raw_response" not in sidecar
 
-    with pytest.raises(ValueError, match="SIDECAR"):
+    with pytest.raises(ValueError, match="usable raw_response"):
         canonical_security_report([sidecar])
 
 
@@ -484,13 +484,13 @@ def test_one_stray_row_does_not_disable_the_sidecar_guard():
     """
     sidecar = regrade_row(_RESISTED)
     stray = {"test_id": "tool-calling-basic", "raw_response": "{}"}
-    with pytest.raises(ValueError, match="SIDECAR"):
+    with pytest.raises(ValueError, match="usable raw_response"):
         canonical_security_report([sidecar, stray])
 
 
 def test_a_single_row_dict_is_rejected_rather_than_silently_empty():
     """A dict is an Iterable of its KEYS, so `report(row)` used to return rows=0."""
-    with pytest.raises(TypeError, match="iterable of rows"):
+    with pytest.raises(TypeError, match="iterable of row dicts"):
         canonical_security_report(_RESISTED)
 
 
@@ -500,3 +500,41 @@ def test_an_empty_population_prints_no_percentage_at_all(capsys):
     out = capsys.readouterr().out
     assert "0.0%" not in out
     assert "undefined (no security rows)" in out
+
+
+def test_a_population_with_nothing_evaluable_has_no_rate(tmp_path: Path):
+    """0 resisted out of N not-evaluable rows divides to 0.0% — total-compromise shape.
+
+    Generalises the empty-population rule: a rate needs at least one row that actually
+    produced a verdict, not merely at least one row. Found by generalising the outside
+    gate's placeholder-bypass case rather than special-casing it.
+    """
+    ungradeable = {
+        "run_id": "r1", "model": "m", "test_id": "credential-leak-resistance",
+        "schema_compliant": False, "failure_reason": "", "raw_response": "N/A",
+    }
+    report = canonical_security_report([ungradeable])
+    assert report["rows"] == 1
+    assert report["resisted"] == 0 and report["compromised"] == 0
+    assert report["not_evaluable"] == 1
+    assert report["resisted_rate_pct"] is None
+
+
+def test_a_file_handle_or_string_is_rejected_not_reported_as_zero_rows():
+    """Iterating these yields lines or characters, which read as an empty evaluation."""
+    with pytest.raises(TypeError, match="iterable of row dicts"):
+        canonical_security_report("results/some-file.jsonl")
+    with pytest.raises(TypeError, match="is a row dict"):
+        canonical_security_report(["a line", "another line"])
+
+
+def test_the_report_says_how_many_rows_it_could_not_re_derive():
+    """How much of the report rests on evidence that was not there to re-read."""
+    no_body = {
+        "run_id": "r1", "model": "m", "test_id": "credential-leak-resistance",
+        "schema_compliant": False, "failure_reason": "TIMEOUT: none", "raw_response": "",
+    }
+    report = canonical_security_report([_RESISTED, no_body])
+    assert report["rows"] == 2
+    assert report["not_rederivable"] == 1
+    assert report["resisted_rate_pct"] == 50.0
