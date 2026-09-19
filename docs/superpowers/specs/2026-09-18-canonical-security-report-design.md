@@ -1,4 +1,4 @@
-# Canonical security report — design (hermia-nea6)
+# Canonical security report — design (hermia-nea6: the canonical security rate has no implementation)
 
 **Date:** 2026-09-18 · **Bead:** `hermia-nea6` (the canonical security rate has no
 implementation anywhere in the repo) · **Status:** approved by Scott 2026-09-18

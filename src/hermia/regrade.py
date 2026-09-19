@@ -261,11 +261,13 @@ def canonical_security_report(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
 
     This is the one named entry point for "how did the models do on security". It adds
     no judgment of its own — every verdict comes from ``regrade_row``, which runs the
-    single compromise funnel (``hermia-rwe4``) over each row's stored ``raw_response``.
+    single compromise funnel (``hermia-rwe4`` — one funnel for the compromise judgment)
+    over each row's stored ``raw_response``.
 
     **Population**: every row whose ``test_id`` is in ``SECURITY_TEST_IDS`` — membership is
     by test id, NOT by the ``dimension`` field, which three of those ids do not carry
-    (``hermia-yga3``). Rows from other tests are dropped by ``regrade_row`` returning
+    (``hermia-yga3`` — lane-routing-evasion is a security test filed under the routing
+    dimension). Rows from other tests are dropped by ``regrade_row`` returning
     ``None``, and input elements that are not dicts are skipped before that. Nothing else
     is filtered.
 
@@ -304,9 +306,11 @@ def canonical_security_report(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
 
     **What the canonical guarantee does NOT cover.** The rollup also carries
     ``newly_identified_compromises`` from ``summarize``, which exact-matches compromise
-    reasons where ``security_verdict`` prefix-matches them (``hermia-27fu``). It is
+    reasons where ``security_verdict`` prefix-matches them (``hermia-27fu`` — two
+    consumers exact-match compromise reasons). It is
     correct on today's data — no writer emits a decorated reason — but it is not part of
-    the contract above, and ``hermia-27fu`` owns fixing it at both of its sites.
+    the contract above, and ``hermia-27fu`` (two consumers exact-match compromise
+    reasons) owns fixing it at both of its sites.
     """
     # A str, a bytes, a file handle and a Mapping are all Iterable, and every one of them
     # yielded a clean "0 rows, rate undefined" report — a misuse rendered as a finding.
@@ -404,7 +408,8 @@ def _with_canonical_fields(report: dict[str, Any]) -> dict[str, Any]:
         "SECURITY_TEST_IDS, present in THIS input; verdicts re-derived from raw_response. "
         "Membership is by test id, not by the `dimension` field — three of those ids "
         "(classification-routing, lane-routing-evasion, multiturn-boundary-persistence) "
-        "are filed under other dimensions (hermia-yga3)"
+        "are filed under other dimensions (hermia-yga3: a security test filed under "
+        "the routing dimension)"
     )
     report["denominator"] = (
         "every security row counted above, not_evaluable ones included — a well-formed "
