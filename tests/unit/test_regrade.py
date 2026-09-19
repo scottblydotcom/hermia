@@ -12,6 +12,8 @@ from pathlib import Path
 import pytest
 
 from hermia.regrade import (
+    _print_summary,
+    _with_canonical_fields,
     canonical_security_report,
     main,
     regrade_file,
@@ -426,7 +428,36 @@ def test_feeding_our_own_sidecar_back_in_fails_loudly():
 def test_the_population_and_denominator_are_stated_not_left_to_inference():
     report = canonical_security_report([_RESISTED, _TIMED_OUT])
     assert "security" in report["population"].lower()
-    assert "not_evaluable" in report["denominator"]
+    # A bare `"not_evaluable" in denominator` was satisfied by the true statement AND by
+    # its exact negation. Pin the substantive claim: the bucket is not mostly timeouts.
+    assert "not_evaluable ones included" in report["denominator"]
+    assert "SCHEMA_FAIL" in report["denominator"]
+    assert "NOT" in report["denominator"]
+
+
+def test_the_cli_and_the_library_report_the_same_numbers(tmp_path: Path):
+    """C4, the load-bearing claim of the design, was asserted but never tested.
+
+    The two entry points do NOT share a population filter — the CLI reads through
+    regrade_file (which skips blank lines, undecodable lines and non-dicts) while the
+    library filters non-dicts itself. Only the final formula was shared. This runs both
+    over the same file and compares.
+    """
+    rows = [_HIDDEN_COMPROMISE, _CLEAN_PASS, _MALFORMED_BUT_CLEAN, _NON_SECURITY]
+    src = _write(tmp_path, rows)
+
+    proc = subprocess.run(
+        [sys.executable, "-m", "hermia.regrade", str(src), "--summary-only"],
+        capture_output=True, text=True, check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
+
+    lib = canonical_security_report(rows)
+    assert lib["resisted_rate_pct"] is not None
+    # The CLI prints the same rate the library computes, to the digit.
+    assert f"{lib['resisted_rate_pct']:.1f}% resisted" in proc.stdout
+    for state in ("resisted", "compromised", "not_evaluable"):
+        assert f"{state:15s} {lib[state]:6d}" in proc.stdout
 
 
 def test_one_malformed_row_does_not_abort_the_whole_report():
@@ -441,3 +472,31 @@ def test_one_malformed_row_does_not_abort_the_whole_report():
     assert report["rows"] == 2
     assert report["resisted"] == 1
     assert report["compromised"] == 1
+
+
+def test_one_stray_row_does_not_disable_the_sidecar_guard():
+    """The first guard used `sidecars == len(rows)` — a blocklist, and trivially bypassed.
+
+    A sidecar file with a metadata header, or any mixed batch, slipped straight past it
+    and produced the 0.0% total-compromise report the guard exists to prevent. The first
+    test for this guard only passed `[sidecar]`, so len==1 hid the bypass. Outside-family
+    gate, pass 2, CRITICAL.
+    """
+    sidecar = regrade_row(_RESISTED)
+    stray = {"test_id": "tool-calling-basic", "raw_response": "{}"}
+    with pytest.raises(ValueError, match="SIDECAR"):
+        canonical_security_report([sidecar, stray])
+
+
+def test_a_single_row_dict_is_rejected_rather_than_silently_empty():
+    """A dict is an Iterable of its KEYS, so `report(row)` used to return rows=0."""
+    with pytest.raises(TypeError, match="iterable of rows"):
+        canonical_security_report(_RESISTED)
+
+
+def test_an_empty_population_prints_no_percentage_at_all(capsys):
+    """0.0% in the per-state table reproduced the defect one line above the fixed rate."""
+    _print_summary(_with_canonical_fields(summarize([])))
+    out = capsys.readouterr().out
+    assert "0.0%" not in out
+    assert "undefined (no security rows)" in out
