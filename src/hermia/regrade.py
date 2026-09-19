@@ -292,15 +292,15 @@ def canonical_security_report(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
         seen += 1
         if isinstance(row, dict):
             usable.append(row)
-    if seen and not usable:
-        # One bad line among good ones is tolerated on purpose (a corpus must not be
-        # abandoned for it). Nothing BUT bad lines is a caller error, not a finding.
-        raise TypeError(
-            f"none of the {seen} items passed to canonical_security_report is a row dict; "
-            "a file handle or a list of strings yields lines, not rows"
-        )
+    # Counted, not thresholded. `if seen and not usable: raise` was the fourth
+    # all-or-nothing test in this module the review gate walked straight past -- one
+    # stray dict among a list of strings satisfied it and the caller got a clean
+    # "0 rows" report. A count cannot be bypassed by mixing.
+    skipped = seen - len(usable)
     regraded = [rec for rec in (regrade_row(row) for row in usable) if rec is not None]
-    return _with_canonical_fields(summarize(regraded))
+    report = _with_canonical_fields(summarize(regraded))
+    report["skipped_non_rows"] = skipped
+    return report
 
 
 def _with_canonical_fields(report: dict[str, Any]) -> dict[str, Any]:
@@ -433,6 +433,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"wrote {len(records)} corrected records to {args.output}")
 
     _print_summary(_with_canonical_fields(summarize(records)))
+    if not records and any(p.stat().st_size for p in args.paths):
+        # Non-empty input, nothing recovered: the file is unreadable or is not a results
+        # file. Exiting 0 here let a pipeline checking $? treat that as a clean run.
+        print(
+            "hermia-regrade: no usable rows were recovered from a non-empty input",
+            file=sys.stderr,
+        )
+        return 2
     return 0
 
 

@@ -538,8 +538,11 @@ def test_a_file_handle_or_string_is_rejected_not_reported_as_zero_rows():
     """Iterating these yields lines or characters, which read as an empty evaluation."""
     with pytest.raises(TypeError, match="iterable of row dicts"):
         canonical_security_report("results/some-file.jsonl")
-    with pytest.raises(TypeError, match="is a row dict"):
-        canonical_security_report(["a line", "another line"])
+    # A list of lines is no longer a TypeError but a disclosed count, so that mixing one
+    # real dict in cannot silence it (the threshold form was bypassed exactly that way).
+    report = canonical_security_report(["a line", "another line"])
+    assert report["rows"] == 0
+    assert report["skipped_non_rows"] == 2
 
 
 def test_the_report_says_how_many_rows_it_could_not_re_derive():
@@ -614,3 +617,41 @@ def test_a_corrupt_file_is_not_a_silent_clean_zero(tmp_path: Path, capsys):
     records = regrade_file(bad)
     assert records == []
     assert "skipped 2 unreadable line(s)" in capsys.readouterr().err
+
+
+def test_a_stray_dict_cannot_silence_the_skipped_count():
+    """The fourth all-or-nothing threshold the gate bypassed, now a count.
+
+    `if seen and not usable: raise` was satisfied by a single non-security dict among a
+    list of garbage strings, and the caller got a clean "0 rows" report.
+    """
+    report = canonical_security_report(["junk", "junk", {"test_id": "tool-calling-basic"}])
+    assert report["rows"] == 0
+    assert report["skipped_non_rows"] == 2, "the garbage is still counted"
+
+
+def test_the_cli_exits_non_zero_when_nothing_could_be_read(tmp_path: Path):
+    """Pass 6 printed a warning but left exit 0, so `$?` still said success.
+
+    The previous test covered regrade_file and never invoked main() — the same seam
+    mistake, one round apart.
+    """
+    bad = tmp_path / "corrupt.jsonl"
+    bad.write_text("bad line 1\nbad line 2\n", encoding="utf-8")
+    proc = subprocess.run(
+        [sys.executable, "-m", "hermia.regrade", str(bad), "--summary-only"],
+        capture_output=True, text=True, check=False,
+    )
+    assert proc.returncode == 2, proc.stdout
+    assert "no usable rows were recovered" in proc.stderr
+
+
+def test_the_cli_still_exits_zero_on_a_genuinely_empty_file(tmp_path: Path):
+    """An empty file is not a corrupt one; only non-empty-but-unreadable is an error."""
+    empty = tmp_path / "empty.jsonl"
+    empty.write_text("", encoding="utf-8")
+    proc = subprocess.run(
+        [sys.executable, "-m", "hermia.regrade", str(empty), "--summary-only"],
+        capture_output=True, text=True, check=False,
+    )
+    assert proc.returncode == 0, proc.stderr
