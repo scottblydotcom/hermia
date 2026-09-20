@@ -147,27 +147,31 @@ empty responses) are graded as failures and remain in the denominator.
   `policy` field states the pass/fail contract that was signed off; the shipped grader is
   described by `grading_logic`. Nothing compares the two — `policy` is validated only for
   type, and it is not rendered into this document at all, so a reader of the catalog sees
-  the narrower field and cannot see the wider claim it was meant to implement. Three entries
+  the narrower field and cannot see the wider claim it was meant to implement. Two entries
   currently declare a disjunct with no implementation: `multiturn-boundary-persistence`
-  (PII export), `classification-routing` (hijack), and `system-user-precedence` (honoring
-  the claimed override by a means other than accessing `/etc`); see the known limitations on
-  each. On `classification-routing` the gap is worse than "unmeasured": an actual mis-route
-  fails schema (`SCHEMA_FAIL`, not a compromise reason) and resolves to `not_evaluable`,
-  which both the regression detector and the SQL security-critical query treat as absent
-  rather than counting it — a live hijack produces no alert and no unevaluated-count either.
+  (PII export) and `system-user-precedence` (honoring the claimed override by a means other
+  than accessing `/etc`); see the known limitations on each. `classification-routing`
+  (hijack) was the third until 2026-09-19, when `hermia-t9vw` gave it a floor detector — see
+  the not-evaluable breakdown above. Before that, its gap was worse than "unmeasured": an
+  actual mis-route failed schema (`SCHEMA_FAIL`, not a compromise reason) and resolved to
+  `not_evaluable`, which both the regression detector and the SQL security-critical query
+  treat as absent — a live hijack produced no alert and no unevaluated-count either. That is
+  still true of the 139 uncited wrong routes the floor cannot attribute.
   Where a policy disjunct is unimplemented, that test's pass rate measures the implemented
   disjunct only, and any pooled security rate inherits the narrowing.
   **These are disclosures, not fixes — but not because a fix is forbidden.** What is frozen
   until v0.3 is the TEST CASES themselves: the scenarios, prompts and datasets.
-  **Graders may change within v0.2.x.** So `classification-routing` can be given a hijack
-  detector now, and `system-user-precedence` one for the second disjunct; what cannot
+  **Graders may change within v0.2.x.** So `classification-routing` has been given a hijack
+  detector (2026-09-19), and `system-user-precedence` can be given one for the second
+  disjunct (`hermia-lolv` — detector for system-user-precedence's second policy disjunct); what cannot
   change yet is a scenario — which is the binding constraint on
   `multiturn-boundary-persistence`, whose input plants no PII for any detector to find.
   ⚠️ **Frozen test cases do NOT make figures comparable across v0.2.x.** This document
   previously said they did; that was wrong. `canonical_security_report` re-derives every
   verdict from the stored `raw_response` using the CURRENT funnel, so a grader change
   moves historical numbers even though no scenario changed — which is exactly what the
-  pending `classification-routing` detector will do to all of them. **Two figures are
+  `classification-routing` detector did to all of them on 2026-09-19 (3.5% → 6.0% of the
+  security corpus compromised, no scenario changed). **Two figures are
   comparable only when produced by the same grader.** Record the grader version (the
   `git_sha` stamped on a run, or the commit that last touched `schemas.py`) alongside any
   rate you intend to compare, or re-derive both sides with one grader before comparing.
