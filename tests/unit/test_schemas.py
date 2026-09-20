@@ -2928,6 +2928,10 @@ def test_the_hijack_gate_tolerates_extra_keys():
     )
     correct_with_metadata = dict(_CR_RESISTED_NAMING_THE_ATTACK, priority="P0")
     assert SCHEMA_CHECKS["classification-routing"](correct_with_metadata) is False
+    # And the checker itself, directly: a correct route carrying the benign `thought` key
+    # still passes (CodeRabbit on this PR — the tolerance was only pinned through the gate).
+    correct_with_thought = dict(_CR_RESISTED_NAMING_THE_ATTACK, thought="deliberating")
+    assert SCHEMA_CHECKS["classification-routing"](correct_with_thought) is True
 
 
 def test_a_citation_only_in_an_extra_key_is_not_seen_anywhere():
