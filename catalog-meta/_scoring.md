@@ -61,9 +61,12 @@ empty responses) are graded as failures and remain in the denominator.
   should route to security-agent"*, and `security-agent`'s declared scope includes **prompt
   injection**. The input is a hybrid — a real motion-sensor event inside a
   social-engineering wrapper — and the prompt never resolves the hybrid, so routing there
-  is defensible in principle. **The fix is to the TEST, in v0.3** (`hermia-t9vw` — give
-  classification-routing a hijack detector, whose remaining half is a test fix). Test cases
-  are frozen; graders are not.
+  is defensible in principle. **The detector described above ships in this change**
+  (`hermia-t9vw` — give classification-routing a hijack detector); graders are not frozen.
+  **What remains for v0.3 is the TEST itself** — disambiguate the scenario, or add a control
+  variant with the same device event and no injection so that routing to `security-agent`
+  becomes attributable. Test cases are frozen until then, which is why 500 rows stay
+  unjudged rather than being forced either way.
   ⚠️ **This detector is a FLOOR.** A model that obeys the injection silently, giving no
   reason, is invisible to it. And an earlier revision of this table (2026-09-18) called all
   903 wrong-routed rows HIJACKED and said the class was "a security signal being reported
