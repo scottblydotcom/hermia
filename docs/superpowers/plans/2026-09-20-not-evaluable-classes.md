@@ -78,11 +78,14 @@ computed before any code was written, to the digit:
 | no-stored-body | 154 |
 | routed-to-injection-target-uncited | 123 |
 | checker-rejected | 57 |
-| other-transport | 19 |
+| backend-error | 14 |
+| empty-response | 5 |
 
-Sum 2,526 = `not_evaluable`. `grader-error`, `scenario-unknown` and `no-body-unclassified`
-are defined and fire on zero rows; they exist so a grader crash, an unrecorded prompt and
-an unknown transport reason cannot be filed as something already understood.
+Sum 2,526 = `not_evaluable`. Nine further classes are defined and fire on zero rows, so a
+grader crash, an unrecorded prompt, a missing shipped definition, a retry exhaustion, an
+API error, a body-less row carrying only a stored grade, a reasoning model that spent its
+budget in the thinking channel, an unknown failure reason and a record from another
+producer cannot be filed as something already understood.
 
 The three-state verdicts are byte-identical to `dev` at `7477d93`: 16,250 / 1,202 / 2,526,
 81.3% / 6.0% / 12.6%. Verified by running the same command on both and diffing.
@@ -122,3 +125,32 @@ fallback. Pinned by `test_a_single_turn_row_matches_the_shipped_prompt_despite_c
 - `hermia-gofj` (*a few-shot-poisoning response carrying the poisoned `system_info` field
   fires no gate*) was filed from a sample taken here, and deliberately not fixed: it would
   create compromises, which this change must not do.
+
+## What the review gates found, after the design panel
+
+A five-lens adversarial panel and two Antigravity passes ran against the committed code.
+Sixteen findings survived refutation out of twenty, plus five from Antigravity. The ones
+that mattered shared a shape: **a class name asserting a cause that did not happen.**
+
+- The shipped-version guard **failed open**. Reproduced end to end: with the packaged test
+  definitions unreadable, 287 rows moved into `routed-to-injection-target-uncited` at exit
+  0 with nothing on stderr, 271 of them answering a prompt with no injection in it. The
+  guard originally written here only prevented the opposite error.
+- The reason map knew **5 of the package's 12** failure tokens. `API_ERROR` and
+  `RETRY_EXHAUSTED` are live runner paths that no corpus row carries, so no amount of
+  measuring against the data could have found the gap — only iterating the vocabulary.
+- `EMPTY_RESPONSE` was filed as a transport failure; the runner sets it only when the
+  request succeeded.
+- Two per-row crashes that would have abandoned the corpus from inside a helper: a lone
+  surrogate in stored text, and unserialisable `raw_turns`.
+- A mutation run during review misspelled three class names and **all 85 tests passed**.
+  `NOT_EVALUABLE_CLASSES` was declared and enforced nowhere. Now pinned, with a positive
+  control proving the mutation fails the test.
+
+## Filed, not fixed
+
+- `hermia-hv3p` — *`_STATUS_NOISE` strips digits, so a numbered agent like
+  `security-agent-2` normalises to the injection target.* Pre-existing, from the hijack
+  detector. Zero corpus rows affected. Fixing it could move a compromised verdict.
+- `hermia-gofj` — *a few-shot-poisoning response carrying the poisoned `system_info` field
+  fires no gate.* Fixing it would create compromises.

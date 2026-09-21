@@ -145,6 +145,20 @@ def prompt_version(row: dict[str, Any]) -> str | None:
     prompt = row.get("raw_prompt")
     if isinstance(prompt, str) and prompt.strip():
         body = prompt
+        # A row whose turns are NOT simply the rendered prompt carries prompt material the
+        # prompt alone does not describe, so both go into the hash. Zero corpus rows and zero
+        # shipped cases are in that state today — every single-turn row's `raw_turns` is
+        # exactly `[raw_prompt]` — so no existing key changes. It is here so a future
+        # multi-turn case that also sets a prompt cannot be hashed on half its material
+        # (Antigravity pass 2, which read the runner's own turns-first precedence).
+        turns = row.get("raw_turns")
+        if turns:
+            try:
+                rendered = json.dumps(turns, sort_keys=True, separators=(",", ":"))
+            except (TypeError, ValueError):
+                return None
+            if [str(t) for t in turns] != [prompt]:
+                body = prompt + "\0" + rendered
     else:
         # Turns are the FALLBACK, not the preference. A single-turn row stores `raw_turns`
         # too — the runner records the rendered turn list, a one-element array holding the
@@ -324,16 +338,20 @@ def _not_evaluable_breakdown(
     by_class: Counter[str] = Counter()
     by_scenario: dict[str, Counter[str]] = {}
     for record in records:
-        name = record.get("not_evaluable_class")
-        if name is None:
-            # A record from some OTHER producer — an older sidecar read back, or a caller
-            # that built records by hand — carries no class, and skipping it silently broke
-            # this function's one published guarantee (the counts sum to `not_evaluable`).
-            # `summarize` is public, so that input is reachable. Named rather than dropped.
-            if record.get("security_verdict") == "not_evaluable":
-                name = "unclassified-record"
-            else:
-                continue
+        # THE VERDICT DECIDES MEMBERSHIP, for every record and before the name is read.
+        # Gating only the missing-name case was the defect the second outside pass found —
+        # a record carrying a STALE `not_evaluable_class` beside a `resisted` verdict was
+        # counted anyway, so the breakdown summed to 1 against a `not_evaluable` of 0. The
+        # first version of this guard fixed the absent-name half and opened the present-name
+        # half; the invariant has to be enforced on the population, not on the field.
+        if record.get("security_verdict") != "not_evaluable":
+            continue
+        # A record from some OTHER producer — an older sidecar read back, or a caller that
+        # built records by hand — carries no class. `summarize` is public, so that input is
+        # reachable, and dropping those rows broke the same invariant from the other side.
+        name = record.get("not_evaluable_class") or "unclassified-record"
+        if name not in NOT_EVALUABLE_CLASSES:
+            name = "unclassified-record"
         by_class[name] += 1
         key = f"{record.get('test_id', '')}@{record.get('prompt_version') or 'unknown'}"
         by_scenario.setdefault(name, Counter())[key] += 1
@@ -811,6 +829,12 @@ def _print_not_evaluable_breakdown(summary: dict[str, Any]) -> None:
     for keys in scenarios.values():
         for key in keys:
             test_id, _, version = key.rpartition("@")
+            # "unknown" is the ABSENCE of a version, not one more of them. Counting it as a
+            # version made a test that ran a single prompt, plus one row that dropped before
+            # the prompt was recorded, read as drift.
+            if version == "unknown":
+                per_test.setdefault(test_id, set())
+                continue
             per_test.setdefault(test_id, set()).add(version)
     drifted = sorted(t for t, versions in per_test.items() if len(versions) > 1)
     if drifted:
@@ -954,6 +978,31 @@ def main(argv: list[str] | None = None) -> int:
             print(f"hermia-regrade: {bad}: no readable result rows", file=sys.stderr)
         return 2
 
+    # BEFORE the sidecar is written, so the caveat reaches the reader ahead of the artifact it
+    # qualifies (the unreadable-path check above is ordered for the same reason).
+    # A degrade the reader can SEE. When the packaged test definitions cannot be read, every
+    # row's scenario comparison is skipped; the classes still sum and the command still exits
+    # 0, so without this line the only symptom is a breakdown that quietly names more rows
+    # for an attack than the evidence supports.
+    if any(r.get("not_evaluable_class") == "scenario-uncomparable" for r in records):
+        uncomparable = sorted(
+            {
+                str(r.get("test_id", ""))
+                for r in records
+                if r.get("not_evaluable_class") == "scenario-uncomparable"
+            }
+        )
+        dataset = Path(__file__).resolve().parent / "test-datasets" / "agentic-tasks.json"
+        # The REAL path, resolved from this module. The first version of this message named
+        # `src/hermia/...`, which does not exist in an installed package — the one situation
+        # where the dataset is most likely to actually be missing.
+        print(
+            "hermia-regrade: no shipped prompt version to compare against for "
+            f"{', '.join(uncomparable)} — those rows are reported as "
+            f"`scenario-uncomparable` rather than compared. Is {dataset} readable?",
+            file=sys.stderr,
+        )
+
     if args.output is not None and not args.summary_only:
         # Guard: result files are immutable once sealed. Writing the sidecar over an
         # input would destroy the evidence this tool exists to re-interpret.
@@ -973,25 +1022,6 @@ def main(argv: list[str] | None = None) -> int:
     report = _with_canonical_fields(summarize(records))
     report["duplicate_rows"] = duplicate_total
     report["skipped_non_rows"] = skipped_total
-    # A degrade the reader can SEE. When the packaged test definitions cannot be read, every
-    # row's scenario comparison is skipped; the classes still sum and the command still exits
-    # 0, so without this line the only symptom is a breakdown that quietly names more rows
-    # for an attack than the evidence supports.
-    if any(r.get("not_evaluable_class") == "scenario-uncomparable" for r in records):
-        uncomparable = sorted(
-            {
-                str(r.get("test_id", ""))
-                for r in records
-                if r.get("not_evaluable_class") == "scenario-uncomparable"
-            }
-        )
-        print(
-            "hermia-regrade: no shipped prompt version to compare against for "
-            f"{', '.join(uncomparable)} — those rows are reported as "
-            "`scenario-uncomparable` rather than compared. Is "
-            "src/hermia/test-datasets/agentic-tasks.json readable?",
-            file=sys.stderr,
-        )
     _print_summary(report)
     return 0
 

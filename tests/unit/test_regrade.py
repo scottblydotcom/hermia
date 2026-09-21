@@ -1597,3 +1597,73 @@ def test_the_drift_line_counts_versions_within_a_test_not_test_version_pairs(cap
     _print_summary(_with_canonical_fields(summarize([regrade_row(r) for r in rows])))
     out = capsys.readouterr().out
     assert "prompt-version drift: 1 of 2 tests" in out
+
+
+def _record(**overrides):
+    base = {
+        "run_id": "r", "model": "m", "test_id": "classification-routing", "run_index": 0,
+        "original_schema_compliant": True, "original_failure_reason": "",
+        "corrected_schema_compliant": True, "corrected_failure_reason": "", "changed": False,
+    }
+    base.update(overrides)
+    return base
+
+
+def test_a_stale_class_on_a_graded_record_never_enters_the_breakdown():
+    """The defect the SECOND outside pass found — created by the fix for the first.
+
+    Gating only the missing-name case left the present-name case open: a record carrying a
+    stale `not_evaluable_class` beside a `resisted` verdict was counted anyway, so the
+    breakdown summed to 1 against a `not_evaluable` of 0. Membership belongs to the
+    verdict, not to whether the field happens to be populated.
+    """
+    for verdict in ("resisted", "compromised"):
+        summary = summarize([
+            _record(security_verdict=verdict, not_evaluable_class="scenario-not-shipped")
+        ])
+        assert summary["not_evaluable_by_class"] == {}
+        assert sum(summary["not_evaluable_by_class"].values()) == summary["not_evaluable"]
+
+
+def test_an_undeclared_class_on_a_foreign_record_is_renamed_not_published():
+    """A record from another producer must not introduce a class name this tool does not own."""
+    summary = summarize([
+        _record(security_verdict="not_evaluable", not_evaluable_class="something-invented")
+    ])
+    assert summary["not_evaluable_by_class"] == {"unclassified-record": 1}
+    assert sum(summary["not_evaluable_by_class"].values()) == summary["not_evaluable"]
+
+
+def test_a_missing_prompt_version_is_not_counted_as_a_second_version(capsys):
+    """"unknown" is the ABSENCE of a version, not one more of them.
+
+    A test that ran a single prompt, plus one row that dropped before the prompt was
+    recorded, collected {version, "unknown"} and read as drift.
+    """
+    rows = [
+        _cr_row(_SHIPPED_CR["system"], _SHIPPED_CR["prompt"], "",
+                failure_reason="TIMEOUT: x"),
+        {"run_id": "r", "model": "m", "test_id": "classification-routing",
+         "schema_compliant": False, "failure_reason": "TIMEOUT: x", "raw_response": ""},
+    ]
+    _print_summary(_with_canonical_fields(summarize([regrade_row(r) for r in rows])))
+    assert "prompt-version drift" not in capsys.readouterr().out
+
+
+def test_turns_that_are_not_the_rendered_prompt_join_the_scenario_key():
+    """A future multi-turn case that also sets a prompt must not be hashed on half its material.
+
+    Zero corpus rows and zero shipped cases are in that state today — every single-turn
+    row's `raw_turns` is exactly `[raw_prompt]` — so this changes no existing key, which
+    the assertion below pins directly.
+    """
+    prompt = _SHIPPED_CR["prompt"]
+    rendered = {"raw_system": "s", "raw_prompt": prompt, "raw_turns": [prompt]}
+    extra = {"raw_system": "s", "raw_prompt": prompt,
+             "raw_turns": [prompt, "and a second turn"]}
+    assert prompt_version(rendered) == prompt_version({"raw_system": "s",
+                                                       "raw_prompt": prompt})
+    assert prompt_version(extra) != prompt_version(rendered)
+    assert prompt_version(_cr_row(_SHIPPED_CR["system"], prompt, "")) == (
+        shipped_prompt_versions()["classification-routing"]
+    )
