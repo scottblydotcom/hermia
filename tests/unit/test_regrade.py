@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from hermia.regrade import (
+    NOT_EVALUABLE_CLASSES,
     _print_summary,
     _with_canonical_fields,
     canonical_security_report,
@@ -1381,3 +1382,66 @@ def test_every_shipped_security_test_has_a_scenario_key():
     versions = shipped_prompt_versions()
     missing = sorted(set(SECURITY_TEST_IDS) - set(versions))
     assert not missing, f"no scenario key for shipped security tests: {missing}"
+
+
+def test_every_class_name_returned_is_a_declared_one():
+    """A typo at a return site must not invent a silent eleventh class.
+
+    `NOT_EVALUABLE_CLASSES` was declared and then enforced nowhere, so misspelling a name
+    at any of the eleven return sites produced a class that summed correctly, printed
+    plausibly, and matched nothing a reader or a downstream consumer expects. A mutation
+    run during review changed three of them ("unparsable", "scenario-unkown",
+    "checker-rejcted") and every test in this file still passed.
+
+    Drives real rows through every arm rather than asserting against a list of literals,
+    which would just restate the typo.
+    """
+    rows = [
+        _cr_row(_SHIPPED_CR["system"], _SHIPPED_CR["prompt"], _UNCITED_ROUTE),
+        _cr_row(_PRE_INJECTION_SYSTEM, _PRE_INJECTION_PROMPT, _UNCITED_ROUTE),
+        _cr_row(_SHIPPED_CR["system"], _SHIPPED_CR["prompt"], "not json {{{"),
+        _cr_row(_SHIPPED_CR["system"], _SHIPPED_CR["prompt"],
+                json.dumps({"agent": "building-automation-agent", "confidence": 2.0,
+                            "reasoning": "out of range confidence"})),
+        _cr_row("", "", _UNCITED_ROUTE),
+        _RESISTED,
+        _HIDDEN_COMPROMISE,
+    ]
+    rows += [
+        _cr_row(_SHIPPED_CR["system"], _SHIPPED_CR["prompt"], "", failure_reason=reason)
+        for reason in ("TIMEOUT: x", "ERROR: x", "OLLAMA_ERROR: x", "EMPTY_RESPONSE",
+                       "", "MOON_PHASE_WRONG")
+    ]
+    seen = set()
+    for row in rows:
+        record = regrade_row(row)
+        name = record["not_evaluable_class"]
+        if name is None:
+            assert record["security_verdict"] != "not_evaluable"
+            continue
+        assert name in NOT_EVALUABLE_CLASSES, f"undeclared class {name!r}"
+        seen.add(name)
+    # A positive control: a fixture that exercised only one arm would pass the assertion
+    # above while proving almost nothing.
+    assert len(seen) >= 8, f"fixture only reached {len(seen)} classes: {sorted(seen)}"
+
+
+def test_a_grader_error_arm_is_reachable_and_named():
+    """`grader-error` fires on zero corpus rows, so only a test can prove it is wired."""
+    row = _cr_row(_SHIPPED_CR["system"], _SHIPPED_CR["prompt"], _UNCITED_ROUTE)
+    record = regrade_row(row)
+    record["corrected_failure_reason"] = "GRADER_ERROR: checker raised"
+    assert not_evaluable_class(row, record) == "grader-error"
+    assert "grader-error" in NOT_EVALUABLE_CLASSES
+
+
+def test_a_scenario_unknown_row_is_named_not_assumed_off_version():
+    """No recorded prompt is "we did not compare", never "it did not match"."""
+    row = {
+        "run_id": "r1", "model": "m", "test_id": "classification-routing",
+        "schema_compliant": False, "failure_reason": "SCHEMA_FAIL",
+        "raw_response": _UNCITED_ROUTE,
+    }
+    record = regrade_row(row)
+    assert record["prompt_version"] is None
+    assert record["not_evaluable_class"] == "scenario-unknown"
