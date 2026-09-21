@@ -144,21 +144,18 @@ def prompt_version(row: dict[str, Any]) -> str | None:
         return None
     prompt = row.get("raw_prompt")
     if isinstance(prompt, str) and prompt.strip():
+        # DELIBERATELY the prompt alone, even though the row may also carry `raw_turns`.
+        #
+        # A version of this branch also folded in turns that were not simply the rendered
+        # prompt, added in review to answer a theoretical objection about a future multi-turn
+        # case that sets both. It fired on ZERO corpus rows and ZERO shipped cases, and the
+        # next review pass found that it CRASHED on a non-iterable `raw_turns` — a defect
+        # created entirely by the guard, in a branch that protected nothing measurable. It
+        # was removed rather than guarded again: three consecutive passes each found a defect
+        # in the previous pass's fix here, which is evidence about the design, not about the
+        # guards. If a test ever ships both a prompt and real turns, that is the moment to
+        # widen this — with rows to measure against.
         body = prompt
-        # A row whose turns are NOT simply the rendered prompt carries prompt material the
-        # prompt alone does not describe, so both go into the hash. Zero corpus rows and zero
-        # shipped cases are in that state today — every single-turn row's `raw_turns` is
-        # exactly `[raw_prompt]` — so no existing key changes. It is here so a future
-        # multi-turn case that also sets a prompt cannot be hashed on half its material
-        # (Antigravity pass 2, which read the runner's own turns-first precedence).
-        turns = row.get("raw_turns")
-        if turns:
-            try:
-                rendered = json.dumps(turns, sort_keys=True, separators=(",", ":"))
-            except (TypeError, ValueError):
-                return None
-            if [str(t) for t in turns] != [prompt]:
-                body = prompt + "\0" + rendered
     else:
         # Turns are the FALLBACK, not the preference. A single-turn row stores `raw_turns`
         # too — the runner records the rendered turn list, a one-element array holding the
@@ -170,13 +167,13 @@ def prompt_version(row: dict[str, Any]) -> str | None:
         # this branch, and there both sides fall through to turns together.
         turns = row.get("raw_turns")
         # Canonicalised, so two rows whose turns differ only in key order or whitespace do
-        # not read as two different scenarios. Guarded because `json.dumps` raises TypeError
-        # on a value it cannot serialise, and this is called per row from `regrade_row`: an
-        # unserialisable `raw_turns` would abandon the whole corpus rather than leave one
-        # row's scenario unknown. Same guarantee as the surrogate handling below.
+        # not read as two different scenarios. Guarded because `json.dumps` raises on a value
+        # it cannot serialise, and this runs per row from `regrade_row`: an unserialisable
+        # `raw_turns` must leave ONE row's scenario unknown, never abandon the corpus. Same
+        # guarantee as the surrogate handling below.
         try:
             body = json.dumps(turns, sort_keys=True, separators=(",", ":")) if turns else ""
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, RecursionError):
             return None
     if not body.strip():
         return None
@@ -833,14 +830,16 @@ def _print_not_evaluable_breakdown(summary: dict[str, Any]) -> None:
             # version made a test that ran a single prompt, plus one row that dropped before
             # the prompt was recorded, read as drift.
             if version == "unknown":
-                per_test.setdefault(test_id, set())
                 continue
             per_test.setdefault(test_id, set()).add(version)
     drifted = sorted(t for t, versions in per_test.items() if len(versions) > 1)
     if drifted:
+        # Denominator is tests with at least one KNOWN version. A test whose rows all lost
+        # their prompt cannot be said to have run one version or several, and counting it
+        # below the line diluted the rate with cases nobody measured.
         print(
-            f"  prompt-version drift: {len(drifted)} of {len(per_test)} tests with rows here"
-            " ran more than one prompt version (hermia-bjlb)"
+            f"  prompt-version drift: {len(drifted)} of {len(per_test)} tests with a known"
+            " prompt here ran more than one version (hermia-bjlb)"
         )
     # SCOPE, stated rather than implied, and stated in BOTH directions. `scenario-not-shipped`
     # is a precedence residual, not a property: a row that timed out is named for that first

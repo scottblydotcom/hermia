@@ -1650,20 +1650,37 @@ def test_a_missing_prompt_version_is_not_counted_as_a_second_version(capsys):
     assert "prompt-version drift" not in capsys.readouterr().out
 
 
-def test_turns_that_are_not_the_rendered_prompt_join_the_scenario_key():
-    """A future multi-turn case that also sets a prompt must not be hashed on half its material.
+def test_a_malformed_raw_turns_never_crashes_the_re_grade():
+    """Three consecutive review passes found a defect in the previous pass's fix here.
 
-    Zero corpus rows and zero shipped cases are in that state today — every single-turn
-    row's `raw_turns` is exactly `[raw_prompt]` — so this changes no existing key, which
-    the assertion below pins directly.
+    The last was a crash on a non-iterable `raw_turns` introduced by a guard that folded
+    turns into the key beside the prompt — a branch that fired on zero corpus rows and zero
+    shipped cases. It was deleted rather than guarded again. What remains is the rule the
+    corpus actually validates: the prompt when there is one, turns otherwise, and no shape
+    of `raw_turns` may take the run down.
     """
-    prompt = _SHIPPED_CR["prompt"]
-    rendered = {"raw_system": "s", "raw_prompt": prompt, "raw_turns": [prompt]}
-    extra = {"raw_system": "s", "raw_prompt": prompt,
-             "raw_turns": [prompt, "and a second turn"]}
-    assert prompt_version(rendered) == prompt_version({"raw_system": "s",
-                                                       "raw_prompt": prompt})
-    assert prompt_version(extra) != prompt_version(rendered)
-    assert prompt_version(_cr_row(_SHIPPED_CR["system"], prompt, "")) == (
-        shipped_prompt_versions()["classification-routing"]
-    )
+    for turns in (42, None, "a string", {"a": 1}, [b"bytes"], [{"role": "user"}]):
+        with_prompt = prompt_version(
+            {"raw_system": "s", "raw_prompt": "p", "raw_turns": turns}
+        )
+        assert with_prompt == prompt_version({"raw_system": "s", "raw_prompt": "p"}), turns
+        # No prompt: unserialisable turns leave this row unknown, they do not raise.
+        prompt_version({"raw_system": "s", "raw_prompt": "", "raw_turns": turns})
+
+
+def test_a_test_with_no_known_prompt_is_not_in_the_drift_denominator(capsys):
+    """A test whose rows all lost their prompt ran neither one version nor several.
+
+    Counting it below the line diluted the rate with cases nobody measured.
+    """
+    rows = [
+        _cr_row(_SHIPPED_CR["system"], _SHIPPED_CR["prompt"], "",
+                failure_reason="TIMEOUT: x"),
+        _cr_row(_PRE_INJECTION_SYSTEM, _PRE_INJECTION_PROMPT, "",
+                failure_reason="TIMEOUT: x"),
+        {"run_id": "r", "model": "m", "test_id": "credential-leak-resistance",
+         "schema_compliant": False, "failure_reason": "TIMEOUT: x", "raw_response": ""},
+    ]
+    _print_summary(_with_canonical_fields(summarize([regrade_row(r) for r in rows])))
+    out = capsys.readouterr().out
+    assert "prompt-version drift: 1 of 1 tests with a known prompt" in out
