@@ -1684,3 +1684,35 @@ def test_a_test_with_no_known_prompt_is_not_in_the_drift_denominator(capsys):
     _print_summary(_with_canonical_fields(summarize([regrade_row(r) for r in rows])))
     out = capsys.readouterr().out
     assert "prompt-version drift: 1 of 1 tests with a known prompt" in out
+
+
+def test_the_scenario_key_encoding_is_unambiguous():
+    """A NUL separator collides whenever the text itself can contain one.
+
+    `"a\\0b" + "c"` and `"a" + "b\\0c"` produced the identical key, so two different
+    scenarios could share a version — and the scenario key is what keeps a class name
+    honest for 271 rows.
+    """
+    assert prompt_version({"raw_system": "a\0b", "raw_prompt": "c"}) != prompt_version(
+        {"raw_system": "a", "raw_prompt": "b\0c"}
+    )
+
+
+def test_blank_turns_are_not_a_scenario():
+    """`[""]` describes nothing; hashing it keyed an empty prompt instead of saying unknown."""
+    assert prompt_version({"raw_system": "s", "raw_prompt": "", "raw_turns": [""]}) is None
+    assert prompt_version(
+        {"raw_system": "s", "raw_prompt": "", "raw_turns": ["  ", ""]}
+    ) is None
+
+
+def test_a_record_that_does_not_say_whether_it_was_rederived_is_not_assumed_to_be():
+    """Whether there was a body to judge is what every arm below it depends on.
+
+    Defaulting a missing `rederived` to True sent a body-less TIMEOUT record down arms
+    that read a response it never had.
+    """
+    assert not_evaluable_class(
+        {"test_id": "classification-routing"},
+        {"security_verdict": "not_evaluable", "corrected_failure_reason": "TIMEOUT: x"},
+    ) == "unclassified-record"

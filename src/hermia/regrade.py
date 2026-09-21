@@ -171,20 +171,35 @@ def prompt_version(row: dict[str, Any]) -> str | None:
         # it cannot serialise, and this runs per row from `regrade_row`: an unserialisable
         # `raw_turns` must leave ONE row's scenario unknown, never abandon the corpus. Same
         # guarantee as the surrogate handling below.
+        # `[""]` is not a scenario. A turns list whose rendered content is blank describes
+        # nothing, and hashing it produced a key for an empty prompt rather than saying the
+        # prompt was never recorded.
+        if isinstance(turns, list) and not any(str(t).strip() for t in turns):
+            turns = None
         try:
             body = json.dumps(turns, sort_keys=True, separators=(",", ":")) if turns else ""
         except (TypeError, ValueError, RecursionError):
             return None
     if not body.strip():
         return None
+    # LENGTH-PREFIXED, not delimiter-joined. A NUL separator is ambiguous whenever the text
+    # itself can contain one: "a\0b" + "c" and "a" + "b\0c" produced the identical key, so
+    # two different scenarios could share a version. Prefixing each field with its length
+    # makes the encoding injective regardless of content.
+    #
     # `surrogatepass`, because a lone surrogate in stored text (a \udXXX escape, which is
     # what Python's surrogateescape emits for undecodable bytes) makes plain utf-8 encoding
     # raise UnicodeEncodeError — and that would abort the whole re-grade from inside a
     # per-row helper, breaking this module's standing guarantee that one pathological row
-    # must not abandon the corpus. The bytes are still deterministic, and no well-formed
-    # string hashes differently than it did before.
-    material = (system + "\0" + body).encode("utf-8", "surrogatepass")
-    return hashlib.sha256(material).hexdigest()[:12]
+    # must not abandon the corpus.
+    #
+    # Both sides of the comparison run through this function, so changing the encoding moves
+    # every key in lockstep and no class or count changes. Verified against the corpus.
+    parts = []
+    for field in (system, body):
+        raw = field.encode("utf-8", "surrogatepass")
+        parts.append(str(len(raw)).encode("ascii") + b":" + raw)
+    return hashlib.sha256(b"".join(parts)).hexdigest()[:12]
 
 
 @functools.lru_cache(maxsize=1)
@@ -265,6 +280,12 @@ def not_evaluable_class(row: dict[str, Any], record: dict[str, Any]) -> str | No
     """
     if record.get("security_verdict") != "not_evaluable":
         return None
+    if "rederived" not in record:
+        # A record from another producer that does not say whether the response was re-read.
+        # Defaulting to "yes" sent a body-less TIMEOUT row down the arms that read a response
+        # it never had. Whether there was a body to judge is the FIRST thing every arm below
+        # depends on, so absence of that fact is not something to assume past.
+        return "unclassified-record"
     reason = str(record.get("corrected_failure_reason") or "")
 
     # No stored response at all: there is nothing to re-read, so the only evidence about why
