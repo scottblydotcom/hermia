@@ -8,6 +8,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
@@ -1716,3 +1717,18 @@ def test_a_record_that_does_not_say_whether_it_was_rederived_is_not_assumed_to_b
         {"test_id": "classification-routing"},
         {"security_verdict": "not_evaluable", "corrected_failure_reason": "TIMEOUT: x"},
     ) == "unclassified-record"
+
+
+def test_a_transient_read_failure_is_not_cached_forever():
+    """`lru_cache` memoised the failure as well as the answer.
+
+    One momentary error — a permission blip, a file mid-rewrite — made every later call in
+    the process report `scenario-uncomparable`, with nothing to retry it. A failure is not
+    a fact about the dataset.
+    """
+    import hermia.regrade as regrade
+
+    regrade._SHIPPED_VERSIONS_CACHE = None
+    with mock.patch.object(Path, "open", side_effect=OSError("transient")):
+        assert regrade.shipped_prompt_versions() == {}
+    assert regrade.shipped_prompt_versions(), "a later call must retry, not replay the error"

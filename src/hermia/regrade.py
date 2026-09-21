@@ -21,7 +21,6 @@ Usage::
 from __future__ import annotations
 
 import argparse
-import functools
 import hashlib
 import io
 import json
@@ -202,7 +201,9 @@ def prompt_version(row: dict[str, Any]) -> str | None:
     return hashlib.sha256(b"".join(parts)).hexdigest()[:12]
 
 
-@functools.lru_cache(maxsize=1)
+_SHIPPED_VERSIONS_CACHE: dict[str, str] | None = None
+
+
 def _shipped_prompt_versions() -> dict[str, str]:
     """``{test_id: prompt_version}`` for the test definitions shipping in this package.
 
@@ -220,6 +221,9 @@ def _shipped_prompt_versions() -> dict[str, str]:
     id as "no comparison was made" rather than as a mismatch. A packaged install without the
     data files must degrade to saying less, never to asserting that every row is off-version.
     """
+    global _SHIPPED_VERSIONS_CACHE
+    if _SHIPPED_VERSIONS_CACHE is not None:
+        return _SHIPPED_VERSIONS_CACHE
     path = Path(__file__).resolve().parent / "test-datasets" / "agentic-tasks.json"
     try:
         with path.open(encoding="utf-8") as fh:
@@ -235,6 +239,11 @@ def _shipped_prompt_versions() -> dict[str, str]:
             )
             if version is not None and case.get("id"):
                 versions[str(case["id"])] = version
+        # Only a SUCCESSFUL read is cached. `lru_cache` memoised the failure too, so one
+        # transient error — a momentary permission problem, a file being rewritten — made
+        # every later call in the process report `scenario-uncomparable` forever, with
+        # nothing to retry it. A failure is not a fact about the dataset.
+        _SHIPPED_VERSIONS_CACHE = versions
         return versions
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return {}
