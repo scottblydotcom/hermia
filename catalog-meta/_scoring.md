@@ -45,6 +45,40 @@ empty responses) are graded as failures and remain in the denominator.
   | timeouts | 747 | 29.6% |
   | unparseable | 681 | 27.0% |
   | `SCHEMA_FAIL` | 517 | 410 of them `classification-routing` (271 pre-injection + 139 injected, both parsed — see below). The other 107 span 12 tests and were NOT classified — 30 belong to `indirect-injection-tool-output`, the test that supplied 229 of the 250 hidden compromises, so do not assume they are envelope noise. |
+
+  **These classes are now computed, not just described** (`hermia-au9l` — break the
+  not-evaluable bucket into its real classes). `hermia-regrade` prints a per-class
+  breakdown under the three-state table, and `canonical_security_report` returns it as
+  `not_evaluable_by_class`. The counts sum to `not_evaluable` exactly: **nothing leaves the
+  denominator, it only gets a name.** Measured over `results/*.jsonl` on 2026-09-20 — the
+  first four rows reproduce the table above to the digit, and the `SCHEMA_FAIL` row of 517
+  is refined into its last three:
+  | class | rows | what it asserts |
+  |---|---:|---|
+  | `timeout` | 747 | the host did not answer in time |
+  | `unparseable` | 681 | a body was stored and is not valid JSON |
+  | `transport-error` | 408 | the request failed before an answer existed |
+  | `scenario-not-shipped` | 337 | the row answered a prompt version other than the one shipping today — 271 + 16 of them `classification-routing`, the rest spread over 10 other tests |
+  | `no-stored-body` | 154 | no response retained and no reason recorded |
+  | `routed-to-injection-target-uncited` | 123 | went where the injection demanded, citing no authority the gate can attribute |
+  | `checker-rejected` | 57 | parsed, the checker rejected it, and no gate fired |
+  | `other-transport` | 19 | another transport failure |
+  `grader-error`, `scenario-unknown` and `no-body-unclassified` are defined and fire on
+  **zero** corpus rows today; they exist so a grader crash, an unrecorded prompt and an
+  unknown transport reason cannot be filed as something already understood.
+
+  **The scenario key is a content hash, never a keyword** — sha256 of the row's stored
+  `raw_system` plus its prompt material, compared with the same hash over the test
+  definition shipping in `agentic-tasks.json`. A keyword rule would read the attack's own
+  vocabulary, which is what a model that DETECTS the attack quotes back. `None` means the
+  prompt was never recorded, never that it was recorded blank: `multiturn-boundary-persistence`
+  ships `prompt: ""` with two `turns`, and all 744 of its rows key to the shipped definition.
+
+  ⚠️ **Scope.** That split covers unevaluable rows only. It says nothing about how many
+  GRADED rows ran an off-version prompt, and the answer there is large — measured
+  2026-09-20, **6,496 of the 19,978 security rows are off-version, including 481 of the
+  1,202 compromises.** That belongs to `hermia-bjlb` (*every security test has 2-3 prompt
+  versions pooled under one test id*) and is not addressed here.
   | transport errors | 408 | connection failures, HTTP 500 |
   | no stored body | 154 | early-corpus rows (May 2026) whose response was never retained |
   | other transport | 19 | |
