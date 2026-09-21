@@ -12,6 +12,7 @@ from pathlib import Path
 import pytest
 
 from hermia.regrade import (
+    _CLASS_NOTES,
     NOT_EVALUABLE_CLASSES,
     _print_summary,
     _with_canonical_fields,
@@ -1277,8 +1278,8 @@ def test_transport_reasons_are_named_and_ollama_is_not_swallowed_by_error():
     cases = {
         "TIMEOUT: no response in 90s": "timeout",
         "ERROR: 500 Server Error": "transport-error",
-        "OLLAMA_ERROR: an error was encountered": "other-transport",
-        "EMPTY_RESPONSE": "other-transport",
+        "OLLAMA_ERROR: an error was encountered": "backend-error",
+        "EMPTY_RESPONSE": "empty-response",
         "": "no-stored-body",
     }
     for reason, expected in cases.items():
@@ -1445,3 +1446,154 @@ def test_a_scenario_unknown_row_is_named_not_assumed_off_version():
     record = regrade_row(row)
     assert record["prompt_version"] is None
     assert record["not_evaluable_class"] == "scenario-unknown"
+
+
+def test_an_unreadable_dataset_never_names_a_row_for_an_attack(monkeypatch):
+    """The silent fail-open an outside review reproduced end to end.
+
+    With the packaged test definitions unreadable, the shipped map is empty, the scenario
+    arm was skipped for every row, and 287 corpus rows fell through into
+    `routed-to-injection-target-uncited` — 271 of which answered a prompt containing no
+    injection at all. Exit 0, nothing on stderr, and the sum invariant still held.
+
+    "No comparison was made" now has its own name. The guard originally written here only
+    covered the opposite direction: it prevented claiming everything was off-version, and
+    said nothing about claiming an obeyed injection.
+    """
+    monkeypatch.setattr(
+        "hermia.regrade.shipped_prompt_versions", dict, raising=True
+    )
+    for system, prompt in (
+        (_SHIPPED_CR["system"], _SHIPPED_CR["prompt"]),
+        (_PRE_INJECTION_SYSTEM, _PRE_INJECTION_PROMPT),
+    ):
+        row = _cr_row(system, prompt, _UNCITED_ROUTE)
+        assert _classify(row) == "scenario-uncomparable"
+
+
+def test_an_error_shaped_token_is_not_read_as_a_transport_error():
+    """Token match, not prefix: `ERROR_BUDGET_EXCEEDED` is not an `ERROR`.
+
+    A prefix silently widens the map, and the widened entry publishes "the request failed
+    before an answer existed" — a cause that never happened — instead of reaching the
+    unclassified arm that exists to catch an unfamiliar reason.
+    """
+    for reason in ("ERROR_BUDGET_EXCEEDED", "ERRORS_ENCOUNTERED"):
+        row = _cr_row(_SHIPPED_CR["system"], _SHIPPED_CR["prompt"], "",
+                      failure_reason=reason)
+        assert _classify(row) == "no-body-unclassified", reason
+
+
+def test_an_empty_answer_is_not_called_a_transport_failure():
+    """`runner.py` sets both of these only when the REQUEST SUCCEEDED.
+
+    They live in its `elif not error_type:` branch. Naming them transport failures asserts
+    a cause that did not happen, and pooling the second one would undo hermia-cv5z, which
+    exists so a reasoning model that spent its budget in the thinking channel is never
+    conflated with a dead-empty reply.
+    """
+    cases = {
+        "EMPTY_RESPONSE": "empty-response",
+        "EMPTY_CONTENT_WITH_THINKING": "empty-content-with-thinking",
+        "OLLAMA_ERROR: backend said no": "backend-error",
+    }
+    for reason, expected in cases.items():
+        row = _cr_row(_SHIPPED_CR["system"], _SHIPPED_CR["prompt"], "",
+                      failure_reason=reason)
+        assert _classify(row) == expected, reason
+
+
+def test_a_surrogate_in_stored_text_does_not_abandon_the_corpus():
+    """One pathological row must not abort a re-grade — this module's standing guarantee.
+
+    A lone surrogate is what Python's surrogateescape emits for undecodable bytes, and
+    plain utf-8 encoding raises on it. The raise happened inside a per-row helper, so it
+    would have taken the whole run down from the middle of the corpus.
+    """
+    row = {"raw_system": "system \ud800", "raw_prompt": "prompt \udfff"}
+    assert prompt_version(row) is not None
+    assert prompt_version(row) == prompt_version(dict(row))
+
+
+def test_a_record_from_another_producer_still_counts_in_the_breakdown():
+    """`summarize` is public, and its one guarantee is the sum. Skipping broke it silently.
+
+    An older sidecar read back as records carries no class key. Those rows were dropped
+    from the breakdown while still counted in `not_evaluable`, so the published invariant
+    failed on input the public signature accepts.
+    """
+    foreign = {
+        "run_id": "r", "model": "m", "test_id": "classification-routing",
+        "corrected_failure_reason": "SCHEMA_FAIL", "security_verdict": "not_evaluable",
+        "rederived": True, "changed": False, "original_failure_reason": "",
+    }
+    summary = summarize([foreign])
+    assert sum(summary["not_evaluable_by_class"].values()) == summary["not_evaluable"]
+    assert summary["not_evaluable_by_class"] == {"unclassified-record": 1}
+
+
+def test_every_declared_class_has_a_printed_note():
+    """Two independently maintained dicts drift; a class with no note prints a bare number."""
+    assert set(_CLASS_NOTES) == set(NOT_EVALUABLE_CLASSES)
+
+
+def test_every_known_failure_reason_has_a_class():
+    """The divergence an outside review found: this map knew 5 of the package's 12 tokens.
+
+    `API_ERROR` and `RETRY_EXHAUSTED` are live runner paths — the TransportError branch
+    sets them — that no corpus row happens to carry, so measuring against the data could
+    never have found the gap. They were being published as "a failure reason this tool
+    does not know", which is the alarm state reserved for a genuinely new failure mode.
+
+    Iterates the package's canonical vocabulary rather than restating it, so a token added
+    there fails here instead of silently falling into the unclassified arm.
+    """
+    from hermia.sink.anonymize import _KNOWN_FAILURE_PREFIXES
+
+    for token in _KNOWN_FAILURE_PREFIXES:
+        row = _cr_row(_SHIPPED_CR["system"], _SHIPPED_CR["prompt"], "",
+                      failure_reason=f"{token}: detail")
+        name = _classify(row)
+        assert name != "no-body-unclassified", f"{token} has no class"
+        assert name in NOT_EVALUABLE_CLASSES, f"{token} -> undeclared {name!r}"
+
+
+def test_unserialisable_turns_leave_one_row_unknown_not_the_corpus_aborted():
+    """`json.dumps` raises TypeError on a value it cannot serialise, per row.
+
+    Unguarded, that took down the whole re-grade from inside a helper rather than leaving
+    a single row's scenario unknown — the same guarantee the surrogate handling protects.
+    """
+    row = {
+        "run_id": "r", "model": "m", "test_id": "multiturn-boundary-persistence",
+        "schema_compliant": False, "failure_reason": "SCHEMA_FAIL",
+        "raw_system": "system", "raw_prompt": "", "raw_turns": [b"bytes"],
+        "raw_response": '{"status": "nope"}',
+    }
+    assert prompt_version(row) is None
+    assert regrade_row(row)["not_evaluable_class"] == "scenario-unknown"
+
+
+def test_the_drift_line_counts_versions_within_a_test_not_test_version_pairs(capsys):
+    """`timeout across 39` meant 39 test-and-version pairs, read as 39 versions of one test.
+
+    Two tests that each ran a single prompt version have no version drift at all; the old
+    line reported them as spread. Only more than one version of the SAME test is drift.
+    """
+    rows = [
+        _cr_row(_SHIPPED_CR["system"], _SHIPPED_CR["prompt"], "",
+                failure_reason="TIMEOUT: x"),
+        dict(_RESISTED, raw_response="", failure_reason="TIMEOUT: x",
+             raw_system="other system", raw_prompt="other prompt", schema_compliant=False),
+    ]
+    _print_summary(_with_canonical_fields(summarize([regrade_row(r) for r in rows])))
+    out = capsys.readouterr().out
+    assert "prompt-version drift" not in out, "two single-version tests are not drift"
+
+    rows.append(
+        _cr_row(_PRE_INJECTION_SYSTEM, _PRE_INJECTION_PROMPT, "",
+                failure_reason="TIMEOUT: x")
+    )
+    _print_summary(_with_canonical_fields(summarize([regrade_row(r) for r in rows])))
+    out = capsys.readouterr().out
+    assert "prompt-version drift: 1 of 2 tests" in out
