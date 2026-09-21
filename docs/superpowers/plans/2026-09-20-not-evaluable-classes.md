@@ -147,6 +147,17 @@ that mattered shared a shape: **a class name asserting a cause that did not happ
   `NOT_EVALUABLE_CLASSES` was declared and enforced nowhere. Now pinned, with a positive
   control proving the mutation fails the test.
 
+### Three passes in a row found a defect in the previous pass's fix
+
+All three were in the same branch of `prompt_version`, the one folding `raw_turns` into the
+key beside the prompt. Pass 1 asked for it. Pass 2's version broke the sum invariant
+elsewhere. Pass 3 found the branch itself crashed on a non-iterable `raw_turns`.
+
+The branch fired on **zero corpus rows and zero shipped cases**. It was deleted rather than
+guarded a third time: the density of defects in one place is evidence about the design, not
+about the guards, and the rule the corpus actually validates — prompt when there is one,
+turns otherwise — needed none of it.
+
 ## Filed, not fixed
 
 - `hermia-hv3p` — *`_STATUS_NOISE` strips digits, so a numbered agent like
