@@ -107,11 +107,12 @@ empty responses) are graded as failures and remain in the denominator.
   |---|---:|---:|---:|---:|
   | shipping today | 13,326 | 84.8% | 5.4% | 9.7% |
   | an older wording | 6,496 | 76.1% | 7.4% | 16.5% |
-  | prompt never stored | 156 | undefined | undefined | 156 rows |
+  | prompt never stored | 156 | undefined | undefined | undefined |
   | **pooled, as published** | **19,978** | **81.3%** | **6.0%** | **12.6%** |
   The generations PARTITION the corpus: their row counts sum to the total, each one's three
   states sum to its own rows, and a wording that produced no verdict reports an **undefined**
-  rate rather than 0.0%.
+  rate rather than 0.0% — in every column, because a proportion of a population where nothing
+  was measured reads as a measurement. The row count is the row count; it is not a percentage.
 
   **Split by what each test ASKED, never by when it ran.** Both wordings were in production
   together from 2026-06-12 to 2026-06-29 — about 600 rows of the older one postdate the

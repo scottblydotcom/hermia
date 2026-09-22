@@ -250,6 +250,15 @@ def _shipped_prompt_versions() -> dict[str, str]:
                     }
                 )
             except (TypeError, ValueError, AttributeError):
+                # Counted, not merely skipped. A definition this tool cannot hash costs that
+                # test every wording comparison in the report, and silence made a corpus
+                # configuration error indistinguishable from a clean read.
+                print(
+                    f"hermia-regrade: cannot compute a scenario key for shipped test "
+                    f"{case.get('id', '<unnamed>')!r}; its rows will report as "
+                    "`uncomparable`",
+                    file=sys.stderr,
+                )
                 continue
             if version is not None and case.get("id"):
                 versions[str(case["id"])] = version
@@ -808,6 +817,13 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
         "resisted": verdicts["resisted"],
         "compromised": verdicts["compromised"],
         "not_evaluable": verdicts["not_evaluable"],
+        # Records whose verdict is none of the three. `regrade_row` cannot produce one, but
+        # `summarize` is public and a foreign record can, and without this the three states
+        # summed to less than `rows` while the percentages were computed over `rows` — so a
+        # table of three numbers that do not add up printed with no indication why. Disclosed
+        # at the same level as the per-generation count, which already had it.
+        "unrecognised_verdict": len(records)
+        - verdicts["resisted"] - verdicts["compromised"] - verdicts["not_evaluable"],
         # A NAME for each unevaluable row, never a re-verdict: these counts sum exactly to
         # `not_evaluable` above and nothing leaves that denominator.
         "not_evaluable_by_class": by_class,
@@ -1039,6 +1055,28 @@ def _print_generation_table(summary: dict[str, Any]) -> None:
         print(f"  {name:{width}s} {rows:6d} {cells}   {_GENERATION_NOTES.get(name, '')}")
     if any(g["resisted_rate_pct"] is None for g in gens.values()):
         print("  * no row in this wording produced a verdict, so its rates are undefined")
+    # Over EVERY row, not only the unevaluable ones. The drift line used the not-evaluable
+    # cross-tab because that was the only scenario table when it was written; a test whose
+    # wordings all graded cleanly showed no drift at all. `verdicts_by_scenario` covers the
+    # whole population and is right here.
+    per_test: dict[str, set[str]] = {}
+    for key in summary.get("verdicts_by_scenario") or {}:
+        test_id, _, version = key.rpartition("@")
+        # The sentinel is the ABSENCE of a version, not one more of them. Counting it as a
+        # version made a test that ran a single prompt, plus one row that dropped before the
+        # prompt was recorded, read as drift.
+        if version == "unrecorded":
+            continue
+        per_test.setdefault(test_id, set()).add(version)
+    drifted = sorted(t for t, versions in per_test.items() if len(versions) > 1)
+    if drifted:
+        # Denominator is tests with at least one KNOWN version. A test whose rows all lost
+        # their prompt cannot be said to have run one version or several, and counting it
+        # below the line diluted the rate with cases nobody measured.
+        print(
+            f"  prompt-version drift: {len(drifted)} of {len(per_test)} tests with a known"
+            " prompt here ran more than one version (hermia-bjlb)"
+        )
     print(
         "  Split by what each test ASKED, never by when it ran: both wordings were in\n"
         "  production together for 17 days in June 2026, so a cutoff date mixes them back."
@@ -1096,26 +1134,6 @@ def _print_not_evaluable_breakdown(summary: dict[str, Any]) -> None:
     # count conflates two different facts: `timeout across 39` read as 39 versions of one
     # scenario when it was 39 test-and-version combinations across 18 tests, most of them a
     # single version each. Version drift is the fact this line exists to show.
-    scenarios = summary.get("not_evaluable_by_class_and_scenario") or {}
-    per_test: dict[str, set[str]] = {}
-    for keys in scenarios.values():
-        for key in keys:
-            test_id, _, version = key.rpartition("@")
-            # The sentinel is the ABSENCE of a version, not one more of them. Counting it as
-            # a version made a test that ran a single prompt, plus one row that dropped
-            # before the prompt was recorded, read as drift.
-            if version == "unrecorded":
-                continue
-            per_test.setdefault(test_id, set()).add(version)
-    drifted = sorted(t for t, versions in per_test.items() if len(versions) > 1)
-    if drifted:
-        # Denominator is tests with at least one KNOWN version. A test whose rows all lost
-        # their prompt cannot be said to have run one version or several, and counting it
-        # below the line diluted the rate with cases nobody measured.
-        print(
-            f"  prompt-version drift: {len(drifted)} of {len(per_test)} tests with a known"
-            " prompt here ran more than one version (hermia-bjlb)"
-        )
     # SCOPE, stated rather than implied, and stated in BOTH directions. `scenario-not-shipped`
     # is a precedence residual, not a property: a row that timed out is named for that first
     # even if it also ran an off-version prompt, so its count is a floor on off-version rows
@@ -1152,6 +1170,11 @@ def _print_summary(summary: dict[str, Any]) -> None:
         )
     _print_generation_table(summary)
     _print_not_evaluable_breakdown(summary)
+    if summary.get("unrecognised_verdict"):
+        print(
+            f"  ⚠ {summary['unrecognised_verdict']} record(s) carry a verdict this tool does "
+            "not recognise and are in the row count but in none of the three states above"
+        )
     if summary.get("duplicate_rows"):
         print(
             f"  ⚠ {summary['duplicate_rows']} DUPLICATE row(s): the same "

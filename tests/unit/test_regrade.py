@@ -410,7 +410,16 @@ def test_the_report_exposes_no_rate_that_drops_unevaluable_rows():
         # a rate over a stated denominator, which is the thing this module exists to
         # provide; what it still cannot get from here is a rate that drops unevaluable rows.
         "verdicts_by_generation", "verdicts_by_scenario",
+        # Reviewed: a COUNT, not a rate, and the one that makes the three states above
+        # add up. Without it a foreign record sat in `rows` and in none of the three
+        # states, so the printed table showed three numbers that did not sum to the
+        # population while the percentages were computed over it.
+        "unrecognised_verdict",
     }, "a new key must be reviewed here: is it a rate that drops unevaluable rows?"
+    assert (
+        report["resisted"] + report["compromised"] + report["not_evaluable"]
+        + report["unrecognised_verdict"] == report["rows"]
+    )
     for gen in report["verdicts_by_generation"].values():
         assert gen["resisted"] + gen["compromised"] + gen["not_evaluable"] == gen["rows"]
     assert sum(report["not_evaluable_by_class"].values()) == report["not_evaluable"]
@@ -2162,3 +2171,61 @@ def test_the_wording_table_keeps_one_unit_per_column(capsys, monkeypatch):
     # rule one level up, and the first repair of this defect broke it.
     assert line.count("--") == 3
     assert "%" not in line.split("unrecorded")[1].split("the prompt")[0]
+
+
+def test_an_unrecognised_verdict_is_disclosed_at_the_top_level_too():
+    """Three states that do not sum to the population, printed beside percentages of it.
+
+    `summarize` is public, so a record carrying a verdict string that is none of the three
+    is reachable. It sat in `rows` and in no state, so the table showed 1 + 0 + 0 over a
+    population of 2 with the rates computed over 2 and nothing saying why.
+    """
+    record = {
+        "run_id": "r", "model": "m", "test_id": "classification-routing", "run_index": 0,
+        "original_schema_compliant": True, "original_failure_reason": "",
+        "corrected_schema_compliant": True, "corrected_failure_reason": "",
+        "changed": False, "security_verdict": "banana",
+        "scenario_generation": "current", "prompt_version": "abc123abc123",
+    }
+    summary = summarize([record])
+    assert summary["unrecognised_verdict"] == 1
+    assert (
+        summary["resisted"] + summary["compromised"] + summary["not_evaluable"]
+        + summary["unrecognised_verdict"] == summary["rows"]
+    )
+
+
+def test_the_unrecognised_verdict_count_is_printed(capsys):
+    """A count that only exists in the returned dict does not reach the published output."""
+    record = {
+        "run_id": "r", "model": "m", "test_id": "classification-routing", "run_index": 0,
+        "original_schema_compliant": True, "original_failure_reason": "",
+        "corrected_schema_compliant": True, "corrected_failure_reason": "",
+        "changed": False, "security_verdict": "banana",
+        "scenario_generation": "current", "prompt_version": "abc123abc123",
+    }
+    _print_summary(_with_canonical_fields(summarize([record])))
+    assert "verdict this tool does not recognise" in capsys.readouterr().out
+
+
+def test_drift_is_measured_over_every_row_not_only_unevaluable_ones(capsys):
+    """A test whose wordings all graded cleanly showed no drift at all.
+
+    The drift line read the not-evaluable cross-tab because that was the only scenario
+    table when it was written, so two wordings of one test that both produced verdicts were
+    invisible to it.
+    """
+    rows = [
+        _cr_row(_SHIPPED_CR["system"], _SHIPPED_CR["prompt"],
+                json.dumps({"agent": "building-automation-agent", "confidence": 0.9,
+                            "reasoning": "a device action"})),
+        _cr_row(_PRE_INJECTION_SYSTEM, _PRE_INJECTION_PROMPT,
+                json.dumps({"agent": "building-automation-agent", "confidence": 0.9,
+                            "reasoning": "a device action"})),
+    ]
+    records = [regrade_row(r) for r in rows]
+    assert all(r["security_verdict"] != "not_evaluable" for r in records), (
+        "fixture must have NO unevaluable rows, or it cannot show the defect"
+    )
+    _print_summary(_with_canonical_fields(summarize(records)))
+    assert "prompt-version drift: 1 of 1 tests" in capsys.readouterr().out
