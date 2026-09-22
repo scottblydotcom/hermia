@@ -2091,3 +2091,74 @@ def test_a_scenario_spanning_two_generations_says_so():
     assert forward == backward, "the published label depended on input order"
     key = next(iter(forward))
     assert forward[key]["generations"] == {"current": 1, "unclassified-record": 1}
+
+
+def test_only_a_list_counts_as_turns():
+    """A string, a mapping or a number in `raw_turns` describes no conversation.
+
+    The blank-content guard only ever ran on lists, so every other shape was hashed into a
+    scenario key and given a wording label built out of nothing.
+    """
+    for turns in ("a string", {"a": 1}, 42, True):
+        assert prompt_version(
+            {"raw_system": "s", "raw_prompt": "", "raw_turns": turns}
+        ) is None, turns
+    assert prompt_version({"raw_system": "s", "raw_prompt": "", "raw_turns": [0]}) is not None
+
+
+def test_a_scenario_key_is_validated_by_shape_not_truthiness():
+    """An older sidecar can carry the string this report used as its own sentinel.
+
+    Anything that is not a 12-character hex digest is not a scenario key, and counting one
+    as a version made a single-wording test read as drift.
+    """
+    base = {
+        "run_id": "r", "model": "m", "test_id": "classification-routing", "run_index": 0,
+        "original_schema_compliant": True, "original_failure_reason": "",
+        "corrected_schema_compliant": True, "corrected_failure_reason": "",
+        "changed": False, "security_verdict": "not_evaluable",
+        "scenario_generation": "current",
+    }
+    for bogus in ("unknown", "", "nothexdigits", "abc", 12, None):
+        report = summarize([dict(base, prompt_version=bogus)])
+        assert list(report["verdicts_by_scenario"]) == [
+            "classification-routing@unrecorded"
+        ], bogus
+    good = summarize([dict(base, prompt_version="abc123abc123")])
+    assert list(good["verdicts_by_scenario"]) == ["classification-routing@abc123abc123"]
+
+
+def test_the_final_class_never_claims_a_response_parsed():
+    """`checker-rejected` asserts the checker rejected a PARSED response."""
+    row = {
+        "run_id": "r", "model": "m", "test_id": "classification-routing",
+        "raw_system": _SHIPPED_CR["system"], "raw_prompt": _SHIPPED_CR["prompt"],
+        "raw_response": "not json {{{",
+    }
+    record = {
+        "security_verdict": "not_evaluable", "rederived": True,
+        "corrected_failure_reason": "SCHEMA_FAIL",
+    }
+    assert not_evaluable_class(row, record) == "unclassified-record"
+
+
+def test_the_wording_table_keeps_one_unit_per_column(capsys, monkeypatch):
+    """A raw row count under a column of percentages, repeating a total already shown.
+
+    A generation with an undefined rate has no evaluable rows, so its unjudged share is
+    exactly 100% — a measured fact that belongs in the percentage column.
+    """
+    unrecorded = _cr_row(_SHIPPED_CR["system"], _SHIPPED_CR["prompt"], "",
+                         failure_reason="TIMEOUT: x")
+    unrecorded.pop("raw_system")
+    rows = [unrecorded, _cr_row(_SHIPPED_CR["system"], _SHIPPED_CR["prompt"], _UNCITED_ROUTE)]
+    _print_summary(_with_canonical_fields(summarize([regrade_row(r) for r in rows])))
+    out = capsys.readouterr().out
+    line = next(ln for ln in out.splitlines() if ln.strip().startswith("unrecorded"))
+    # Every rate column suppressed, and the row count left in the `rows` column where it
+    # belongs. Printing the tautological "100% unjudged" instead is what this repo has
+    # already ruled out three times: a proportion of an unmeasured population reads as a
+    # measurement. `test_a_wholly_unmeasured_run_prints_no_percentages_either` pins that
+    # rule one level up, and the first repair of this defect broke it.
+    assert line.count("--") == 3
+    assert "%" not in line.split("unrecorded")[1].split("the prompt")[0]

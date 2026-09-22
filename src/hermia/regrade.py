@@ -165,6 +165,12 @@ def prompt_version(row: dict[str, Any]) -> str | None:
         # empty. Only the two genuinely multi-turn cases, which ship `prompt: ""`, reach
         # this branch, and there both sides fall through to turns together.
         turns = row.get("raw_turns")
+        # A turns list is a LIST. A string, a mapping or a number in that field is not prompt
+        # material, and hashing one produced a scenario key — and so a wording label — out of
+        # something describing no conversation at all. The blank-content check below only ever
+        # ran on lists, so every other shape slipped past it.
+        if not isinstance(turns, list):
+            turns = None
         # Canonicalised, so two rows whose turns differ only in key order or whitespace do
         # not read as two different scenarios. Guarded because `json.dumps` raises on a value
         # it cannot serialise, and this runs per row from `regrade_row`: an unserialisable
@@ -391,14 +397,22 @@ def not_evaluable_class(row: dict[str, Any], record: dict[str, Any]) -> str | No
         return "scenario-not-shipped"
 
     raw = row.get("raw_response")
+    parsed_ok = False
     if isinstance(raw, str) and raw.strip():
         try:
             parsed = json.loads(strip_fences(raw))
         except json.JSONDecodeError:
             parsed = None
         else:
+            parsed_ok = True
             if unattributed_compliance(str(row.get("test_id", "")), parsed):
                 return "routed-to-injection-target-uncited"
+    if not parsed_ok:
+        # Reaching here without a parsed body means the record's own fields disagree: a row
+        # this module re-derived always has one, and an unparseable body is named `unparseable`
+        # above. Only foreign input arrives here, and `checker-rejected` asserts the checker
+        # rejected a PARSED response, which is not what happened.
+        return "unclassified-record"
     # Named for OUR state of knowledge, not the model's formatting. `envelope-rejected` was
     # rejected as a name: of the 107-row SCHEMA_FAIL residual this class refines, 17 have a
     # structurally perfect envelope and failed on a VALUE, and 30 belong to the test that
@@ -407,6 +421,24 @@ def not_evaluable_class(row: dict[str, Any], record: dict[str, Any]) -> str | No
     # alarming hypothesis. 57 of that 107 reach here; the other 50 are held by the scenario
     # arm above, which runs first.
     return "checker-rejected"
+
+
+def _version_key(record: dict[str, Any]) -> str:
+    """The record's scenario key, or the sentinel when it does not carry a real one.
+
+    Validated by SHAPE, not by truthiness. An older sidecar can carry the literal string this
+    report used as its own sentinel in an earlier version, and anything that is not a
+    12-character hex digest is not a scenario key — counting one as a version made a
+    single-wording test read as drift.
+    """
+    version = record.get("prompt_version")
+    if not isinstance(version, str) or len(version) != 12:
+        return "unrecorded"
+    try:
+        int(version, 16)
+    except ValueError:
+        return "unrecorded"
+    return version
 
 
 def _verdict_rate(counts: Counter[str]) -> float | None:
@@ -456,7 +488,7 @@ def _generation_breakdown(
             name = "unclassified-record"
         verdict = str(record.get("security_verdict") or "")
         gen.setdefault(name, Counter())[verdict] += 1
-        key = f"{record.get('test_id', '')}@{record.get('prompt_version') or 'unrecorded'}"
+        key = f"{record.get('test_id', '')}@{_version_key(record)}"
         scen.setdefault(key, Counter())[verdict] += 1
         # COUNTED per scenario, not assigned. `scen_gen[key] = name` was last-write-wins, so
         # a scenario whose rows span two generations published whichever label the last record
@@ -531,7 +563,7 @@ def _not_evaluable_breakdown(
         by_class[name] += 1
         # Same sentinel as `verdicts_by_scenario`. Two dicts in one report spelling the same
         # absence two ways ("unknown" here, "unrecorded" there) reads as two different facts.
-        key = f"{record.get('test_id', '')}@{record.get('prompt_version') or 'unrecorded'}"
+        key = f"{record.get('test_id', '')}@{_version_key(record)}"
         by_scenario.setdefault(name, Counter())[key] += 1
 
     def _ordered(counter: Counter[str]) -> dict[str, int]:
@@ -994,7 +1026,13 @@ def _print_generation_table(summary: dict[str, Any]) -> None:
         # verdict, not just for the rate: 0.0% resisted alongside 100% unjudged invites the
         # reader to treat the first number as a measurement of the models.
         if rate is None:
-            cells = f"{'--':>7s} {'--':>7s} {rows:>8d}*"
+            # Every column suppressed, and no count smuggled into a percentage column. The
+            # first version printed the raw row count under `unjudged`, which switched units
+            # mid-column and repeated the total already in `rows`. The obvious repair —
+            # printing the tautological 100% unjudged — is what this repo has already ruled
+            # out three times: a proportion of a population where nothing was measured invites
+            # the reader to treat it as measured. The row count is one column to the left.
+            cells = f"{'--':>7s} {'--':>7s} {'--':>8s}*"
         else:
             cells = (f"{100 * g['resisted'] / rows:6.1f}% {100 * g['compromised'] / rows:6.1f}%"
                      f" {100 * g['not_evaluable'] / rows:8.1f}%")
