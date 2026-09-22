@@ -15,6 +15,7 @@ import pytest
 from hermia.regrade import (
     _CLASS_NOTES,
     NOT_EVALUABLE_CLASSES,
+    SCENARIO_GENERATIONS,
     _print_summary,
     _with_canonical_fields,
     canonical_security_report,
@@ -23,6 +24,7 @@ from hermia.regrade import (
     prompt_version,
     regrade_file,
     regrade_row,
+    scenario_generation,
     shipped_prompt_versions,
     summarize,
 )
@@ -1887,3 +1889,57 @@ def test_an_empty_population_produces_empty_generation_tables():
     report = canonical_security_report([])
     assert report["verdicts_by_generation"] == {}
     assert report["verdicts_by_scenario"] == {}
+
+
+def test_a_record_from_another_producer_is_not_called_unrecorded():
+    """"unrecorded" means we looked at the row and found no prompt on it.
+
+    A record that simply does not carry the field is a different thing, and labelling it
+    `unrecorded` asserted "the prompt was never stored" while a `prompt_version` sat in the
+    same record contradicting it. The not-evaluable classes were corrected for this exact
+    shape; the guard belongs on both sides.
+    """
+    record = {
+        "run_id": "r", "model": "m", "test_id": "classification-routing", "run_index": 0,
+        "original_schema_compliant": True, "original_failure_reason": "",
+        "corrected_schema_compliant": True, "corrected_failure_reason": "",
+        "changed": False, "security_verdict": "resisted", "prompt_version": "abc123abc123",
+    }
+    gens = summarize([record])["verdicts_by_generation"]
+    assert set(gens) == {"unclassified-record"}
+
+    invented = summarize([dict(record, scenario_generation="totally-made-up")])
+    assert set(invented["verdicts_by_generation"]) == {"unclassified-record"}
+
+
+def test_every_declared_generation_has_a_printed_note():
+    """Two separately maintained dicts drift; a generation with no note prints a bare row."""
+    from hermia.regrade import _GENERATION_NOTES
+
+    assert set(_GENERATION_NOTES) == set(SCENARIO_GENERATIONS)
+
+
+def test_every_generation_returned_is_a_declared_one():
+    """Driven through real rows, so a typo at a return site cannot invent a sixth name."""
+    rows = [
+        _cr_row(_SHIPPED_CR["system"], _SHIPPED_CR["prompt"], _UNCITED_ROUTE),
+        _cr_row(_PRE_INJECTION_SYSTEM, _PRE_INJECTION_PROMPT, _UNCITED_ROUTE),
+        {"run_id": "r", "model": "m", "test_id": "classification-routing",
+         "schema_compliant": False, "failure_reason": "TIMEOUT: x", "raw_response": ""},
+    ]
+    seen = set()
+    for row in rows:
+        name = regrade_row(row)["scenario_generation"]
+        assert name in SCENARIO_GENERATIONS, name
+        seen.add(name)
+    assert len(seen) >= 3, f"fixture only reached {sorted(seen)}"
+
+
+def test_scenario_generation_is_callable_directly_and_never_reads_the_clock():
+    """The public entry point, exercised directly rather than only through regrade_row."""
+    row = _cr_row(_SHIPPED_CR["system"], _SHIPPED_CR["prompt"], _UNCITED_ROUTE)
+    assert scenario_generation(row) == "current"
+    assert scenario_generation(dict(row, run_timestamp="2020-01-01T00:00:00+00:00")) == (
+        "current"
+    )
+    assert scenario_generation({"test_id": "classification-routing"}) == "unrecorded"

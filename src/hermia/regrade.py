@@ -263,6 +263,10 @@ SCENARIO_GENERATIONS: tuple[str, ...] = (
     "superseded",
     "uncomparable",
     "unrecorded",
+    # Not produced by `scenario_generation`: the name for a record that came from somewhere
+    # else and does not carry the field. Distinct from `unrecorded`, which is the answer when
+    # we DID look at the row and found no prompt stored on it.
+    "unclassified-record",
 )
 
 
@@ -434,7 +438,14 @@ def _generation_breakdown(
     scen: dict[str, Counter[str]] = {}
     scen_gen: dict[str, str] = {}
     for record in records:
-        name = str(record.get("scenario_generation") or "unrecorded")
+        name = record.get("scenario_generation")
+        if not isinstance(name, str) or name not in SCENARIO_GENERATIONS:
+            # An older sidecar read back, or a caller that built records by hand. Defaulting
+            # to `unrecorded` asserted "the prompt this row answered was never stored", which
+            # is false when the record carries a prompt_version — a name contradicted by the
+            # record beside it. And publishing an undeclared name verbatim is the hole the
+            # not-evaluable classes were closed for; the same guard belongs here.
+            name = "unclassified-record"
         verdict = str(record.get("security_verdict") or "")
         gen.setdefault(name, Counter())[verdict] += 1
         key = f"{record.get('test_id', '')}@{record.get('prompt_version') or 'unrecorded'}"
@@ -922,6 +933,7 @@ _GENERATION_NOTES: dict[str, str] = {
     "superseded": "answered an older wording of the same test id",
     "uncomparable": "no shipped definition to compare against",
     "unrecorded": "the prompt this row answered was never stored",
+    "unclassified-record": "a record from another producer, carrying no wording",
 }
 
 
