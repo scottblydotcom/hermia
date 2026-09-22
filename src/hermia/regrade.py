@@ -258,6 +258,50 @@ def shipped_prompt_versions() -> dict[str, str]:
     return dict(_shipped_prompt_versions())
 
 
+SCENARIO_GENERATIONS: tuple[str, ...] = (
+    "current",
+    "superseded",
+    "uncomparable",
+    "unrecorded",
+)
+
+
+def scenario_generation(row: dict[str, Any]) -> str:
+    """Which wording of its test this row actually answered, relative to what ships today.
+
+    ``hermia-bjlb``. 17 of the 18 security tests have been reworded at least once, three of
+    them twice, so a rate computed per test id pools answers to different questions. The
+    worked example is ``classification-routing``: its May-2026 wording is the same device
+    event with NO injection and no ``building-automation-agent`` in its agent list, which is
+    an accidental CONTROL GROUP, and its June wording is the attack. Pooled under one id
+    they average into a rate that describes neither.
+
+    BY CONTENT, NEVER BY DATE. The two wordings were both in production from 2026-06-12 to
+    2026-06-29 — roughly 600 rows of the old one postdate the changeover, including one host
+    that re-ran the entire old suite twice on 2026-06-24 — so a cutoff date puts old-wording
+    rows in the current bucket and silently undoes the whole separation. This function never
+    reads ``run_timestamp``, and a test pins that two rows with identical prompts get the
+    same answer however far apart they ran.
+
+    ``uncomparable`` is not ``superseded``. A test id with no shipped definition — the data
+    file unreadable, or the test retired — has nothing to compare against, and calling those
+    rows old-wording would assert something about data nobody has. That distinction is the
+    one ``not_evaluable_class`` was corrected for one level down.
+
+    NAMED ``scenario_generation`` rather than ``test_generation`` on purpose: pytest collects
+    any module-level name beginning with ``test_``, so a public function with that name would
+    be collected as a test case — and fail as a missing fixture — in every consumer's suite
+    that imports it.
+    """
+    version = prompt_version(row)
+    if version is None:
+        return "unrecorded"
+    shipped = shipped_prompt_versions().get(str(row.get("test_id", "")))
+    if shipped is None:
+        return "uncomparable"
+    return "current" if version == shipped else "superseded"
+
+
 def not_evaluable_class(row: dict[str, Any], record: dict[str, Any]) -> str | None:
     """Name for one unevaluable row — never a verdict, and never a reason to move one.
 
@@ -353,6 +397,71 @@ def not_evaluable_class(row: dict[str, Any], record: dict[str, Any]) -> str | No
     return "checker-rejected"
 
 
+def _verdict_rate(counts: Counter[str]) -> float | None:
+    """A generation's resisted share over ITS OWN full row count, or None when unmeasured.
+
+    Two rules, both already load-bearing one level up and both re-entered here because a
+    per-generation rate is a rate. The denominator is every row in the generation, so an
+    unevaluable one still counts against it — a split that quietly switched to `resisted /
+    evaluable` would reintroduce, per generation, exactly the definition the security-verdict
+    decision record forbids. And the answer is None, never 0.0, when no row in the generation
+    produced a verdict: the `unrecorded` generation is 156 real corpus rows and 100%
+    not-evaluable, so 0.0% would render "nothing was measured" as "every model was
+    compromised", which is this repo's most-repeated defect (hermia-j6a8).
+    """
+    total = sum(counts.values())
+    evaluable = counts["resisted"] + counts["compromised"]
+    if not total or not evaluable:
+        return None
+    return round(100.0 * counts["resisted"] / total, 1)
+
+
+def _generation_breakdown(
+    records: list[dict[str, Any]],
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    """Every verdict split by the wording its row answered — ``hermia-bjlb``.
+
+    Two views of the same partition. ``by_generation`` answers "does this number rest on the
+    test we ship today?", and ``by_scenario`` keeps each individual wording separate, which
+    is what makes the corpus's accidental control groups visible instead of averaged away.
+
+    The generations PARTITION the population: every record is in exactly one, and their row
+    counts sum to the report's own. A split that dropped rows would let a reader add the
+    generations up and get a smaller corpus than the headline with nothing to say which rows
+    went missing.
+    """
+    gen: dict[str, Counter[str]] = {}
+    scen: dict[str, Counter[str]] = {}
+    scen_gen: dict[str, str] = {}
+    for record in records:
+        name = str(record.get("scenario_generation") or "unrecorded")
+        verdict = str(record.get("security_verdict") or "")
+        gen.setdefault(name, Counter())[verdict] += 1
+        key = f"{record.get('test_id', '')}@{record.get('prompt_version') or 'unrecorded'}"
+        scen.setdefault(key, Counter())[verdict] += 1
+        scen_gen[key] = name
+
+    def _block(counts: Counter[str]) -> dict[str, Any]:
+        return {
+            "rows": sum(counts.values()),
+            "resisted": counts["resisted"],
+            "compromised": counts["compromised"],
+            "not_evaluable": counts["not_evaluable"],
+            "resisted_rate_pct": _verdict_rate(counts),
+        }
+
+    order = {name: i for i, name in enumerate(SCENARIO_GENERATIONS)}
+    by_generation = {
+        name: _block(counts)
+        for name, counts in sorted(gen.items(), key=lambda kv: order.get(kv[0], 99))
+    }
+    by_scenario = {
+        key: {**_block(counts), "generation": scen_gen[key]}
+        for key, counts in sorted(scen.items(), key=lambda kv: (-sum(kv[1].values()), kv[0]))
+    }
+    return by_generation, by_scenario
+
+
 def _not_evaluable_breakdown(
     records: list[dict[str, Any]],
 ) -> tuple[dict[str, int], dict[str, dict[str, int]]]:
@@ -402,6 +511,7 @@ def _stamp_classification(
     the breakdown by being handed different arguments.
     """
     record["prompt_version"] = prompt_version(row)
+    record["scenario_generation"] = scenario_generation(row)
     record["not_evaluable_class"] = not_evaluable_class(row, record)
     return record
 
@@ -613,7 +723,8 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
     # breakdown added there alone would be absent from the documented
     # `hermia-regrade results/*.jsonl --summary-only` invocation — the one that produces
     # every published figure. `not_rederivable` sits here for the same reason.
-    by_class, by_scenario = _not_evaluable_breakdown(records)
+    by_class, by_ne_scenario = _not_evaluable_breakdown(records)
+    by_generation, by_scenario = _generation_breakdown(records)
     return {
         "rows": len(records),
         # Rows that had no usable raw_response, so no verdict could be re-derived for them.
@@ -626,7 +737,13 @@ def summarize(records: list[dict[str, Any]]) -> dict[str, Any]:
         # A NAME for each unevaluable row, never a re-verdict: these counts sum exactly to
         # `not_evaluable` above and nothing leaves that denominator.
         "not_evaluable_by_class": by_class,
-        "not_evaluable_by_class_and_scenario": by_scenario,
+        "not_evaluable_by_class_and_scenario": by_ne_scenario,
+        # hermia-bjlb. The same verdicts, split by which wording of its test each row
+        # answered. Not a second rate to quote instead of the headline: every generation
+        # reports all three states over its own full denominator, and a generation that
+        # produced no verdict reports an undefined rate rather than 0.0.
+        "verdicts_by_generation": by_generation,
+        "verdicts_by_scenario": by_scenario,
         "changed": sum(1 for r in records if r["changed"]),
         "newly_identified_compromises": len(newly_found),
         "newly_identified_by_test": dict(Counter(r["test_id"] for r in newly_found)),
@@ -800,6 +917,47 @@ def _with_canonical_fields(report: dict[str, Any]) -> dict[str, Any]:
     return report
 
 
+_GENERATION_NOTES: dict[str, str] = {
+    "current": "answered the test wording shipping today",
+    "superseded": "answered an older wording of the same test id",
+    "uncomparable": "no shipped definition to compare against",
+    "unrecorded": "the prompt this row answered was never stored",
+}
+
+
+def _print_generation_table(summary: dict[str, Any]) -> None:
+    """Which test wording each verdict rests on — hermia-bjlb.
+
+    Printed as a table of all three states per generation, never as a single corrected
+    headline. The point is not that one number is better than another; it is that a rate
+    pooled across wordings is answering more than one question at once.
+    """
+    gens = summary.get("verdicts_by_generation") or {}
+    if len(gens) < 2:
+        return
+    print("\nby test wording (every verdict above, split by which wording it answered):")
+    width = max(len(name) for name in gens)
+    print(f"  {'wording':{width}s} {'rows':>6s} {'resist':>7s} {'compr':>7s} {'unjudged':>9s}")
+    for name, g in gens.items():
+        rows = g["rows"]
+        rate = g["resisted_rate_pct"]
+        # Percentages are suppressed for the whole ROW when the generation produced no
+        # verdict, not just for the rate: 0.0% resisted alongside 100% unjudged invites the
+        # reader to treat the first number as a measurement of the models.
+        if rate is None:
+            cells = f"{'--':>7s} {'--':>7s} {rows:>8d}*"
+        else:
+            cells = (f"{100 * g['resisted'] / rows:6.1f}% {100 * g['compromised'] / rows:6.1f}%"
+                     f" {100 * g['not_evaluable'] / rows:8.1f}%")
+        print(f"  {name:{width}s} {rows:6d} {cells}   {_GENERATION_NOTES.get(name, '')}")
+    if any(g["resisted_rate_pct"] is None for g in gens.values()):
+        print("  * no row in this wording produced a verdict, so its rates are undefined")
+    print(
+        "  Split by what each test ASKED, never by when it ran: both wordings were in\n"
+        "  production together for 17 days in June 2026, so a cutoff date mixes them back."
+    )
+
+
 _CLASS_NOTES: dict[str, str] = {
     "timeout": "the host did not answer in time",
     "transport-error": "the request failed before an answer existed",
@@ -905,6 +1063,7 @@ def _print_summary(summary: dict[str, Any]) -> None:
             f"  (of which {summary['not_rederivable']} had no usable raw_response, "
             "so no verdict could be re-derived)"
         )
+    _print_generation_table(summary)
     _print_not_evaluable_breakdown(summary)
     if summary.get("duplicate_rows"):
         print(
