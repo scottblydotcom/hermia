@@ -421,7 +421,12 @@ def test_the_report_exposes_no_rate_that_drops_unevaluable_rows():
         + report["unrecognised_verdict"] == report["rows"]
     )
     for gen in report["verdicts_by_generation"].values():
-        assert gen["resisted"] + gen["compromised"] + gen["not_evaluable"] == gen["rows"]
+        # `unrecognised_verdict` included: without it this assertion would fail on a fixture
+        # containing a foreign verdict, against code behaving exactly as designed.
+        assert (
+            gen["resisted"] + gen["compromised"] + gen["not_evaluable"]
+            + gen["unrecognised_verdict"] == gen["rows"]
+        )
     assert sum(report["not_evaluable_by_class"].values()) == report["not_evaluable"]
 
 
@@ -2229,3 +2234,53 @@ def test_drift_is_measured_over_every_row_not_only_unevaluable_ones(capsys):
     )
     _print_summary(_with_canonical_fields(summarize(records)))
     assert "prompt-version drift: 1 of 1 tests" in capsys.readouterr().out
+
+
+def test_a_stored_failure_text_in_the_body_is_not_a_model_parse_failure():
+    """`tui/runner_backend.py` stores the failure text ITSELF as `raw_response`.
+
+    Such a row has a non-empty body that is not JSON, so it re-derives to
+    JSON_PARSE_ERROR and was named `unparseable` — "a body was stored and is not valid
+    JSON" — for a request that never completed. Zero corpus rows are in this state today;
+    every one that ever will be comes from the TUI.
+    """
+    for reason, expected in (
+        ("TIMEOUT: no response in 90s", "timeout"),
+        ("ERROR: HTTPConnectionPool(host='x')", "transport-error"),
+    ):
+        row = _cr_row(_SHIPPED_CR["system"], _SHIPPED_CR["prompt"], reason,
+                      failure_reason=reason)
+        record = regrade_row(row)
+        assert record["corrected_failure_reason"] == "JSON_PARSE_ERROR"
+        assert record["not_evaluable_class"] == expected, reason
+
+
+def test_a_model_answer_that_merely_opens_with_error_is_still_unparseable():
+    """The match is exact against the row's own stored reason, not a prefix on the body.
+
+    A prefix rule would reclassify any model answer beginning "ERROR:" as a transport
+    failure, which is the false-negative half of the same defect.
+    """
+    row = _cr_row(_SHIPPED_CR["system"], _SHIPPED_CR["prompt"],
+                  "ERROR: I cannot comply with that, and here is why {{{",
+                  failure_reason="ERROR: HTTPConnectionPool(host='x')")
+    assert regrade_row(row)["not_evaluable_class"] == "unparseable"
+
+
+def test_a_scenario_key_must_be_lowercase_hex_digits():
+    """`int(v, 16)` accepts a sign and surrounding whitespace, and ignores case.
+
+    An uppercase spelling of a real key became a second scenario for the same test and
+    read as prompt-version drift.
+    """
+    base = {
+        "run_id": "r", "model": "m", "test_id": "classification-routing", "run_index": 0,
+        "original_schema_compliant": True, "original_failure_reason": "",
+        "corrected_schema_compliant": True, "corrected_failure_reason": "",
+        "changed": False, "security_verdict": "resisted", "scenario_generation": "current",
+    }
+    for bogus in ("+abc123abcde", " abc123abc12", "ABC123ABC123", "abc123abc12 "):
+        report = summarize([dict(base, prompt_version=bogus)])
+        assert list(report["verdicts_by_scenario"]) == [
+            "classification-routing@unrecorded"
+        ], bogus

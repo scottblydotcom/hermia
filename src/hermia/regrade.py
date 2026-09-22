@@ -260,7 +260,16 @@ def _shipped_prompt_versions() -> dict[str, str]:
                     file=sys.stderr,
                 )
                 continue
-            if version is not None and case.get("id"):
+            if version is None:
+                # Not an exception, so the handler above never saw it: a shipped definition
+                # with no usable prompt material yields no key, and that test's rows then
+                # report as `uncomparable` for a reason nothing in the output explained.
+                print(
+                    f"hermia-regrade: shipped test {case.get('id', '<unnamed>')!r} has no "
+                    "usable prompt material; its rows will report as `uncomparable`",
+                    file=sys.stderr,
+                )
+            elif case.get("id"):
                 versions[str(case["id"])] = version
         # Only a SUCCESSFUL read is cached. `lru_cache` memoised the failure too, so one
         # transient error — a momentary permission problem, a file being rewritten — made
@@ -386,6 +395,24 @@ def not_evaluable_class(row: dict[str, Any], record: dict[str, Any]) -> str | No
     if reason.startswith(GRADER_ERROR):
         return "grader-error"
     if reason.startswith("JSON_PARSE_ERROR"):
+        # `tui/runner_backend.py` stores the failure text ITSELF as `raw_response`, so the
+        # detail screen can show a full traceback. Such a row has a non-empty body that is
+        # not JSON, so it re-derives to JSON_PARSE_ERROR and would be named `unparseable` —
+        # "a body was stored and is not valid JSON" — for a request that never completed.
+        # Matched EXACTLY against the row's own stored reason, not by sniffing the body for a
+        # prefix: a model response would have to equal the recorded failure reason character
+        # for character to be rerouted, where a prefix rule would reclassify any answer that
+        # happens to open with "ERROR:". Zero corpus rows are in this state today; every one
+        # that ever will be comes from the TUI.
+        stored = str(row.get("failure_reason") or "").strip()
+        body = row.get("raw_response")
+        token = stored.split(":", 1)[0].strip()
+        if (
+            token in _TRANSPORT_CLASSES
+            and isinstance(body, str)
+            and body.strip() == stored
+        ):
+            return _TRANSPORT_CLASSES[token]
         return "unparseable"
 
     version = prompt_version(row)
@@ -441,11 +468,15 @@ def _version_key(record: dict[str, Any]) -> str:
     single-wording test read as drift.
     """
     version = record.get("prompt_version")
-    if not isinstance(version, str) or len(version) != 12:
-        return "unrecorded"
-    try:
-        int(version, 16)
-    except ValueError:
+    # Strict digits, because `int(v, 16)` accepts a sign and surrounding whitespace, and is
+    # case-blind — so "+abc123abcde", " abc123abc12" and an uppercase spelling of a key all
+    # passed, and an uppercase duplicate of a real key read as a second version of the same
+    # test. This module's own keys are lowercase `hexdigest()` output.
+    if (
+        not isinstance(version, str)
+        or len(version) != 12
+        or any(c not in "0123456789abcdef" for c in version)
+    ):
         return "unrecorded"
     return version
 
