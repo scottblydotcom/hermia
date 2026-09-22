@@ -173,7 +173,9 @@ def prompt_version(row: dict[str, Any]) -> str | None:
         # `[""]` is not a scenario. A turns list whose rendered content is blank describes
         # nothing, and hashing it produced a key for an empty prompt rather than saying the
         # prompt was never recorded.
-        if isinstance(turns, list) and not any(str(t).strip() for t in turns):
+        if isinstance(turns, list) and not any(
+            t is not None and str(t).strip() for t in turns
+        ):
             turns = None
         try:
             body = json.dumps(turns, sort_keys=True, separators=(",", ":")) if turns else ""
@@ -230,13 +232,19 @@ def _shipped_prompt_versions() -> dict[str, str]:
             cases = json.load(fh)["agentic_test_cases"]
         versions = {}
         for case in cases:
-            version = prompt_version(
-                {
-                    "raw_system": case.get("system"),
-                    "raw_prompt": case.get("prompt"),
-                    "raw_turns": case.get("turns"),
-                }
-            )
+            # Per case, so one malformed entry costs that test its comparison and leaves the
+            # other 29 intact. Wrapping the whole loop meant a single bad case emptied the
+            # map and moved every row in the corpus to `uncomparable`.
+            try:
+                version = prompt_version(
+                    {
+                        "raw_system": case.get("system"),
+                        "raw_prompt": case.get("prompt"),
+                        "raw_turns": case.get("turns"),
+                    }
+                )
+            except (TypeError, ValueError, AttributeError):
+                continue
             if version is not None and case.get("id"):
                 versions[str(case["id"])] = version
         # Only a SUCCESSFUL read is cached. `lru_cache` memoised the failure too, so one
@@ -436,7 +444,7 @@ def _generation_breakdown(
     """
     gen: dict[str, Counter[str]] = {}
     scen: dict[str, Counter[str]] = {}
-    scen_gen: dict[str, str] = {}
+    scen_gen: dict[str, Counter[str]] = {}
     for record in records:
         name = record.get("scenario_generation")
         if not isinstance(name, str) or name not in SCENARIO_GENERATIONS:
@@ -450,14 +458,28 @@ def _generation_breakdown(
         gen.setdefault(name, Counter())[verdict] += 1
         key = f"{record.get('test_id', '')}@{record.get('prompt_version') or 'unrecorded'}"
         scen.setdefault(key, Counter())[verdict] += 1
-        scen_gen[key] = name
+        # COUNTED per scenario, not assigned. `scen_gen[key] = name` was last-write-wins, so
+        # a scenario whose rows span two generations published whichever label the last record
+        # happened to carry — false for the rest of its own block, and flipping on input order
+        # alone. Reachable two ways: a transient read of the shipped definitions that clears
+        # mid-run (the retry made possible by the commit below this one), and a stamped record
+        # beside a foreign one for the same scenario. Rolling these counts up by generation
+        # now reproduces `by_generation` exactly, which a test pins.
+        scen_gen.setdefault(key, Counter())[name] += 1
 
     def _block(counts: Counter[str]) -> dict[str, Any]:
+        known = counts["resisted"] + counts["compromised"] + counts["not_evaluable"]
         return {
             "rows": sum(counts.values()),
             "resisted": counts["resisted"],
             "compromised": counts["compromised"],
             "not_evaluable": counts["not_evaluable"],
+            # Records whose `security_verdict` is none of the three. `regrade_row` cannot
+            # produce one, but `summarize` is public and a foreign record can: without this
+            # the block's own fields summed to less than its `rows` and the published
+            # partition guarantee quietly failed. Disclosed, never folded into a real verdict
+            # — calling it not-evaluable would assert a judgment nobody made.
+            "unrecognised_verdict": sum(counts.values()) - known,
             "resisted_rate_pct": _verdict_rate(counts),
         }
 
@@ -467,7 +489,14 @@ def _generation_breakdown(
         for name, counts in sorted(gen.items(), key=lambda kv: order.get(kv[0], 99))
     }
     by_scenario = {
-        key: {**_block(counts), "generation": scen_gen[key]}
+        key: {
+            **_block(counts),
+            # A mapping, always, so a scenario spanning two generations SAYS so rather than
+            # picking one. In the ordinary case it reads `{"current": 756}`.
+            "generations": dict(
+                sorted(scen_gen[key].items(), key=lambda kv: (-kv[1], kv[0]))
+            ),
+        }
         for key, counts in sorted(scen.items(), key=lambda kv: (-sum(kv[1].values()), kv[0]))
     }
     return by_generation, by_scenario
@@ -500,7 +529,9 @@ def _not_evaluable_breakdown(
         if name not in NOT_EVALUABLE_CLASSES:
             name = "unclassified-record"
         by_class[name] += 1
-        key = f"{record.get('test_id', '')}@{record.get('prompt_version') or 'unknown'}"
+        # Same sentinel as `verdicts_by_scenario`. Two dicts in one report spelling the same
+        # absence two ways ("unknown" here, "unrecorded" there) reads as two different facts.
+        key = f"{record.get('test_id', '')}@{record.get('prompt_version') or 'unrecorded'}"
         by_scenario.setdefault(name, Counter())[key] += 1
 
     def _ordered(counter: Counter[str]) -> dict[str, int]:
@@ -945,7 +976,13 @@ def _print_generation_table(summary: dict[str, Any]) -> None:
     pooled across wordings is answering more than one question at once.
     """
     gens = summary.get("verdicts_by_generation") or {}
-    if len(gens) < 2:
+    # Printed whenever ANY row is not on today's wording — not merely when two generations
+    # are present. `len(gens) < 2` conflated "no split needed" (every row current, nothing to
+    # say) with "no split possible" (the shipped definitions could not be read, so every row
+    # collapsed into `uncomparable` and the table vanished). On 43 of the 102 single-file
+    # invocations that made a broken run byte-identical to a healthy one, and on 7 of them it
+    # destroyed a real wording split that the healthy run prints.
+    if not gens or set(gens) == {"current"}:
         return
     print("\nby test wording (every verdict above, split by which wording it answered):")
     width = max(len(name) for name in gens)
@@ -1026,10 +1063,10 @@ def _print_not_evaluable_breakdown(summary: dict[str, Any]) -> None:
     for keys in scenarios.values():
         for key in keys:
             test_id, _, version = key.rpartition("@")
-            # "unknown" is the ABSENCE of a version, not one more of them. Counting it as a
-            # version made a test that ran a single prompt, plus one row that dropped before
-            # the prompt was recorded, read as drift.
-            if version == "unknown":
+            # The sentinel is the ABSENCE of a version, not one more of them. Counting it as
+            # a version made a test that ran a single prompt, plus one row that dropped
+            # before the prompt was recorded, read as drift.
+            if version == "unrecorded":
                 continue
             per_test.setdefault(test_id, set()).add(version)
     drifted = sorted(t for t, versions in per_test.items() if len(versions) > 1)
@@ -1184,12 +1221,17 @@ def main(argv: list[str] | None = None) -> int:
     # row's scenario comparison is skipped; the classes still sum and the command still exits
     # 0, so without this line the only symptom is a breakdown that quietly names more rows
     # for an attack than the evidence supports.
-    if any(r.get("not_evaluable_class") == "scenario-uncomparable" for r in records):
+    # Keyed on the GENERATION, not on the not-evaluable class. The class only exists on rows
+    # that ended unevaluable, so once every verdict carried a generation (hermia-bjlb) a
+    # resisted or compromised row with no shipped definition to compare against produced no
+    # warning at all — the same silent fail-open this check was added to close, reopened one
+    # layer over by the feature that widened the split.
+    if any(r.get("scenario_generation") == "uncomparable" for r in records):
         uncomparable = sorted(
             {
                 str(r.get("test_id", ""))
                 for r in records
-                if r.get("not_evaluable_class") == "scenario-uncomparable"
+                if r.get("scenario_generation") == "uncomparable"
             }
         )
         dataset = Path(__file__).resolve().parent / "test-datasets" / "agentic-tasks.json"

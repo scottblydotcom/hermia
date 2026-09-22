@@ -1866,7 +1866,7 @@ def test_each_wording_is_reported_separately_so_a_control_is_visible():
     ]
     by_scenario = canonical_security_report(rows)["verdicts_by_scenario"]
     assert len(by_scenario) == 2, "two wordings of one test id must not share a row"
-    gens = {v["generation"] for v in by_scenario.values()}
+    gens = {g for v in by_scenario.values() for g in v["generations"]}
     assert gens == {"current", "superseded"}
     for key, v in by_scenario.items():
         assert key.startswith("classification-routing@")
@@ -1943,3 +1943,151 @@ def test_scenario_generation_is_callable_directly_and_never_reads_the_clock():
         "current"
     )
     assert scenario_generation({"test_id": "classification-routing"}) == "unrecorded"
+
+
+def test_an_uncomparable_row_warns_even_when_it_produced_a_verdict(tmp_path, capsys,
+                                                                   monkeypatch):
+    """The fail-open this feature reopened one layer over.
+
+    The stderr warning keyed on the not-evaluable CLASS, which only exists on rows that
+    ended unevaluable. Once every verdict carried a generation, a resisted row with no
+    shipped definition to compare against produced no warning at all — exactly the silent
+    degradation the warning was added to close.
+    """
+    monkeypatch.setattr("hermia.regrade.shipped_prompt_versions", dict, raising=True)
+    resisted = _cr_row(
+        _SHIPPED_CR["system"], _SHIPPED_CR["prompt"],
+        json.dumps({"agent": "building-automation-agent", "confidence": 0.9,
+                    "reasoning": "a device action"}),
+    )
+    record = regrade_row(resisted)
+    assert record["security_verdict"] == "resisted", "fixture must not be unevaluable"
+    assert record["scenario_generation"] == "uncomparable"
+
+    path = tmp_path / "rows.jsonl"
+    path.write_text(json.dumps(resisted) + "\n", encoding="utf-8")
+    main([str(path), "--summary-only"])
+    assert "no shipped prompt version to compare against" in capsys.readouterr().err
+
+
+def test_a_verdict_this_module_does_not_recognise_is_disclosed_not_dropped():
+    """The published partition has to hold for any input `summarize` accepts.
+
+    A foreign record carrying a verdict string that is none of the three left the block's
+    own fields summing to less than its row count, so the guarantee failed silently.
+    """
+    record = {
+        "run_id": "r", "model": "m", "test_id": "classification-routing", "run_index": 0,
+        "original_schema_compliant": True, "original_failure_reason": "",
+        "corrected_schema_compliant": True, "corrected_failure_reason": "",
+        "changed": False, "security_verdict": "banana",
+        "scenario_generation": "current", "prompt_version": "abc123abc123",
+    }
+    gen = summarize([record])["verdicts_by_generation"]["current"]
+    assert gen["unrecognised_verdict"] == 1
+    assert (
+        gen["resisted"] + gen["compromised"] + gen["not_evaluable"]
+        + gen["unrecognised_verdict"] == gen["rows"]
+    )
+
+
+def test_both_scenario_tables_spell_a_missing_version_the_same_way():
+    """Two dicts in one report spelling the same absence two ways read as two facts."""
+    row = _cr_row(_SHIPPED_CR["system"], _SHIPPED_CR["prompt"], "",
+                  failure_reason="TIMEOUT: x")
+    row.pop("raw_system")
+    report = canonical_security_report([row])
+    ne_keys = {k for v in report["not_evaluable_by_class_and_scenario"].values() for k in v}
+    gen_keys = set(report["verdicts_by_scenario"])
+    assert all(k.endswith("@unrecorded") for k in ne_keys | gen_keys), (ne_keys, gen_keys)
+
+
+def test_a_turns_list_of_nulls_is_not_a_scenario():
+    """`[None]` stringifies to "None", which is not blank and was hashed as content."""
+    assert prompt_version({"raw_system": "s", "raw_prompt": "", "raw_turns": [None]}) is None
+
+
+def test_one_malformed_shipped_case_does_not_void_every_comparison(monkeypatch):
+    """Wrapping the whole loop meant a single bad entry moved the entire corpus off-version.
+
+    The read is per case now, so a malformed definition costs that one test its comparison
+    and leaves the others intact.
+    """
+    import hermia.regrade as regrade
+
+    real = regrade.prompt_version
+    calls = {"n": 0}
+
+    def exploding(row):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise TypeError("malformed case")
+        return real(row)
+
+    regrade._SHIPPED_VERSIONS_CACHE = None
+    monkeypatch.setattr(regrade, "prompt_version", exploding)
+    versions = regrade.shipped_prompt_versions()
+    regrade._SHIPPED_VERSIONS_CACHE = None
+    assert len(versions) >= 25, f"one bad case voided the map: {len(versions)} left"
+
+
+def test_the_wording_table_prints_when_nothing_can_be_compared(capsys, monkeypatch):
+    """The silent case: every row collapses into one generation and the table vanished.
+
+    With the shipped definitions unreadable, every row becomes `uncomparable`, so a table
+    gated on "more than one generation" printed nothing at all — and on 43 of 102 single-file
+    invocations that made a broken run byte-identical to a healthy one. A single NON-current
+    generation is exactly the case worth printing.
+    """
+    monkeypatch.setattr("hermia.regrade.shipped_prompt_versions", dict, raising=True)
+    rows = [_cr_row(_SHIPPED_CR["system"], _SHIPPED_CR["prompt"], _UNCITED_ROUTE)]
+    _print_summary(_with_canonical_fields(summarize([regrade_row(r) for r in rows])))
+    out = capsys.readouterr().out
+    assert "by test wording" in out
+    assert "uncomparable" in out
+
+
+def test_an_all_current_report_does_not_print_a_pointless_table(capsys):
+    """The other half: a healthy run where every row is on today's wording says nothing.
+
+    Widening the print condition must not add a one-row table to every ordinary run.
+    """
+    rows = [_cr_row(_SHIPPED_CR["system"], _SHIPPED_CR["prompt"], _UNCITED_ROUTE)]
+    _print_summary(_with_canonical_fields(summarize([regrade_row(r) for r in rows])))
+    assert "by test wording" not in capsys.readouterr().out
+
+
+def test_the_two_wording_tables_are_the_same_partition():
+    """Rolling the per-scenario table up by generation must reproduce the generation table.
+
+    The scenario block's label was assigned last-write-wins, so a scenario spanning two
+    generations published whichever label the last record carried — false for the rest of
+    its own rows, and flipping on input order alone.
+    """
+    rows = [
+        _cr_row(_SHIPPED_CR["system"], _SHIPPED_CR["prompt"], _UNCITED_ROUTE),
+        _cr_row(_PRE_INJECTION_SYSTEM, _PRE_INJECTION_PROMPT, _UNCITED_ROUTE),
+        _cr_row(_SHIPPED_CR["system"], _SHIPPED_CR["prompt"], "", failure_reason="TIMEOUT: x"),
+        _RESISTED,
+    ]
+    report = canonical_security_report(rows)
+    rolled: dict[str, int] = {}
+    for block in report["verdicts_by_scenario"].values():
+        for name, count in block["generations"].items():
+            rolled[name] = rolled.get(name, 0) + count
+    assert rolled == {
+        name: g["rows"] for name, g in report["verdicts_by_generation"].items()
+    }
+
+
+def test_a_scenario_spanning_two_generations_says_so():
+    """Order must not decide the answer, and the block must not claim one label for both."""
+    stamped = regrade_row(_cr_row(_SHIPPED_CR["system"], _SHIPPED_CR["prompt"],
+                                  _UNCITED_ROUTE))
+    foreign = dict(stamped)
+    foreign.pop("scenario_generation")
+    forward = summarize([stamped, foreign])["verdicts_by_scenario"]
+    backward = summarize([foreign, stamped])["verdicts_by_scenario"]
+    assert forward == backward, "the published label depended on input order"
+    key = next(iter(forward))
+    assert forward[key]["generations"] == {"current": 1, "unclassified-record": 1}
