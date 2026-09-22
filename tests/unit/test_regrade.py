@@ -2284,3 +2284,17 @@ def test_a_scenario_key_must_be_lowercase_hex_digits():
         assert list(report["verdicts_by_scenario"]) == [
             "classification-routing@unrecorded"
         ], bogus
+
+
+def test_a_model_echoing_a_bare_failure_token_is_not_read_as_transport():
+    """A defect created by the fix above it, which is this branch's recurring shape.
+
+    Accepting every transport token meant a model that answered with the bare word
+    `EMPTY_RESPONSE`, on a row stamped with that reason, was reported as having returned
+    nothing. The reroute is now limited to the two reasons the TUI actually writes into the
+    body, both of which carry runtime detail the body would have to reproduce exactly.
+    """
+    for reason in ("EMPTY_RESPONSE", "OLLAMA_ERROR", "TIMEOUT", "ERROR"):
+        row = _cr_row(_SHIPPED_CR["system"], _SHIPPED_CR["prompt"], reason,
+                      failure_reason=reason)
+        assert regrade_row(row)["not_evaluable_class"] == "unparseable", reason
