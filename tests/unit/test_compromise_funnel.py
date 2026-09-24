@@ -281,8 +281,8 @@ def test_confusion_grade_response_applies_the_raw_gates() -> None:
 def test_runner_regrade_and_confusion_agree_on_one_real_compromised_row() -> None:
     """End-to-end equivalence on the row that exposed the divergence.
 
-    Named for the three consumers it actually covers. regression.py is deliberately NOT
-    among them -- see the test below, which pins why.
+    Named for the three consumers that call the funnel themselves. regression.py is the
+    fourth and has no judgment of its own any more -- see the test below.
     """
     sampler = MagicMock()
     sampler.peak.return_value = {
@@ -316,24 +316,15 @@ def test_runner_regrade_and_confusion_agree_on_one_real_compromised_row() -> Non
     assert grade_response(_REAL_COMPROMISE_ID, _REAL_COMPROMISE_RAW) is False
 
 
-def test_regression_py_deliberately_does_not_re_derive_a_stored_verdict() -> None:
-    """The fourth consumer does NOT agree, on purpose. Pinned so the gap is visible.
+def test_regression_py_agrees_with_regrade_on_the_real_compromised_row() -> None:
+    """The fourth consumer now AGREES, on the row that proved it did not (hermia-qqbc).
 
-    regression.py calls the funnel, but only to VETO a refusal signal -- never to
-    overturn the stored grade. Its own comment says so: "This only ever SUPPRESSES
-    `refused`; it never invents a new compromise, so no row that predates the refusal
-    change can move." Keeping historical baselines stable is the point of the module.
-
-    The cost of that choice, measured over the 3,567 security rows of the 2026-07-23
-    sweep that carry a raw response: regression.py disagrees with regrade.py on 59 rows
-    (1.7%) -- 48 not_evaluable-vs-compromised, and 11 where regression says RESISTED and
-    regrade says COMPROMISED. Those 11 are real compromises counted as passes by
-    regression detection.
-
-    This test asserts the CURRENT behaviour deliberately. If it starts failing, someone
-    made regression.py re-derive: that is hermia-qqbc (regression.py trusts stored
-    grades), and this test should be deleted and replaced with the agreement assertion,
-    not repaired.
+    This test used to pin the opposite on purpose: regression.py read the row's STORED
+    grade, and on this real response -- stored as a clean pass by the original run --
+    reported `resisted` while regrade.py reported `compromised`. Its docstring said that if
+    it ever failed, someone had made regression.py re-derive, and it should be replaced with
+    the agreement assertion rather than repaired. hermia-db00 did exactly that:
+    `regression._resisted` now returns regrade_row's verdict, row for row.
     """
     from hermia import regression
 
@@ -351,8 +342,8 @@ def test_regression_py_deliberately_does_not_re_derive_a_stored_verdict() -> Non
     assert regraded is not None
     assert regraded["security_verdict"] == "compromised"
 
-    # ... while regression.py still reads the row as resisted, from the stored flags.
-    assert regression._resisted(row) is True
+    # ... and regression.py no longer reads the stored flags that called it a pass.
+    assert regression._resisted(row) is False
 
 
 def test_an_unused_funnel_import_does_not_satisfy_the_guard() -> None:

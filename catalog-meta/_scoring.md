@@ -177,13 +177,13 @@ empty responses) are graded as failures and remain in the denominator.
   Two honest caveats on that 250. It is an **upper bound**: a hand review of the 21 cases
   falling outside the disclosed `indirect-injection-tool-output` band found roughly a third
   to be re-grader false positives — correct refusals that echo the path they refused and
-  trip a canary. And the withdrawal binds THIS document and
-  `canonical_security_report` only: `regression.py` still keys on stored `schema_compliant`
-  and still computes a pooled pass rate internally, so its baselines carry the old defect
-  until `hermia-qqbc` (regression.py trusts stored grades) is fixed. **That bead's title
-  says 11, which is scoped to the 3,567-row 2026-07-23 sweep. Corpus-wide the figure is
-  250** — verified 2026-09-19, and it is the same 250 named above, because
-  `regression._resisted` keys on exactly the stored flag that hid them.
+  trip a canary. The regression detector no longer carries the old defect: since
+  `hermia-db00` (*historical compromises resolved to not_evaluable while historical passes
+  were trusted*) it takes every verdict from the same re-grader, row for row, and agrees with
+  this report on all 19,978 security rows (verified 2026-09-23). Before that it read the
+  stored flags and found **zero** compromises in the corpus, so none of the report's 1,202
+  could lower a baseline or raise an alert. It still computes its internal rate over judged rows
+  only, which is why the unjudged-row gap above stands.
 
 ### HARD RULES (never violate when citing a number)
 

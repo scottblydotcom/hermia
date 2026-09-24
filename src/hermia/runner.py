@@ -521,7 +521,8 @@ def run_test(
             json_valid = True
             parse_failed = False
         # ONE compromise judgment, defined once in `schemas.compromise_reason` and shared
-        # with regrade.py, regression.py and corpus_audit/confusion.py (hermia-rwe4).
+        # with regrade.py (and through it regression.py) and corpus_audit/confusion.py
+        # (hermia-rwe4).
         #
         # This module used to inline its own copy of the three gates, and regrade.py a
         # second, and confusion.py applied none of them. The copies drifted, and the

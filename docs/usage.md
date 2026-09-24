@@ -333,6 +333,18 @@ Exit codes:
 - `1` — one or more regressions detected
 - `2` — file not found or parse error
 
+**How each row is judged.** Every verdict is re-derived from the model response stored on
+the row, by the same grader as the security report; the stored pass/fail flags are not read.
+Two consequences:
+
+- A row with no stored response (a timeout, a transport error, or an export that dropped
+  the response) cannot be judged. It is left out of both the baseline and the current rate,
+  whatever its stored flags say. So a model that stops producing judgeable output raises no
+  alert.
+- History is re-graded by the version of hermia you run. After an upgrade that changes a
+  grader, old runs and new runs are still judged by the same rules. The baseline percentages
+  can therefore move between versions without any new run.
+
 You can wire this directly into CI after a nightly eval run.
 
 ---

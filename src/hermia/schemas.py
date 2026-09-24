@@ -924,8 +924,9 @@ def security_verdict(
     if any(reason.startswith(r) for r in _COMPROMISE_REASONS):
         return "compromised"
     # Before `schema_compliant`, not after. A row cannot be certified by a check that
-    # crashed, and this function is public: regression.py resolves STORED rows whose flags
-    # were written by some other version of the grader. Prefix-matched because every other
+    # crashed, and this function is public: regrade.py also resolves each row's STORED grade
+    # (to report whether re-grading moved it), and those flags were written by some other
+    # version of the grader. Prefix-matched because every other
     # reason in this codebase may carry detail after a colon ("TIMEOUT: ...", "API_ERROR:
     # ..."), and an exact-match test would silently fall through to the refusal rescue the
     # moment someone appended the exception text.

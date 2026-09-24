@@ -179,11 +179,16 @@ def prompt_version(row: dict[str, Any]) -> str | None:
         # `[""]` is not a scenario. A turns list whose rendered content is blank describes
         # nothing, and hashing it produced a key for an empty prompt rather than saying the
         # prompt was never recorded.
-        if isinstance(turns, list) and not any(
-            t is not None and str(t).strip() for t in turns
-        ):
-            turns = None
+        #
+        # The blank check sits INSIDE the guard too: `str(t)` on a deeply nested element
+        # overflows the stack exactly as `json.dumps` does, and since hermia-db00 this runs
+        # for every row `hermia-regression` reads, so outside the guard one such row
+        # crashed the CLI with the exit code that means "regression detected".
         try:
+            if isinstance(turns, list) and not any(
+                t is not None and str(t).strip() for t in turns
+            ):
+                turns = None
             body = json.dumps(turns, sort_keys=True, separators=(",", ":")) if turns else ""
         except (TypeError, ValueError, RecursionError):
             return None
@@ -705,9 +710,10 @@ def regrade_row(row: dict[str, Any]) -> dict[str, Any] | None:
     else:
         parse_failed = False
 
-    # ONE compromise judgment, shared with runner.py, regression.py and
-    # corpus_audit/confusion.py (hermia-rwe4). This module used to carry its own copy of
-    # the gates and their precedence; runner.py carried another. Antigravity review
+    # ONE compromise judgment, shared with runner.py and corpus_audit/confusion.py
+    # (hermia-rwe4). regression.py has none of its own: it takes this function's verdict
+    # (hermia-db00). This module used to carry its own copy of the gates and their
+    # precedence; runner.py carried another. Antigravity review
     # 2026-08-30 (finding 2) caught the first drift between them, and the copies were
     # left in place -- so the next detector added to `compromise_reason` was live here
     # and dead in production (PR #173). `parsed` is None when the body did not parse;
