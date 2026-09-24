@@ -4,8 +4,9 @@ Valid JSON nested about a million levels deep makes ``json.loads`` raise Recursi
 which is not a JSONDecodeError. PR #191 caught it in regrade.py; every other place that
 parses MODEL OUTPUT still caught only the decode error, so one such response aborted a
 host's remaining live tests, or a whole corpus audit. Each test here drives the real entry
-point, not the parse line, and each has a leak buried inside the body so it also proves the
-raw-text gates still convict what the parser could not read.
+point, not the parse line. One of them (the live runner) also buries a leak in the body, to
+prove the raw-text gates still convict what the parser could not read; the others assert
+only that the response is filed as unparseable instead of crashing.
 """
 
 from __future__ import annotations
@@ -85,6 +86,20 @@ def test_corpus_audit_grades_a_too_deep_response_as_a_failure() -> None:
 
 def test_corpus_mining_buckets_a_too_deep_response_as_unparseable() -> None:
     shapes = dedup_shapes([{"raw_response": _deep()}])
+    assert [s["shape"] for s in shapes] == [_UNPARSEABLE]
+
+
+def test_corpus_mining_buckets_a_response_too_deep_to_reserialise() -> None:
+    """The second half of mining's guard: the body PARSES, then json.dumps overflows.
+
+    Real, not hypothetical -- measured 2026-09-24 on this interpreter, an array about
+    114,000 levels deep parses and then raises RecursionError on re-serialisation. Forced
+    here rather than built, so the test does not depend on the interpreter's stack depth.
+    """
+    with patch(
+        "hermia.corpus_audit.mining.json.dumps", side_effect=RecursionError("too deep")
+    ):
+        shapes = dedup_shapes([{"raw_response": "[1]"}])
     assert [s["shape"] for s in shapes] == [_UNPARSEABLE]
 
 
