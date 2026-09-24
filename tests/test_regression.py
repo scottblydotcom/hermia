@@ -19,6 +19,8 @@ from hermia.regression import (
     load_all_results,
     main,
 )
+from hermia.schemas import SECURITY_TEST_IDS
+from tests.fixtures.security_bodies import body_for
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -52,6 +54,13 @@ def make_result(
         "run_id": run_id,
         "run_timestamp": run_timestamp,
         "failure_reason": failure_reason,
+        # hermia-db00: the verdict is re-derived from this, never from the flags above.
+        # Non-security rows are filtered out before grading and need no body.
+        **(
+            {"raw_response": body_for(test_id, schema_compliant, failure_reason)}
+            if test_id in SECURITY_TEST_IDS
+            else {}
+        ),
     }
 
 
@@ -466,27 +475,33 @@ def test_main_with_regressions(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# hermia-ej4r — the compromise funnel must be read by comparison, not coercion
+# hermia-db00 — regression.py has no verdict logic of its own
 # ---------------------------------------------------------------------------
 
-def test_the_compromise_funnel_is_never_read_by_bare_truthiness() -> None:
-    """The funnel returns a string today and a typed record after the redesign.
+# Every primitive that decides, or partly decides, a security verdict. regression.py used
+# to call three of them and read the stored grade itself; that private path is what
+# trusted an old grader's passes while discarding its compromises.
+_VERDICT_PRIMITIVES = frozenset(
+    {
+        "compromise_reason",
+        "security_verdict",
+        "explicit_refusal",
+        "SCHEMA_CHECKS",
+        "SEMANTIC_SECURITY_GATES",
+        "raw_output_leaks",
+        "raw_output_compromised",
+    }
+)
 
-    `compromise_reason` returns exactly `""`, `"CONTENT_LEAK"` or `"SECURITY_FAIL"`, so
-    over that domain `not x` and `x == ""` are provably identical and NO behavioural test
-    can tell them apart. There is nothing broken today. The hazard is the next change:
-    the grader redesign replaces that return with a typed per-detector record, and
-    `bool(EnumMember)` is always True, so `not record` becomes permanently False, `refused`
-    is never set, and the hermia-bson refusal rescue dies with every test still green.
 
-    Both idioms break under that change. The difference is whether anything NOTICES:
+def test_regression_reaches_its_verdict_only_through_regrade_row() -> None:
+    """One verdict path, structurally: a second one in this module is how db00 happened.
 
-        not funnel()        -> legal for every type.  mypy says nothing.
-        funnel() == ""      -> mypy --strict reports `Non-overlapping equality check`.
-
-    `[tool.mypy] strict = true` in pyproject.toml and `mypy src/` in CI therefore turn the
-    comparison form into a type-check failure at the moment the redesign lands, instead of
-    a silent behaviour change. That is what this test protects: the idiom, not a value.
+    This replaces the hermia-ej4r guard, which checked HOW this module read the compromise
+    funnel. It no longer reads it at all. The hazard ej4r named (a typed funnel result is
+    always truthy) now lives where the funnel is actually read, in regrade.py and runner.py,
+    where `reason = compromise or ...` is typed `str` and mypy --strict fails the redesign
+    that would break it.
     """
     import ast
     import inspect
@@ -494,27 +509,22 @@ def test_the_compromise_funnel_is_never_read_by_bare_truthiness() -> None:
     import hermia.regression
 
     tree = ast.parse(inspect.getsource(hermia.regression))
-    parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
-    calls = [
-        n
+    names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+    names |= {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+    imported = {
+        alias.asname or alias.name
         for n in ast.walk(tree)
-        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
-        and n.func.id == "compromise_reason"
-    ]
+        if isinstance(n, ast.ImportFrom)
+        for alias in n.names
+    }
 
-    # Positive control: a sweep that finds nothing and a sweep that passes print the same
-    # empty output. Prove the walk actually reached the call before trusting its verdict.
-    assert calls, (
-        "positive control failed: the AST walk found no compromise_reason() call in "
-        "hermia.regression at all, so this test proves nothing about how it is read"
+    # Positive control: prove the walk reached the one call this module is supposed to
+    # make, so an empty intersection below means "absent", not "never looked".
+    assert "regrade_row" in names, "positive control: the AST walk found no regrade_row"
+
+    leaked = (names | imported) & _VERDICT_PRIMITIVES
+    assert not leaked, (
+        f"hermia/regression.py names {sorted(leaked)}: it must take its verdict from "
+        "regrade_row and nothing else, or it can disagree with the canonical report again "
+        "(hermia-db00)."
     )
-
-    for call in calls:
-        parent = parents[call]
-        assert isinstance(parent, ast.Compare), (
-            f"hermia/regression.py:{call.lineno}: compromise_reason() is read as a bare "
-            f"{type(parent).__name__}, which coerces its result to bool. Compare it to an "
-            f"explicit value instead -- under a typed per-detector record every object is "
-            f"truthy, so this predicate silently inverts and the refusal rescue dies. See "
-            f"hermia-ej4r."
-        )
