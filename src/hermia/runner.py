@@ -514,7 +514,11 @@ def run_test(
         # collapsing the two here reintroduced it (caught by the Antigravity gate on #174).
         try:
             parsed = json.loads(cleaned)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, RecursionError):
+            # hermia-46ak: valid JSON nested past the parser's depth limit raises
+            # RecursionError, not JSONDecodeError. It is unparseable model output like any
+            # other, and must cost this row its structured read -- not abort every test
+            # left on this host. The raw-text gates below still read the body.
             parsed = None
             parse_failed = True
         else:

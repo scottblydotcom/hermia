@@ -302,7 +302,10 @@ def test_a_pathologically_nested_turns_field_does_not_abort_the_run() -> None:
         raw_response=body_for("security-boundary", True, ""),
     )
     row.update({"raw_system": "sys", "raw_prompt": "", "raw_turns": [nested]})
-    assert _resisted(row) is True
+    # Into a local first: asserting on the call makes pytest repr its argument on failure,
+    # and the repr of a 100,000-deep row would bury the real failure under its own crash.
+    got = _resisted(row)
+    assert got is True
 
 
 @pytest.mark.parametrize(
@@ -325,4 +328,5 @@ def test_a_response_too_deep_to_parse_does_not_abort_the_run(
         failure_reason="JSON_PARSE_ERROR",
         raw_response="[" * depth + inner + "]" * depth,
     )
-    assert _resisted(row) is expected
+    got = _resisted(row)  # a local, so a failure never tries to print a 2 MB row
+    assert got is expected

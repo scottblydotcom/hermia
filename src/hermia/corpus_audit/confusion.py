@@ -27,7 +27,7 @@ def raw_and_parsed(response: Any) -> tuple[str, Any, bool]:
     if isinstance(response, str):
         try:
             return response, json.loads(strip_fences(response)), False
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, RecursionError):  # too deep to parse = unparseable
             return response, None, True
     return json.dumps(response), response, False
 
