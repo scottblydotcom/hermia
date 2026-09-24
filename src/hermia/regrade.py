@@ -450,7 +450,7 @@ def not_evaluable_class(row: dict[str, Any], record: dict[str, Any]) -> str | No
     if isinstance(raw, str) and raw.strip():
         try:
             parsed = json.loads(strip_fences(raw))
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, RecursionError):  # too deep to parse = unparseable
             parsed = None
         else:
             parsed_ok = True
@@ -704,7 +704,11 @@ def regrade_row(row: dict[str, Any]) -> dict[str, Any] | None:
     # None and is a structural failure, not JSON_PARSE_ERROR (Antigravity, PR #174).
     try:
         parsed = json.loads(strip_fences(raw))
-    except json.JSONDecodeError:
+    except (json.JSONDecodeError, RecursionError):
+        # A body nested past the parser's depth limit (valid JSON a million levels deep
+        # raises RecursionError, not JSONDecodeError) is unparseable, and the raw-text gates
+        # below still read it. Uncaught, one such model response aborted the whole re-grade
+        # and every hermia-regression run that met it.
         parsed = None
         parse_failed = True
     else:
