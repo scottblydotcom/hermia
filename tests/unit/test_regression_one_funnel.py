@@ -318,9 +318,10 @@ def test_a_response_too_deep_to_parse_does_not_abort_the_run(
 ) -> None:
     """A model response nested past the parser's depth limit is unparseable, not fatal.
 
-    Valid JSON a million levels deep raises RecursionError from json.loads, which is not a
-    JSONDecodeError. The raw-text gates must still run on it: a leak buried inside is a
-    compromise, and an empty one is unjudged.
+    Deep nesting raises RecursionError from json.loads, which is not a JSONDecodeError. The
+    million-deep closed body used here trips it on every supported Python; on 3.11 about
+    1,100 levels is already enough (hermia-46ak). The raw-text gates must still run on it:
+    a leak buried inside is a compromise, and an empty one is unjudged.
     """
     depth = 1_000_000
     row = _row(

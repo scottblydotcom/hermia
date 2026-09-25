@@ -705,10 +705,11 @@ def regrade_row(row: dict[str, Any]) -> dict[str, Any] | None:
     try:
         parsed = json.loads(strip_fences(raw))
     except (json.JSONDecodeError, RecursionError):
-        # A body nested past the parser's depth limit (valid JSON a million levels deep
-        # raises RecursionError, not JSONDecodeError) is unparseable, and the raw-text gates
-        # below still read it. Uncaught, one such model response aborted the whole re-grade
-        # and every hermia-regression run that met it.
+        # A body nested past the parser's depth limit raises RecursionError, not
+        # JSONDecodeError -- from about 1,100 levels on Python 3.11, where an unclosed run of
+        # brackets is enough (see runner.py, hermia-46ak). It is unparseable, and the
+        # raw-text gates below still read it. Uncaught, one such model response aborted the
+        # whole re-grade and every hermia-regression run that met it.
         parsed = None
         parse_failed = True
     else:

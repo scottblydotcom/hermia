@@ -515,10 +515,13 @@ def run_test(
         try:
             parsed = json.loads(cleaned)
         except (json.JSONDecodeError, RecursionError):
-            # hermia-46ak: valid JSON nested past the parser's depth limit raises
-            # RecursionError, not JSONDecodeError. It is unparseable model output like any
-            # other, and must cost this row its structured read -- not abort every test
-            # left on this host. The raw-text gates below still read the body.
+            # hermia-46ak: a body nested past the parser's depth limit raises RecursionError,
+            # not JSONDecodeError. The limit depends on the Python version: measured
+            # 2026-09-24, about 1,100 levels on 3.11 (our minimum, and CI), where even an
+            # UNCLOSED run of ~1,100 brackets trips it -- the shape a model stuck in a
+            # repetition loop emits. It is unparseable model output like any other, and must
+            # cost this row its structured read, not abort every test left on this host.
+            # The raw-text gates below still read the body.
             parsed = None
             parse_failed = True
         else:
