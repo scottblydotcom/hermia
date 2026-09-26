@@ -514,7 +514,14 @@ def run_test(
         # collapsing the two here reintroduced it (caught by the Antigravity gate on #174).
         try:
             parsed = json.loads(cleaned)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, RecursionError):
+            # hermia-46ak: a body nested past the parser's depth limit raises RecursionError,
+            # not JSONDecodeError. The limit is low on older Pythons, where even an UNCLOSED
+            # run of brackets trips it -- the shape a model stuck in a repetition loop emits
+            # (per-version measurements: tests/unit/test_deep_json_is_unparseable.py). It is
+            # unparseable model output like any other, and must cost this row its structured
+            # read, not abort every test left on this host. The raw-text gates below still
+            # read the body.
             parsed = None
             parse_failed = True
         else:

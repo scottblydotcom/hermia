@@ -17,9 +17,11 @@ def _shape_key(raw: str) -> str:
     sorted keys and compact separators. Unparseable text collapses to one bucket."""
     try:
         parsed = json.loads(strip_fences(raw))
-    except json.JSONDecodeError:
+        # Inside the guard: a structure deep enough to parse can still be too deep to
+        # re-serialise (hermia-46ak).
+        return json.dumps(parsed, sort_keys=True, separators=(",", ":"))
+    except (json.JSONDecodeError, RecursionError):  # too deep to parse = unparseable
         return _UNPARSEABLE
-    return json.dumps(parsed, sort_keys=True, separators=(",", ":"))
 
 
 def dedup_shapes(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
