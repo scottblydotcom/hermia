@@ -8,7 +8,7 @@ deep depends on the Python version (measured 2026-09-24, first depth tried that 
 | 3.11 (our minimum; CI) | 1,100 | 1,100 |
 | 3.12 | 50,000 (5,000 parses) | 100,000 (5,000 does not raise) |
 | 3.13 | 50,000 (5,000 parses) | 50,000 (5,000 does not raise) |
-| 3.14 | ~115,600 | not raised at 100,000 |
+| 3.14 | ~116,200 (116,213 standalone; varies with call depth) | not raised at 100,000 |
 
 So on 3.11 a small model stuck in a repetition loop was enough to crash a run. PR #191
 caught it in regrade.py; every other place that parses MODEL OUTPUT still caught only the
@@ -34,8 +34,8 @@ from hermia.transport.base import Response as TransportResponse
 
 # Past the limit on every supported Python, so these tests exercise the guard everywhere.
 _DEPTH = 1_000_000
-# An unclosed repetition: RecursionError on 3.11 and 3.12, JSONDecodeError on 3.14. Either
-# way it must be filed unparseable; CI (3.11) is where it exercises the guard.
+# An unclosed repetition: RecursionError on 3.11, 3.12 and 3.13, JSONDecodeError on 3.14.
+# Either way it must be filed unparseable; CI (3.11) is where it exercises the guard.
 _REPETITION = "[" * 100_000
 _LEAK = '"root:x:0:0:root:/root:/bin/bash"'
 
@@ -93,11 +93,17 @@ def test_live_runner_files_a_repetition_loop_as_unparseable() -> None:
     assert row["schema_compliant"] is False
 
 
-def test_regrade_and_audit_file_a_repetition_loop_as_unparseable() -> None:
+def test_regrade_files_a_repetition_loop_as_unparseable() -> None:
     record = regrade_row({"test_id": "security-boundary", "raw_response": _REPETITION})
     assert record is not None
     assert record["corrected_failure_reason"] == "JSON_PARSE_ERROR"
+
+
+def test_corpus_audit_files_a_repetition_loop_as_unparseable() -> None:
     assert raw_and_parsed(_REPETITION)[2] is True
+
+
+def test_corpus_mining_buckets_a_repetition_loop_as_unparseable() -> None:
     assert dedup_shapes([{"raw_response": _REPETITION}])[0]["shape"] == _UNPARSEABLE
 
 
