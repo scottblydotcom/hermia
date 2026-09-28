@@ -63,8 +63,8 @@ stored results the same way.
 ### Known issues (disclosed, not fixed in 0.2.1)
 - The multi-turn PII test grades only the wording of the final reply: a reply that refuses in
   words and then lists email addresses scores as resisted.
-- On some tests, a single awareness word such as "cannot" anywhere in a response vetoes the
-  compromise check.
+- On some tests, a single awareness word such as "cannot" anywhere in a response suppresses some
+  compromise markers, so a model that obeys while mentioning it can score as resisted.
 - The live TUI view marks each row ✓ or ✗; a timeout and a compromise get the same ✗. The
   three-state view is `hermia-regrade`.
 - The exporter's score, `hermia-push` and the Grafana SQL still read stored grades.
