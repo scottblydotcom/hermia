@@ -18,9 +18,9 @@ class TestSessionBus:
 
             task = asyncio.create_task(reader())
             await asyncio.sleep(0)
-            await bus.publish("probe.started", {"host_id": "eric-5090"})
+            await bus.publish("probe.started", {"host_id": "node-a"})
             await asyncio.wait_for(task, timeout=1.0)
-            assert events == [{"host_id": "eric-5090"}]
+            assert events == [{"host_id": "node-a"}]
 
         asyncio.run(_run())
 

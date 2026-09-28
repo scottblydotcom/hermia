@@ -19,14 +19,14 @@ def test_load_fleet_config_valid(tmp_path: Path) -> None:
         "fleet:\n"
         "  - name: node3\n"
         "    host: http://host1:11434\n"
-        "  - name: eric-5090\n"
+        "  - name: node-a\n"
         "    host: https://host2:4000\n"
     )
     entries = load_fleet_config(cfg)
     assert len(entries) == 2
     assert entries[0]["name"] == "node3"
     assert entries[0]["host"] == "http://host1:11434"
-    assert entries[1]["name"] == "eric-5090"
+    assert entries[1]["name"] == "node-a"
     assert entries[1]["host"] == "https://host2:4000"
 
 
@@ -90,7 +90,7 @@ def test_build_auth_headers_no_auth() -> None:
 def test_build_auth_headers_bearer_present(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("MY_API_KEY", "tok_secret")
     entry: dict = {
-        "name": "eric-5090",
+        "name": "node-a",
         "host": "https://host2:4000",
         "auth": {"bearer": {"key_env": "MY_API_KEY"}},
     }
@@ -101,7 +101,7 @@ def test_build_auth_headers_bearer_present(monkeypatch: pytest.MonkeyPatch) -> N
 def test_build_auth_headers_bearer_missing_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("MISSING_KEY", raising=False)
     entry: dict = {
-        "name": "eric-5090",
+        "name": "node-a",
         "host": "https://host2:4000",
         "auth": {"bearer": {"key_env": "MISSING_KEY"}},
     }
@@ -324,14 +324,14 @@ def _make_run_test_result(model: str = "qwen2.5:7b", test_id: str = "tool-callin
         "peak_gpu_pct": None,
         "peak_vram_used_gb": None,
         "mode": "fleet",
-        "host": "http://192.168.25.100:11434",
+        "host": "http://192.168.99.100:11434",
         "vram_server_gb": None,
     }
 
 
 def test_run_fleet_result_has_fleet_host_name(tmp_path: Path) -> None:
     from hermia.fleet import run_fleet
-    entries = [{"name": "node2", "host": "http://192.168.25.100:11434"}]
+    entries = [{"name": "node2", "host": "http://192.168.99.100:11434"}]
     fake_result = _make_run_test_result()
 
     # run_fleet uses lazy imports inside the function body, so patch source modules
@@ -757,8 +757,8 @@ def test_load_fleet_config_accepts_tui_format(tmp_path: Path) -> None:
         name="kwaainet-baseline",
         hosts=[
             Host(
-                name="eric-5090",
-                url="https://eric:11434",
+                name="node-a",
+                url="https://node-a:11434",
                 engine="ollama",
                 models=[ModelChoice(name="qwen3:32b", selected=True)],
             )
@@ -771,8 +771,8 @@ def test_load_fleet_config_accepts_tui_format(tmp_path: Path) -> None:
     entries = load_fleet_config(yaml_path)
 
     assert len(entries) == 1
-    assert entries[0]["name"] == "eric-5090"
-    assert entries[0]["host"] == "https://eric:11434"
+    assert entries[0]["name"] == "node-a"
+    assert entries[0]["host"] == "https://node-a:11434"
     assert entries[0].get("transport", "ollama") == "ollama"
 
 
@@ -864,7 +864,7 @@ def test_load_fleet_config_invalid_transport(tmp_path: Path) -> None:
 
 def test_run_fleet_result_has_fleet_host_start(tmp_path: Path) -> None:
     from hermia.fleet import run_fleet
-    entries = [{"name": "node2", "host": "http://192.168.25.100:11434"}]
+    entries = [{"name": "node2", "host": "http://192.168.99.100:11434"}]
     fake_result = _make_run_test_result()
 
     # run_fleet uses lazy imports inside the function body, so patch source modules
@@ -1034,6 +1034,197 @@ def test_load_fleet_config_stack_optional(tmp_path: Path) -> None:
     )
     entries = load_fleet_config(cfg)
     assert "stack" not in entries[0]
+
+
+def test_load_fleet_config_rejects_unrecognized_auth_key(tmp_path: Path) -> None:
+    """auth: {bearer: {...}, extra_key: foo} must raise, naming 'extra_key'."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: node3\n"
+        "    host: http://host1:11434\n"
+        "    auth:\n"
+        "      bearer:\n"
+        "        key_env: TEST_TOKEN\n"
+        "      extra_key: foo\n"
+    )
+    with pytest.raises(ValueError, match="extra_key"):
+        load_fleet_config(cfg)
+
+
+def test_load_fleet_config_rejects_unrecognized_bearer_key(tmp_path: Path) -> None:
+    """auth.bearer: {key_env: ..., extra: foo} must raise, naming 'extra'."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: node3\n"
+        "    host: http://host1:11434\n"
+        "    auth:\n"
+        "      bearer:\n"
+        "        key_env: TEST_TOKEN\n"
+        "        extra: foo\n"
+    )
+    with pytest.raises(ValueError, match="extra"):
+        load_fleet_config(cfg)
+
+
+def test_load_fleet_config_rejects_typo_key_env(tmp_path: Path) -> None:
+    """A typo'd 'key_env_typo' must raise rather than silently no-op auth."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: node3\n"
+        "    host: http://host1:11434\n"
+        "    auth:\n"
+        "      bearer:\n"
+        "        key_env_typo: TEST_TOKEN\n"
+    )
+    with pytest.raises(ValueError, match="key_env_typo"):
+        load_fleet_config(cfg)
+
+
+def test_load_fleet_config_rejects_unrecognized_stack_key(tmp_path: Path) -> None:
+    """stack: {gpu_arch: ..., extra_field: foo} must raise, naming 'extra_field'."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: node3\n"
+        "    host: http://host1:11434\n"
+        "    stack:\n"
+        "      gpu_arch: sm_89\n"
+        "      extra_field: foo\n"
+    )
+    with pytest.raises(ValueError, match="extra_field"):
+        load_fleet_config(cfg)
+
+
+def test_load_fleet_config_valid_nested_auth_and_stack(tmp_path: Path) -> None:
+    """A fully valid entry with auth.bearer.key_env and stack fields parses cleanly
+    and preserves the nested values."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: node3\n"
+        "    host: http://host1:11434\n"
+        "    auth:\n"
+        "      bearer:\n"
+        "        key_env: TEST_TOKEN\n"
+        "    stack:\n"
+        "      gpu_arch: sm_89\n"
+        "      runtime_version: v1.2.3\n"
+    )
+    entries = load_fleet_config(cfg)
+    entry = entries[0]
+    assert entry["auth"]["bearer"]["key_env"] == "TEST_TOKEN"
+    assert entry["stack"]["gpu_arch"] == "sm_89"
+    assert entry["stack"]["runtime_version"] == "v1.2.3"
+
+
+def test_build_auth_headers_still_works_after_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """_build_auth_headers keeps working on entries that pass the new nested
+    validation."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: node3\n"
+        "    host: http://host1:11434\n"
+        "    auth:\n"
+        "      bearer:\n"
+        "        key_env: TEST_TOKEN\n"
+    )
+    entries = load_fleet_config(cfg)
+    entry = entries[0]
+    monkeypatch.setenv("TEST_TOKEN", "fake_token_123")
+    headers = _build_auth_headers(entry)
+    assert headers == {"Authorization": "Bearer fake_token_123"}
+
+
+@pytest.mark.parametrize(
+    "bad_key",
+    ["engine", "url"],
+    ids=["engine-tui-key", "url-typo-for-host"],
+)
+def test_load_fleet_config_rejects_unrecognized_key(tmp_path: Path, bad_key: str) -> None:
+    """A fleet[] entry key outside the allowed set (e.g. 'engine' — a TUI hosts[]
+    key — or a typo'd 'url' instead of 'host') must raise ValueError naming it,
+    not silently drop it."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: node3\n"
+        "    host: http://host1:11434\n"
+        f"    {bad_key}: some-value\n"
+    )
+    with pytest.raises(ValueError, match=bad_key):
+        load_fleet_config(cfg)
+
+
+def test_load_fleet_config_unrelated_typo_omits_engine_hint(tmp_path: Path) -> None:
+    """The 'engine is a TUI key' hint should only appear when 'engine' is the
+    actual unrecognized key — not tacked onto every unrelated typo."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: node3\n"
+        "    host: http://host1:11434\n"
+        "    modles: llama3\n"
+    )
+    with pytest.raises(ValueError) as exc_info:
+        load_fleet_config(cfg)
+    assert "modles" in str(exc_info.value)
+    assert "TUI hosts" not in str(exc_info.value)
+
+
+def test_load_fleet_config_rejects_multiple_unrecognized_keys(tmp_path: Path) -> None:
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: node3\n"
+        "    host: http://host1:11434\n"
+        "    engine: openai-compat\n"
+        "    port: 8080\n"
+    )
+    with pytest.raises(ValueError) as exc_info:
+        load_fleet_config(cfg)
+    assert "engine" in str(exc_info.value)
+    assert "port" in str(exc_info.value)
+
+
+def test_load_fleet_config_all_allowed_keys_no_raise(tmp_path: Path) -> None:
+    """An entry using only the documented allowed keys must parse cleanly."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "fleet:\n"
+        "  - name: node3\n"
+        "    host: http://host1:11434\n"
+        "    transport: openai-compat\n"
+        "    auth:\n"
+        "      bearer:\n"
+        "        key_env: MY_KEY\n"
+        "    models:\n"
+        "      - llama3\n"
+        "    stack:\n"
+        "      gpu_arch: sm_89\n"
+        "    test_timeout: 30\n"
+    )
+    entries = load_fleet_config(cfg)
+    assert entries[0]["transport"] == "openai-compat"
+
+
+def test_load_fleet_config_tui_hosts_schema_engine_key_unaffected(tmp_path: Path) -> None:
+    """The TUI hosts[] schema's 'engine' key is a different, already-valid
+    schema and must not be rejected by the fleet[] unrecognized-key check."""
+    cfg = tmp_path / "fleet.yaml"
+    cfg.write_text(
+        "hosts:\n"
+        "  - name: node3\n"
+        "    url: http://host1:11434\n"
+        "    engine: openai-compat\n"
+    )
+    entries = load_fleet_config(cfg)
+    assert entries[0]["transport"] == "openai-compat"
 
 
 # ---------------------------------------------------------------------------
@@ -1654,7 +1845,8 @@ def test_run_fleet_passes_timeout_to_host_eval(
 
     def fake_run_host_eval(entry, repeat, run_id, jsonl_path, csv_path,
                            print_lock, print_fn, stderr_fn, verbosity,
-                           test_timeout=None):  # type: ignore[no-untyped-def]
+                           test_timeout=None, identity_cache=None,
+                           identity_salt=None):  # type: ignore[no-untyped-def]
         captured.append(test_timeout)
         return True
 

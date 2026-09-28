@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hermia"
-version = "0.2.0"
+version = "0.2.1"
 description = "Interactive LLM agentic evaluation TUI for local and cloud models"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -61,6 +61,7 @@ hermia = "hermia.app:main"
 hermia-regression = "hermia.regression:main"
 hermia-push = "hermia.export:main"
 hermia-analyze = "hermia.analyze:main"
+hermia-regrade = "hermia.regrade:main"
 hermia-submit = "hermia.submit:main"
 
 [tool.hatch.build.targets.wheel]

@@ -409,7 +409,7 @@ git commit -m "feat(tui): engine-aware probe transport factory with env-var auth
 - Modify: `src/hermia/tui/widgets/__init__.py` (add Breadcrumb to re-exports)
 - Test: `tests/unit/tui/test_widgets_breadcrumb.py`
 
-Reusable widget showing `hermia · fleet · <name> ▸ hosts ▸ marcus` with each segment clickable. Emits `Breadcrumb.Jumped(index)` when a segment is clicked. Each screen sets the breadcrumb from its drill stack.
+Reusable widget showing `hermia · fleet · <name> ▸ hosts ▸ node-b` with each segment clickable. Emits `Breadcrumb.Jumped(index)` when a segment is clicked. Each screen sets the breadcrumb from its drill stack.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -481,7 +481,7 @@ class TestBreadcrumb:
 ```python
 """Breadcrumb — segmented drill-path header.
 
-`hermia · fleet · kwaainet-baseline ▸ hosts ▸ marcus`
+`hermia · fleet · kwaainet-baseline ▸ hosts ▸ node-b`
 
 Each segment is clickable (mouse) and the host screen can call jump_to(i)
 to handle keyboard jumps. The widget emits Breadcrumb.Jumped(index) which
@@ -1477,13 +1477,13 @@ class TestHostsScreen:
         async def _run() -> None:
             async with HermiaApp().run_test() as pilot:
                 pilot.app.config.hosts = [
-                    Host(name="eric-5090", url="http://e:11434", engine="ollama"),
+                    Host(name="node-a", url="http://e:11434", engine="ollama"),
                     Host(name="m3-pro", url="http://m:4000", engine="openai-compat"),
                 ]
                 pilot.app.push_screen(HostsScreen())
                 await pilot.pause()
                 screen: HostsScreen = pilot.app.screen  # type: ignore[assignment]
-                assert screen.host_names == ["eric-5090", "m3-pro"]
+                assert screen.host_names == ["node-a", "m3-pro"]
 
         asyncio.run(_run())
 
@@ -1609,8 +1609,8 @@ class AddHostModal(ModalScreen["Host | None"]):
     def compose(self) -> ComposeResult:
         with Vertical(classes="modal"):
             yield Label("Add host:")
-            yield Input(placeholder="name (eric-5090)", id="addhost-name")
-            yield Input(placeholder="url (http://eric:11434)", id="addhost-url")
+            yield Input(placeholder="name (node-a)", id="addhost-name")
+            yield Input(placeholder="url (http://node-a:11434)", id="addhost-url")
             yield Input(placeholder="engine (ollama / openai-compat)", id="addhost-engine")
 
     def on_mount(self) -> None:

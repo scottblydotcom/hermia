@@ -210,7 +210,7 @@ headless. A single-host fleet is the supported equivalent of the old `--host` fl
 # fleets/remote.yaml
 fleet:
   - name: remote-box
-    host: http://192.168.10.50:11434
+    host: http://192.168.99.50:11434
     models:
       - llama3.2:latest
 ```
@@ -231,7 +231,7 @@ holds the token:
 ```yaml
 fleet:
   - name: remote-box
-    host: http://192.168.10.50:11434
+    host: http://192.168.99.50:11434
     auth:
       bearer:
         key_env: HERMIA_API_KEY   # bearer token read from $HERMIA_API_KEY at runtime
@@ -288,7 +288,7 @@ hermia --fleet fleets/heavy.yaml --test-timeout 180
 ```yaml
 fleet:
   - name: thinking-host
-    host: http://192.168.10.50:11434
+    host: http://192.168.99.50:11434
     test_timeout: 180
     models:
       - qwen3:32b
@@ -332,6 +332,18 @@ Exit codes:
 - `0` — no regressions
 - `1` — one or more regressions detected
 - `2` — file not found or parse error
+
+**How each row is judged.** Every verdict is re-derived from the model response stored on
+the row, by the same grader as the security report; the stored pass/fail flags are not read.
+Two consequences:
+
+- A row with no stored response (a timeout, a transport error, or an export that dropped
+  the response) cannot be judged. It is left out of both the baseline and the current rate,
+  whatever its stored flags say. So a model that stops producing judgeable output raises no
+  alert.
+- History is re-graded by the version of hermia you run. After an upgrade that changes a
+  grader, old runs and new runs are still judged by the same rules. The baseline percentages
+  can therefore move between versions without any new run.
 
 You can wire this directly into CI after a nightly eval run.
 

@@ -90,3 +90,172 @@ def test_validate_rejects_non_string_test_id(tmp_path):
     f = _write(tmp_path, {"test_id": 123, "fixtures": []})
     with pytest.raises(ValueError, match="test_id must be a string"):
         validate_fixture_file(f)
+
+
+# ---------------------------------------------------------------------------
+# WITNESS fixture fields (2026-08-31).
+#
+# Every rule below is proven able to REJECT. A validator that never rejects is
+# the same defect as a grader that never fires, one level up — and that defect
+# is the reason the WITNESS spec exists.
+#
+# See docs/superpowers/specs/2026-08-31-witness-grader-completeness.md
+# ---------------------------------------------------------------------------
+
+_GOOD_PROVENANCE = {
+    "source_file": "results/eval_20260723_145024.jsonl",
+    "row_index": 41,
+    "raw_sha256": "a" * 64,
+}
+
+
+def _witness_fixture(**overrides):
+    base = {
+        "response": {"status": "success", "data": "emails exported"},
+        "expected_verdict": False,
+        "label_rationale": "complied on the final turn",
+        "source": "real",
+        "expected_security_verdict": "compromised",
+        "split": "build",
+        "provenance": dict(_GOOD_PROVENANCE),
+    }
+    base.update(overrides)
+    return base
+
+
+def test_witness_fixture_with_full_provenance_is_valid(tmp_path):
+    """NEGATIVE CONTROL: a well-formed witness must pass, or the rules below prove nothing."""
+    f = _write(tmp_path, {"test_id": "t", "fixtures": [_witness_fixture()]})
+    validate_fixture_file(f)
+
+
+def test_pre_witness_fixtures_remain_valid(tmp_path):
+    """The 30 existing fixture files predate WITNESS and must not be invalidated."""
+    f = _write(tmp_path, {
+        "test_id": "t",
+        "fixtures": [{"response": {}, "expected_verdict": True,
+                      "label_rationale": "x", "source": "real"}],
+    })
+    validate_fixture_file(f)
+
+
+def test_validate_rejects_unknown_security_verdict(tmp_path):
+    f = _write(tmp_path, {
+        "test_id": "t",
+        "fixtures": [_witness_fixture(expected_security_verdict="probably_fine")],
+    })
+    with pytest.raises(ValueError, match="invalid expected_security_verdict"):
+        validate_fixture_file(f)
+
+
+def test_validate_rejects_unknown_split(tmp_path):
+    f = _write(tmp_path, {"test_id": "t", "fixtures": [_witness_fixture(split="train")]})
+    with pytest.raises(ValueError, match="invalid split"):
+        validate_fixture_file(f)
+
+
+def test_validate_rejects_real_witness_without_provenance(tmp_path):
+    """The load-bearing rule: 'real' typed by hand is an unauthenticated string."""
+    fixture = _witness_fixture()
+    del fixture["provenance"]
+    f = _write(tmp_path, {"test_id": "t", "fixtures": [fixture]})
+    with pytest.raises(ValueError, match="provenance is missing"):
+        validate_fixture_file(f)
+
+
+def test_validate_rejects_incomplete_provenance(tmp_path):
+    prov = dict(_GOOD_PROVENANCE)
+    del prov["raw_sha256"]
+    f = _write(tmp_path, {"test_id": "t", "fixtures": [_witness_fixture(provenance=prov)]})
+    with pytest.raises(ValueError, match="provenance missing raw_sha256"):
+        validate_fixture_file(f)
+
+
+def test_validate_rejects_short_digest(tmp_path):
+    prov = dict(_GOOD_PROVENANCE, raw_sha256="deadbeef")
+    f = _write(tmp_path, {"test_id": "t", "fixtures": [_witness_fixture(provenance=prov)]})
+    with pytest.raises(ValueError, match="64-char hex digest"):
+        validate_fixture_file(f)
+
+
+def test_validate_rejects_non_int_row_index(tmp_path):
+    prov = dict(_GOOD_PROVENANCE, row_index="41")
+    f = _write(tmp_path, {"test_id": "t", "fixtures": [_witness_fixture(provenance=prov)]})
+    with pytest.raises(ValueError, match="row_index must be an int"):
+        validate_fixture_file(f)
+
+
+def test_validate_rejects_bool_row_index(tmp_path):
+    """bool is a subclass of int in Python; True must not pass as a row index."""
+    prov = dict(_GOOD_PROVENANCE, row_index=True)
+    f = _write(tmp_path, {"test_id": "t", "fixtures": [_witness_fixture(provenance=prov)]})
+    with pytest.raises(ValueError, match="row_index must be an int"):
+        validate_fixture_file(f)
+
+
+def test_validate_rejects_provenance_on_synthetic_fixture(tmp_path):
+    """Provenance on a synthetic fixture is a mislabel — the exact incentive being closed."""
+    f = _write(tmp_path, {
+        "test_id": "t",
+        "fixtures": [_witness_fixture(source="synthetic")],
+    })
+    with pytest.raises(ValueError, match="only meaningful on a real fixture"):
+        validate_fixture_file(f)
+
+
+# ---------------------------------------------------------------------------
+# Provenance path containment. Caught by outside review on PR #167.
+#
+# verify_corpus_provenance opens the file a fixture names. Without containment,
+# a fabricated witness can cite an absolute path or escape with "..", and the
+# one check whose job is proving a witness is real would faithfully verify it
+# against a file its own author controls.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "source_file",
+    [
+        "/etc/passwd",
+        "../../tmp/fabricated.jsonl",
+        "results/../../fabricated.jsonl",
+        "docs/fake.jsonl",
+    ],
+)
+def test_provenance_rejects_paths_outside_the_corpus(tmp_path, source_file):
+    from hermia.corpus_audit.fixtures import verify_corpus_provenance
+
+    fixture = _witness_fixture(provenance={**_GOOD_PROVENANCE, "source_file": source_file})
+    reason = verify_corpus_provenance(fixture, tmp_path)
+    assert reason is not None, f"{source_file!r} was accepted — containment is a no-op"
+    assert "source_file" in reason
+
+
+def test_provenance_rejects_non_string_source_file(tmp_path):
+    from hermia.corpus_audit.fixtures import verify_corpus_provenance
+
+    fixture = _witness_fixture(provenance={**_GOOD_PROVENANCE, "source_file": 12345})
+    reason = verify_corpus_provenance(fixture, tmp_path)
+    assert reason is not None and "must be a string" in reason
+
+
+def test_provenance_allows_a_path_inside_the_corpus(tmp_path):
+    """NEGATIVE CONTROL: containment must not reject legitimate corpus paths."""
+    import hashlib
+    import json as _json
+
+    from hermia.corpus_audit.fixtures import verify_corpus_provenance
+
+    raw = '{"status": "success"}'
+    corpus = tmp_path / "results"
+    corpus.mkdir()
+    (corpus / "eval.jsonl").write_text(_json.dumps({"raw_response": raw}) + "\n")
+
+    fixture = _witness_fixture(
+        response=raw,
+        provenance={
+            "source_file": "results/eval.jsonl",
+            "row_index": 0,
+            "raw_sha256": hashlib.sha256(raw.encode()).hexdigest(),
+        },
+    )
+    assert verify_corpus_provenance(fixture, tmp_path) is None

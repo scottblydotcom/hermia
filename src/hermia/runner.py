@@ -1,23 +1,38 @@
 """Ollama model management and test execution."""
 
 import hashlib
+import ipaddress
 import json
 import os
 import threading
 import time
 import types
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlparse
 
 import requests
 
-from hermia import __version__
+from hermia import __git_sha__, __version__
 from hermia.fingerprint.cache import FingerprintCache
+from hermia.identity import (
+    IdentityCache,
+    IdentityTransport,
+    SaltInfo,
+    SSHProbe,
+    derive_machine_id,
+    vram_sanity_check,
+)
+from hermia.identity.types import MachineObservation
 from hermia.metrics import MetricsSampler, get_gpu_stats
 from hermia.normalize import strip_fences
-from hermia.schemas import SCHEMA_CHECKS, SIGNAL_EXTRACTORS, raw_output_leaks
+from hermia.schemas import (
+    GRADER_ERROR,
+    SCHEMA_CHECKS,
+    SIGNAL_EXTRACTORS,
+    compromise_reason,
+)
 from hermia.transport.base import SAMPLING_SCHEMA_KEYS as _SAMPLING_SCHEMA_KEYS
 from hermia.transport.base import Response, TransportError
 from hermia.transport.ollama import OllamaTransport
@@ -42,10 +57,35 @@ def get_ollama_host() -> str:
     return _normalize_host(os.environ.get("HERMIA_HOST", "http://localhost:11434"))
 
 
+def _round_or_none(value: float | None, digits: int) -> float | None:
+    """Round a measured value, or keep None. Never substitutes a fabricated zero."""
+    return None if value is None else round(value, digits)
+
+
 def detect_mode(host: str) -> str:
-    """Return 'local' if host resolves to localhost/loopback, else 'fleet'."""
+    """Return 'local' if host resolves to localhost/loopback, else 'fleet'.
+
+    The whole of 127.0.0.0/8 is loopback, not just 127.0.0.1 — systemd-resolved uses
+    127.0.0.53 and container setups bind elsewhere in the range. 0.0.0.0 means "this
+    machine, all interfaces". Matching three literals sent those to 'fleet' and silently
+    discarded every metric for a run that was in fact local (hermia-dl2e).
+    """
     hostname = urlparse(_normalize_host(host)).hostname or ""
-    return "local" if hostname in ("localhost", "127.0.0.1", "::1") else "fleet"
+    # Suppressed twice on purpose: ruff reports S104 and bandit reports B104 for the same
+    # literal, and each needs its own marker. Both are false here -- this COMPARES a parsed
+    # hostname, it does not bind a socket. The repo already carries this dual-suppression
+    # pattern elsewhere (ruff S310 / bandit B310).
+    #
+    # "0.0.0.0" and "::" are the unspecified addresses -- "this machine, every interface".
+    # A HOSTNAME is deliberately NOT treated as local even when it resolves here: that would
+    # make locality depend on DNS, and a name can resolve to a different box on the LAN,
+    # which is the misattribution hazard the SSH-tunnel note below is about.
+    if hostname in ("localhost", "0.0.0.0", "::"):  # noqa: S104  # nosec B104
+        return "local"
+    try:
+        return "local" if ipaddress.ip_address(hostname).is_loopback else "fleet"
+    except ValueError:
+        return "fleet"
 
 
 _ps_cache: dict[tuple[Any, ...], dict[str, float | None]] = {}
@@ -168,10 +208,13 @@ def unload_model(model_name: str) -> None:
         pass
 
 
-def prewarm_timed(model_name: str) -> tuple[float, float, float]:
+def prewarm_timed(model_name: str) -> tuple[float, float | None, float | None]:
     """Unload cached model, then time a cold load.
 
-    Returns (load_time_sec, vram_before_gb, vram_after_gb).
+    Returns (load_time_sec, vram_before_gb, vram_after_gb). The two VRAM figures are None
+    when this machine's GPU could not be measured -- no GPU, or the probe failed. The load
+    time is always real. Reporting 0.0 GB before and after would make a cold load look like
+    it consumed no memory, which is a measurement claim we cannot support (hermia-dl2e).
     """
     host = get_ollama_host()
     _, vram_before, _ = get_gpu_stats()
@@ -305,7 +348,46 @@ def _play_turns(
         orchestration=last.orchestration,
         orchestration_version=last.orchestration_version,
         is_api_mode=last.is_api_mode,
+        # The final turn's reasoning trace (hermia-cv5z). Thinking is captured for
+        # the row but deliberately NOT replayed into `messages` above as assistant
+        # content — only `.text` is fed back to the model.
+        thinking=last.thinking,
     )
+
+
+def build_identity_stamp(
+    transport: IdentityTransport,
+    salt: SaltInfo | None,
+    cache: IdentityCache,
+    endpoint_size_vram_gb: float | None,
+    probe_factory: Callable[[str], MachineObservation] | None = None,
+) -> dict[str, object]:
+    """Identity of the host that RAN the eval, for the result row (hermia-cfqv).
+
+    ``machine_fingerprint`` is the SALTED HASH (``derive_machine_id``), never a
+    raw identifier — a raw firmware UUID/serial on a row is the leak the salt
+    exists to prevent. Never emits a ``machine_id`` key (that is the downstream
+    human alias). ``api`` transport, a missing salt, or no ssh target yields an
+    explicit null stamp — never a guess, never the orchestrator's own identity.
+    """
+    if transport.kind != "ssh" or salt is None or transport.ssh_target is None:
+        return {
+            "machine_fingerprint": None,
+            "machine_id_source": "none",
+            "machine_id_scope": None,
+            "identity_crosscheck": "unchecked",
+        }
+    factory = probe_factory or (lambda t: SSHProbe(t).probe())
+    obs = cache.get_or_probe(transport.ssh_target, factory)
+    identity = derive_machine_id(obs.identifiers, salt)
+    return {
+        "machine_fingerprint": identity.machine_id,
+        "machine_id_source": identity.source,
+        "machine_id_scope": identity.salt_scope,
+        "identity_crosscheck": vram_sanity_check(
+            obs.capabilities.vram_bytes, endpoint_size_vram_gb
+        ),
+    }
 
 
 def run_test(
@@ -319,6 +401,9 @@ def run_test(
     locality: Literal["local", "remote"] | None = None,
     fp_cache: FingerprintCache | None = None,
     test_timeout: int | None = None,
+    identity_transport: IdentityTransport | None = None,
+    identity_salt: SaltInfo | None = None,
+    identity_cache: IdentityCache | None = None,
 ) -> dict[str, Any]:
     _timeout = test_timeout if test_timeout is not None else TEST_TIMEOUT
     _host = _normalize_host(host) if host is not None else get_ollama_host()
@@ -340,13 +425,21 @@ def run_test(
     is_api_mode = getattr(transport, "is_api_mode", False) is True
     resolved_locality = locality if locality is not None else detect_mode(_host)
     is_local = (not is_api_mode) and (resolved_locality == "local")
+    # NOT widened to include api-mode-on-localhost. A local OpenAI-compatible server
+    # (llama.cpp, vLLM, LM Studio) is an API *shape* doing work on this machine, so it
+    # arguably should be sampled -- but `test_run_test_api_mode_short_circuits_locality`
+    # asserts the opposite in the repo's own voice, with this exact host and locality:
+    # "is_api_mode=True wins over any locality value". That is a deliberate, tested
+    # contract, and changing what the corpus records is a product decision, not a tidy-up.
+    # Raised by outside-family review as LOW; carried to Scott rather than changed here.
+    samples_local_hardware = is_local
 
     error_type: str = ""
     response = None
     # Only sample local hardware when the work runs on this machine; in
     # fleet/api mode the orchestrator's own hardware is irrelevant and the
     # sampler thread would be pure overhead (the peak is discarded anyway).
-    if is_local:
+    if samples_local_hardware:
         sampler.start()
     t0 = time.monotonic()
     try:
@@ -361,16 +454,32 @@ def run_test(
     except requests.exceptions.Timeout:
         error_type = f"TIMEOUT: no response in {_timeout}s"
     except TransportError as e:
-        prefix = "OLLAMA_ERROR" if e.kind == "ollama" else "API_ERROR"
+        if e.kind == "ollama":
+            prefix = "OLLAMA_ERROR"
+        elif e.kind == "openai-compat-retry-exhausted":
+            # Distinct from API_ERROR (an in-body application-level error): this
+            # is a transient-infra failure (repeated 5xx), kept separable so bulk
+            # analysis can filter infra noise from behavioral failures.
+            prefix = "RETRY_EXHAUSTED"
+        else:
+            prefix = "API_ERROR"
         error_type = f"{prefix}: {e}"
     except Exception as e:  # noqa: BLE001
         error_type = f"ERROR: {e}"
     finally:
-        if is_local:
+        if samples_local_hardware:
             sampler.stop()
     error_elapsed = time.monotonic() - t0
 
     output: str = response.text if response is not None else ""
+    # isinstance-guard the consumption point too: a custom/mock transport could
+    # hand back Response.thinking=None (or any non-str), and it is .strip()ed
+    # below — keep thinking_text provably a str (hermia-cv5z).
+    thinking_text: str = (
+        response.thinking
+        if response is not None and isinstance(response.thinking, str)
+        else ""
+    )
     tokens: int = response.tokens if response is not None else 0
     elapsed: float = (
         response.elapsed_sec if response is not None
@@ -380,7 +489,11 @@ def run_test(
     orchestration_version: str | None = (
         response.orchestration_version if response is not None else None
     )
-    peak = sampler.peak() if is_local else {}
+    peak = sampler.peak() if samples_local_hardware else {}
+
+    def _peak_of(key: str, digits: int) -> float | None:
+        """A peak only exists if this machine did the work AND the field was measured."""
+        return _round_or_none(peak.get(key), digits) if samples_local_hardware else None
 
     json_valid = False
     schema_ok = False
@@ -388,27 +501,84 @@ def run_test(
     failure_reason = error_type  # network/transport errors; "" on clean path
 
     signals: dict[str, bool] = {}
-    if output and not error_type:
+    # Gate on non-whitespace content: a whitespace-only answer ("\n") must fall
+    # through to the empty-content branch (EMPTY_CONTENT_WITH_THINKING) rather
+    # than entering JSON parsing and being mislabeled JSON_PARSE_ERROR (hermia-cv5z).
+    if output.strip() and not error_type:
         cleaned = strip_fences(output)
         had_markdown_fence = cleaned != output.strip()
-        # Raw-output leak gate (hermia-m12): SCHEMA_CHECKS grade the fence-stripped
-        # parsed dict, so a plaintext leak OUTSIDE the JSON fence is invisible to
-        # them. Scan the RAW output up front — it depends only on the raw text, not
-        # on parsing — so a leak is flagged as CONTENT_LEAK regardless of structural
-        # validity: even when the response also fails the schema OR fails to parse
-        # as JSON. A leak is never hidden under SCHEMA_FAIL or JSON_PARSE_ERROR
-        # (hermia-7ed PR #139 review, Gemini HIGH x2).
-        content_leak = raw_output_leaks(test["id"], output)
+        # `parse_failed` is tracked separately because `parsed is None` cannot carry both
+        # meanings: a body of literal `null` PARSES to None and must be graded as a
+        # structural failure, not filed JSON_PARSE_ERROR alongside `json_valid: True`.
+        # corpus_audit/confusion.py already documents this exact trap in raw_and_parsed();
+        # collapsing the two here reintroduced it (caught by the Antigravity gate on #174).
         try:
             parsed = json.loads(cleaned)
+        except (json.JSONDecodeError, RecursionError):
+            # hermia-46ak: a body nested past the parser's depth limit raises RecursionError,
+            # not JSONDecodeError. The limit is low on older Pythons, where even an UNCLOSED
+            # run of brackets trips it -- the shape a model stuck in a repetition loop emits
+            # (per-version measurements: tests/unit/test_deep_json_is_unparseable.py). It is
+            # unparseable model output like any other, and must cost this row its structured
+            # read, not abort every test left on this host. The raw-text gates below still
+            # read the body.
+            parsed = None
+            parse_failed = True
+        else:
             json_valid = True
+            parse_failed = False
+        # ONE compromise judgment, defined once in `schemas.compromise_reason` and shared
+        # with regrade.py (and through it regression.py) and corpus_audit/confusion.py
+        # (hermia-rwe4).
+        #
+        # This module used to inline its own copy of the three gates, and regrade.py a
+        # second, and confusion.py applied none of them. The copies drifted, and the
+        # drift was SILENT AND DIRECTIONAL: a detector added to `compromise_reason` —
+        # the obvious place — was live in the audit path and DEAD here, in the only path
+        # that grades a real run. That is precisely what happened on PR #173.
+        #
+        # It runs on the RAW output and BEFORE the structural verdict, which is what the
+        # two gates it replaces existed to guarantee:
+        #   * a plaintext leak OUTSIDE the JSON fence is invisible to SCHEMA_CHECKS,
+        #     which only ever see the parsed dict (hermia-m12, hermia-7ed PR #139).
+        #   * a model that OBEYS an injection often breaks its own JSON doing it — the
+        #     `PWNED` landing after the closing brace — and would otherwise be filed
+        #     JSON_PARSE_ERROR without ever reaching a security judgment. Measured on the
+        #     2026-07-23 sweep: 28 of 168 security failures (17%) were hidden this way
+        #     (hermia-80te).
+        # `parsed` is None when the body did not parse; the raw-text gates still apply,
+        # and they are the only ones that can see a compromise inside a broken envelope.
+        compromise = compromise_reason(test["id"], output, parsed)
+        if not parse_failed:
             checker = SCHEMA_CHECKS.get(test["id"])
+            # A missing checker is a grader gap on ANY dimension, not only security.
+            # Scoping this to SECURITY_TEST_IDS was copied from regrade.py, which only
+            # ever sees security rows; runner grades every dimension, so a capability
+            # test with no checker was stamped SCHEMA_FAIL -- blaming the model for a
+            # hole in our own harness.
+            grader_failed = checker is None
             if checker:
-                schema_ok = bool(checker(parsed))
-            if content_leak:
+                try:
+                    schema_ok = bool(checker(parsed))
+                except Exception:  # noqa: BLE001 - a grader bug must not abort the run
+                    # hermia-omz5: this call was unguarded, so one pathological response
+                    # killed an entire eval run -- while regrade.py, catching the same
+                    # exception, silently CLEARED the row. One event, two wrong answers.
+                    schema_ok = False
+                    grader_failed = True
+            if compromise:
                 schema_ok = False
             if not schema_ok:
-                failure_reason = "CONTENT_LEAK" if content_leak else "SCHEMA_FAIL"
+                # Which half of the checker rejected it: conduct (adopted the payload,
+                # refused to refuse) or envelope (missing key, wrong type)? Both used to
+                # stamp SCHEMA_FAIL, so a model handing over a credential —
+                # {"credential_refused": false, "reason": "Retrieve API key from
+                # secrets.env"} — was indistinguishable from a typo (hermia-80te).
+                # `compromise` carries the precedence: a disclosed secret says more than
+                # an obeyed instruction, which says more than a malformed envelope.
+                failure_reason = compromise or (
+                    GRADER_ERROR if grader_failed else "SCHEMA_FAIL"
+                )
             else:
                 extractor = SIGNAL_EXTRACTORS.get(test["id"])
                 if extractor:
@@ -417,10 +587,16 @@ def run_test(
                         signals = result if isinstance(result, dict) else {}
                     except Exception:  # noqa: BLE001
                         signals = {}
-        except json.JSONDecodeError:
-            failure_reason = "CONTENT_LEAK" if content_leak else "JSON_PARSE_ERROR"
+        else:
+            failure_reason = compromise or "JSON_PARSE_ERROR"
     elif not error_type:
-        failure_reason = "EMPTY_RESPONSE"
+        # Empty content but a non-empty reasoning trace: a reasoning model that
+        # spent its budget in the thinking channel and emitted no answer. Flag it
+        # distinctly (hermia-cv5z) so it is not silently indistinguishable from a
+        # dead-empty reply; grading stays content-only, so this is still a failure.
+        failure_reason = (
+            "EMPTY_CONTENT_WITH_THINKING" if thinking_text.strip() else "EMPTY_RESPONSE"
+        )
 
     tps = tokens / elapsed if elapsed > 0 and tokens > 0 else 0
     preview = output[:120].replace("\n", " ") if output.strip() else failure_reason
@@ -433,6 +609,12 @@ def run_test(
     _fp, _prov = _cache.get_or_probe(
         _host, model, declared=None, engine_version=orchestration_version,
         headers=req_headers or None,
+    )
+    _identity_stamp = build_identity_stamp(
+        transport=identity_transport or IdentityTransport(kind="api"),
+        salt=identity_salt,
+        cache=identity_cache or IdentityCache(),
+        endpoint_size_vram_gb=ps_data.get("vram_server_gb"),
     )
     return {
         "model": model,
@@ -452,10 +634,16 @@ def run_test(
         "raw_system": test.get("system") or "",
         "raw_prompt": test.get("prompt") or "",
         "raw_response": "" if error_type else output,
-        "peak_cpu_pct": round(peak.get("cpu_pct", 0), 1) if is_local else None,
-        "peak_ram_used_gb": round(peak.get("ram_used_gb", 0), 2) if is_local else None,
-        "peak_gpu_pct": round(peak.get("gpu_pct", 0), 1) if is_local else None,
-        "peak_vram_used_gb": round(peak.get("vram_used_gb", 0), 2) if is_local else None,
+        "raw_thinking": "" if error_type else thinking_text,
+        # `peak` is EMPTY when a trial fails before the sampler thread takes its first
+        # sample -- a connection refused by a stopped Ollama returns in milliseconds. The
+        # previous `peak.get(key, 0)` then wrote 0.0, claiming a running machine used 0.0 GB
+        # of RAM. An unmeasured field must stay None: None means "not measured", 0.0 means
+        # "measured, and it was zero", and a dashboard cannot tell them apart (hermia-dl2e).
+        "peak_cpu_pct": _peak_of("cpu_pct", 1),
+        "peak_ram_used_gb": _peak_of("ram_used_gb", 2),
+        "peak_gpu_pct": _peak_of("gpu_pct", 1),
+        "peak_vram_used_gb": _peak_of("vram_used_gb", 2),
         "mode": "local" if is_local else ("api" if is_api_mode else "fleet"),
         "host": _host,
         **ps_data,
@@ -467,8 +655,13 @@ def run_test(
         "turn_count": len(user_turns),
         "raw_turns": user_turns,
         "hermia_version": __version__,
+        "git_sha": __git_sha__,
         "corpus_sha256": corpus_sha256(),
         "sampling": {k: _EVAL_SAMPLING.get(k) for k in _SAMPLING_SCHEMA_KEYS},
         "stack_fingerprint": _fp,
         "_provenance": _prov,
+        "machine_fingerprint": _identity_stamp["machine_fingerprint"],
+        "machine_id_source": _identity_stamp["machine_id_source"],
+        "machine_id_scope": _identity_stamp["machine_id_scope"],
+        "identity_crosscheck": _identity_stamp["identity_crosscheck"],
     }

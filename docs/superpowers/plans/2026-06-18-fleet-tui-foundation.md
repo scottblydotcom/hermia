@@ -166,9 +166,9 @@ class TestModelChoice:
 
 class TestHost:
     def test_required_fields(self) -> None:
-        h = Host(name="eric-5090", url="http://eric:11434", engine="ollama")
-        assert h.name == "eric-5090"
-        assert h.url == "http://eric:11434"
+        h = Host(name="node-a", url="http://node-a:11434", engine="ollama")
+        assert h.name == "node-a"
+        assert h.url == "http://node-a:11434"
         assert h.engine == "ollama"
         assert h.auth_header_env is None
         assert h.hardware is None
@@ -377,8 +377,8 @@ class TestSaveFleet:
             name="kwaainet-baseline",
             hosts=[
                 Host(
-                    name="eric-5090",
-                    url="https://eric:11434",
+                    name="node-a",
+                    url="https://node-a:11434",
                     engine="ollama",
                     hardware="RTX 5090",
                     auth_header_env="LITELLM_KEY",
@@ -398,8 +398,8 @@ class TestSaveFleet:
         assert data["tests"] == ["prompt-injection-1", "jailbreak-1"]
         assert len(data["hosts"]) == 1
         h = data["hosts"][0]
-        assert h["name"] == "eric-5090"
-        assert h["url"] == "https://eric:11434"
+        assert h["name"] == "node-a"
+        assert h["url"] == "https://node-a:11434"
         assert h["engine"] == "ollama"
         assert h["hardware"] == "RTX 5090"
         assert h["auth_header_env"] == "LITELLM_KEY"
@@ -639,8 +639,8 @@ class TestHostsSeed:
         seed_path = tmp_path / "hosts.yaml"
         hosts = [
             Host(
-                name="eric-5090",
-                url="https://eric:11434",
+                name="node-a",
+                url="https://node-a:11434",
                 engine="ollama",
                 hardware="RTX 5090",
                 auth_header_env="LITELLM_KEY",
@@ -652,7 +652,7 @@ class TestHostsSeed:
 
         loaded = load_hosts_seed(path=seed_path)
         assert len(loaded) == 2
-        assert loaded[0].name == "eric-5090"
+        assert loaded[0].name == "node-a"
         assert loaded[0].hardware == "RTX 5090"
         assert loaded[0].auth_header_env == "LITELLM_KEY"
         assert loaded[1].name == "m3-pro"
@@ -792,10 +792,10 @@ class TestSessionBus:
 
         task = asyncio.create_task(reader())
         await asyncio.sleep(0)  # let reader subscribe
-        await bus.publish("probe.started", {"host_id": "eric-5090"})
+        await bus.publish("probe.started", {"host_id": "node-a"})
         await asyncio.wait_for(task, timeout=1.0)
 
-        assert events == [{"host_id": "eric-5090"}]
+        assert events == [{"host_id": "node-a"}]
 
     async def test_multiple_subscribers_each_get_event(self) -> None:
         bus = SessionBus()

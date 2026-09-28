@@ -1,8 +1,12 @@
 """Unit tests for MetricsSampler and GPU detection."""
 
 import json
+import sys
 import time
+from pathlib import Path
 from unittest.mock import MagicMock, mock_open, patch
+
+import pytest
 
 import hermia.metrics as metrics_mod
 from hermia.metrics import MetricsSampler, detect_gpu, get_gpu_stats
@@ -74,7 +78,42 @@ def _make_uevent_open(dev_path: str, driver: str = "amdgpu", vram_bytes: int = 8
 # AMD detection tests — patch subprocess.run so nvidia-smi detection is skipped
 # ---------------------------------------------------------------------------
 
-def test_detect_gpu_finds_amdgpu_card():
+@pytest.fixture
+def clean_gpu_globals():
+    """Reset the six globals detect_gpu() writes to known-clean defaults, before AND after.
+
+    An earlier version of this fixture SAVED the values at entry and reinstated them on exit.
+    That was worse than nothing: if a prior test had left `_NVIDIA_FOUND = True`, the fixture
+    captured True as the baseline, the test body proved detect_gpu() had cleared it to False,
+    and teardown then put True back -- actively re-polluting state the test had just shown was
+    clean. get_gpu_stats() would route to the NVIDIA path on a host with no NVIDIA GPU and
+    report a phantom 24 GB from the leaked _NVIDIA_VRAM_TOTAL_GB. Found by outside-family
+    review of the first hermia-rk3k fix.
+
+    Resetting to fixed defaults instead makes each of these tests hermetic: the result does not
+    depend on what ran before it, which is the property an order-sensitive module global needs.
+    """
+    defaults = {
+        "_AMD_DEV": None,
+        "_NVIDIA_FOUND": False,
+        "_NVIDIA_VRAM_TOTAL_GB": 0.0,
+        "_APPLE_SILICON": False,
+        "_APPLE_VRAM_TOTAL_GB": 0.0,
+        "_INTEL_IGPU": False,
+        # The detection latch, added with ensure_gpu_detected(). Omitting it left detection
+        # marked done while the six values above were reset, so ensure_gpu_detected() would
+        # not re-run and every later test saw a machine with no GPU. Exactly the pollution
+        # this fixture exists to prevent, reintroduced by the global that fixed it.
+        "_GPU_DETECTED": False,
+    }
+    for name, value in defaults.items():
+        setattr(metrics_mod, name, value)
+    yield
+    for name, value in defaults.items():
+        setattr(metrics_mod, name, value)
+
+
+def test_detect_gpu_finds_amdgpu_card(clean_gpu_globals):
     """detect_gpu() picks the amdgpu card and ignores non-amdgpu cards."""
     uevent_paths = [
         "/sys/class/drm/card1/device/uevent",
@@ -91,6 +130,13 @@ def test_detect_gpu_finds_amdgpu_card():
         return mock_open(read_data=uevent_data.get(path, ""))()
 
     with (
+        # detect_gpu() tries NVIDIA -> Apple -> AMD -> Intel, and _detect_apple_silicon() returns
+        # immediately unless sys.platform == 'darwin' -- which the mocks below do not touch. On an
+        # Apple Silicon dev machine the Apple branch therefore returned before the simulated Linux
+        # sysfs was ever read, and this asserted 'amd' against 'apple' (hermia-rk3k). Pinning
+        # sys.platform alone is sufficient, and is the target the rest of this file already uses;
+        # the platform.machine() gate below it is unreachable once the darwin check has failed.
+        patch("hermia.metrics.sys.platform", "linux"),
         patch("subprocess.run", side_effect=FileNotFoundError),
         patch("hermia.metrics.glob.glob", return_value=uevent_paths),
         patch("builtins.open", side_effect=fake_open),
@@ -104,10 +150,13 @@ def test_detect_gpu_finds_amdgpu_card():
     assert metrics_mod._AMD_DEV == dev
 
 
-def test_detect_gpu_no_amdgpu():
+def test_detect_gpu_no_amdgpu(clean_gpu_globals):
     """detect_gpu() returns found=False when no GPU is present."""
     uevent_paths = ["/sys/class/drm/card0/device/uevent"]
     with (
+        # Pin the host: the Apple branch would otherwise short-circuit before the
+        # simulated Linux sysfs is read (hermia-rk3k).
+        patch("hermia.metrics.sys.platform", "linux"),
         patch("subprocess.run", side_effect=FileNotFoundError),
         patch("hermia.metrics.glob.glob", return_value=uevent_paths),
         patch("builtins.open", mock_open(read_data="DRIVER=virtio\n")),
@@ -119,7 +168,7 @@ def test_detect_gpu_no_amdgpu():
     assert metrics_mod._AMD_DEV is None
 
 
-def test_detect_gpu_picks_highest_vram_when_multiple_amdgpu():
+def test_detect_gpu_picks_highest_vram_when_multiple_amdgpu(clean_gpu_globals):
     """When multiple AMD GPUs exist, detect_gpu() picks the one with the most VRAM."""
     uevent_paths = [
         "/sys/class/drm/card1/device/uevent",
@@ -136,6 +185,9 @@ def test_detect_gpu_picks_highest_vram_when_multiple_amdgpu():
         return mock_open(read_data=uevent_data.get(path, "0"))()
 
     with (
+        # Pin the host: the Apple branch would otherwise short-circuit before the
+        # simulated Linux sysfs is read (hermia-rk3k).
+        patch("hermia.metrics.sys.platform", "linux"),
         patch("subprocess.run", side_effect=FileNotFoundError),
         patch("hermia.metrics.glob.glob", return_value=uevent_paths),
         patch("builtins.open", side_effect=fake_open),
@@ -159,7 +211,7 @@ def _nvidia_detect_result(
     return r
 
 
-def test_detect_gpu_nvidia_found():
+def test_detect_gpu_nvidia_found(clean_gpu_globals):
     """detect_gpu() returns vendor=nvidia when nvidia-smi succeeds."""
     result = _nvidia_detect_result("NVIDIA GeForce RTX 5090", 32768)
     with patch("subprocess.run", return_value=result):
@@ -173,7 +225,7 @@ def test_detect_gpu_nvidia_found():
     assert metrics_mod._AMD_DEV is None
 
 
-def test_detect_gpu_nvidia_3090():
+def test_detect_gpu_nvidia_3090(clean_gpu_globals):
     """detect_gpu() correctly parses RTX 3090 (24 GB)."""
     result = _nvidia_detect_result("NVIDIA GeForce RTX 3090", 24576)
     with patch("subprocess.run", return_value=result):
@@ -183,7 +235,7 @@ def test_detect_gpu_nvidia_3090():
     assert abs(info["vram_total_gb"] - 24.0) < 0.1
 
 
-def test_detect_gpu_nvidia_missing():
+def test_detect_gpu_nvidia_missing(clean_gpu_globals):
     """detect_gpu() falls through to AMD when nvidia-smi is not on PATH."""
     uevent_paths = ["/sys/class/drm/card1/device/uevent"]
     dev = "/sys/class/drm/card1/device"
@@ -196,6 +248,9 @@ def test_detect_gpu_nvidia_missing():
         return mock_open(read_data=uevent_data.get(path, ""))()
 
     with (
+        # Pin the host: the Apple branch would otherwise short-circuit before the
+        # simulated Linux sysfs is read (hermia-rk3k).
+        patch("hermia.metrics.sys.platform", "linux"),
         patch("subprocess.run", side_effect=FileNotFoundError),
         patch("hermia.metrics.glob.glob", return_value=uevent_paths),
         patch("builtins.open", side_effect=fake_open),
@@ -206,13 +261,16 @@ def test_detect_gpu_nvidia_missing():
     assert metrics_mod._NVIDIA_FOUND is False
 
 
-def test_detect_gpu_nvidia_error_returncode():
+def test_detect_gpu_nvidia_error_returncode(clean_gpu_globals):
     """detect_gpu() treats non-zero nvidia-smi exit as no NVIDIA GPU."""
     bad_result = MagicMock()
     bad_result.returncode = 1
     bad_result.stdout = ""
 
     with (
+        # Pin the host: the Apple branch would otherwise short-circuit before the
+        # simulated Linux sysfs is read (hermia-rk3k).
+        patch("hermia.metrics.sys.platform", "linux"),
         patch("subprocess.run", return_value=bad_result),
         patch("hermia.metrics.glob.glob", return_value=[]),
     ):
@@ -239,6 +297,8 @@ def _nvidia_stats_result(
 def test_get_gpu_stats_uses_nvidia_when_found():
     """get_gpu_stats() routes to nvidia-smi when _NVIDIA_FOUND is True."""
     with (
+        # detection has already happened; these tests describe its RESULT
+        patch.object(metrics_mod, "_GPU_DETECTED", True),
         patch.object(metrics_mod, "_NVIDIA_FOUND", True),
         patch.object(metrics_mod, "_NVIDIA_VRAM_TOTAL_GB", 32.0),
         patch("subprocess.run", return_value=_nvidia_stats_result(82.0, 12288.0, 32768.0)),
@@ -250,33 +310,37 @@ def test_get_gpu_stats_uses_nvidia_when_found():
     assert abs(vram_total - 32.0) < 0.01
 
 
-def test_get_gpu_stats_nvidia_subprocess_error_returns_zeros():
-    """nvidia-smi failure during stats returns zeros with cached vram_total."""
+def test_get_gpu_stats_nvidia_subprocess_error_reports_unmeasured():
+    """nvidia-smi crashing means UNMEASURED, not idle; the cached total stays known."""
     with (
+        # detection has already happened; these tests describe its RESULT
+        patch.object(metrics_mod, "_GPU_DETECTED", True),
         patch.object(metrics_mod, "_NVIDIA_FOUND", True),
         patch.object(metrics_mod, "_NVIDIA_VRAM_TOTAL_GB", 24.0),
         patch("subprocess.run", side_effect=OSError),
     ):
         gpu_pct, vram_used, vram_total = get_gpu_stats()
 
-    assert gpu_pct == 0.0
-    assert vram_used == 0.0
+    assert gpu_pct is None
+    assert vram_used is None
     assert vram_total == 24.0
 
 
-def test_get_gpu_stats_nvidia_nonzero_returncode_returns_zeros():
-    """Non-zero nvidia-smi exit during stats returns zeros with cached vram_total."""
+def test_get_gpu_stats_nvidia_nonzero_returncode_reports_unmeasured():
+    """A non-zero nvidia-smi exit means UNMEASURED, not 0% utilisation."""
     bad = MagicMock()
     bad.returncode = 1
     bad.stdout = ""
     with (
+        # detection has already happened; these tests describe its RESULT
+        patch.object(metrics_mod, "_GPU_DETECTED", True),
         patch.object(metrics_mod, "_NVIDIA_FOUND", True),
         patch.object(metrics_mod, "_NVIDIA_VRAM_TOTAL_GB", 24.0),
         patch("subprocess.run", return_value=bad),
     ):
         gpu_pct, vram_used, vram_total = get_gpu_stats()
 
-    assert gpu_pct == 0.0
+    assert gpu_pct is None
     assert vram_total == 24.0
 
 
@@ -307,7 +371,7 @@ def test_detect_nvidia_compute_cap_missing():
     assert compute_cap == 0.0
 
 
-def test_detect_gpu_nvidia_includes_compute_cap():
+def test_detect_gpu_nvidia_includes_compute_cap(clean_gpu_globals):
     """detect_gpu() includes compute_cap in the returned dict for NVIDIA."""
     result = _nvidia_detect_result("NVIDIA GeForce GTX 980", 4096, compute_cap=5.2)
     with patch("subprocess.run", return_value=result):
@@ -316,7 +380,7 @@ def test_detect_gpu_nvidia_includes_compute_cap():
     assert info["compute_cap"] == 5.2
 
 
-def test_detect_gpu_non_nvidia_compute_cap_zero():
+def test_detect_gpu_non_nvidia_compute_cap_zero(clean_gpu_globals):
     """detect_gpu() returns compute_cap=0.0 for non-NVIDIA (AMD fallback) paths."""
     uevent_paths = ["/sys/class/drm/card1/device/uevent"]
     dev = "/sys/class/drm/card1/device"
@@ -329,6 +393,9 @@ def test_detect_gpu_non_nvidia_compute_cap_zero():
         return mock_open(read_data=uevent_data.get(path, ""))()
 
     with (
+        # Pin the host: the Apple branch would otherwise short-circuit before the
+        # simulated Linux sysfs is read (hermia-rk3k).
+        patch("hermia.metrics.sys.platform", "linux"),
         patch("subprocess.run", side_effect=FileNotFoundError),
         patch("hermia.metrics.glob.glob", return_value=uevent_paths),
         patch("builtins.open", side_effect=fake_open),
@@ -363,6 +430,8 @@ def test_get_gpu_stats_falls_back_to_sysfs_when_rocm_returns_zeros():
         return mock_open(read_data=open_values.get(path, "0"))()
 
     with (
+        # detection has already happened; these tests describe its RESULT
+        patch.object(metrics_mod, "_GPU_DETECTED", True),
         patch.object(metrics_mod, "_NVIDIA_FOUND", False),
         patch.object(metrics_mod, "_APPLE_SILICON", False),
         patch.object(metrics_mod, "_INTEL_IGPU", False),
@@ -392,6 +461,8 @@ def test_get_gpu_stats_falls_back_to_sysfs_when_rocm_missing():
         return mock_open(read_data=open_values.get(path, "0"))()
 
     with (
+        # detection has already happened; these tests describe its RESULT
+        patch.object(metrics_mod, "_GPU_DETECTED", True),
         patch.object(metrics_mod, "_NVIDIA_FOUND", False),
         patch.object(metrics_mod, "_APPLE_SILICON", False),
         patch.object(metrics_mod, "_INTEL_IGPU", False),
@@ -426,7 +497,7 @@ def _ioreg_output(gpu_pct: int = 35, mem_used_bytes: int = 2 * 1024**3) -> str:
     )
 
 
-def test_detect_apple_silicon_arm64_native():
+def test_detect_apple_silicon_arm64_native(clean_gpu_globals):
     """detect_gpu() returns apple vendor when platform.machine() == 'arm64'."""
     sp_json = json.dumps({"SPDisplaysDataType": [{"sppci_model": "Apple M3 Pro"}]})
 
@@ -457,7 +528,7 @@ def test_detect_apple_silicon_arm64_native():
     assert metrics_mod._APPLE_SILICON is True
 
 
-def test_detect_apple_silicon_rosetta():
+def test_detect_apple_silicon_rosetta(clean_gpu_globals):
     """detect_gpu() detects Apple Silicon even when Python runs under Rosetta (x86_64)."""
     sp_json = json.dumps({"SPDisplaysDataType": [{"sppci_model": "Apple M1 Pro"}]})
 
@@ -489,7 +560,7 @@ def test_detect_apple_silicon_rosetta():
     assert abs(info["vram_total_gb"] - 16.0) < 0.1
 
 
-def test_detect_apple_silicon_not_darwin():
+def test_detect_apple_silicon_not_darwin(clean_gpu_globals):
     """detect_gpu() does not report Apple Silicon on Linux."""
     with (
         patch("subprocess.run", side_effect=FileNotFoundError),
@@ -506,6 +577,8 @@ def test_get_gpu_stats_apple_silicon_ioreg():
     mem_bytes = int(1.5 * 1024**3)
 
     with (
+        # detection has already happened; these tests describe its RESULT
+        patch.object(metrics_mod, "_GPU_DETECTED", True),
         patch.object(metrics_mod, "_APPLE_SILICON", True),
         patch.object(metrics_mod, "_NVIDIA_FOUND", False),
         patch.object(metrics_mod, "_APPLE_VRAM_TOTAL_GB", 18.0),
@@ -520,9 +593,11 @@ def test_get_gpu_stats_apple_silicon_ioreg():
     assert vram_total == 18.0
 
 
-def test_get_gpu_stats_apple_silicon_ioreg_error():
-    """get_gpu_stats() returns zeros with cached total on ioreg failure."""
+def test_get_gpu_stats_apple_silicon_ioreg_error_reports_unmeasured():
+    """ioreg failing means UNMEASURED; the total detection already found stays known."""
     with (
+        # detection has already happened; these tests describe its RESULT
+        patch.object(metrics_mod, "_GPU_DETECTED", True),
         patch.object(metrics_mod, "_APPLE_SILICON", True),
         patch.object(metrics_mod, "_NVIDIA_FOUND", False),
         patch.object(metrics_mod, "_APPLE_VRAM_TOTAL_GB", 16.0),
@@ -530,8 +605,8 @@ def test_get_gpu_stats_apple_silicon_ioreg_error():
     ):
         gpu_pct, vram_used, vram_total = get_gpu_stats()
 
-    assert gpu_pct == 0.0
-    assert vram_used == 0.0
+    assert gpu_pct is None
+    assert vram_used is None
     assert vram_total == 16.0
 
 
@@ -539,7 +614,7 @@ def test_get_gpu_stats_apple_silicon_ioreg_error():
 # hermia-qqz: Intel iGPU detection and CPU-only fallback
 # ---------------------------------------------------------------------------
 
-def test_detect_intel_igpu_linux():
+def test_detect_intel_igpu_linux(clean_gpu_globals):
     """detect_gpu() returns vendor=intel when DRIVER=i915 is the only GPU on Linux."""
     uevent_paths = ["/sys/class/drm/card0/device/uevent"]
     with (
@@ -557,7 +632,7 @@ def test_detect_intel_igpu_linux():
     assert metrics_mod._AMD_DEV is None
 
 
-def test_detect_intel_igpu_xe_driver_linux():
+def test_detect_intel_igpu_xe_driver_linux(clean_gpu_globals):
     """detect_gpu() detects Intel Xe GPU (DRIVER=xe) on Linux."""
     uevent_paths = ["/sys/class/drm/card0/device/uevent"]
     with (
@@ -572,7 +647,7 @@ def test_detect_intel_igpu_xe_driver_linux():
     assert info["vendor"] == "intel"
 
 
-def test_detect_intel_igpu_macos():
+def test_detect_intel_igpu_macos(clean_gpu_globals):
     """detect_gpu() returns vendor=intel when system_profiler reports an Intel GPU."""
     sp_json = json.dumps({"SPDisplaysDataType": [{"sppci_model": "Intel Iris Pro 580"}]})
 
@@ -600,7 +675,7 @@ def test_detect_intel_igpu_macos():
     assert metrics_mod._INTEL_IGPU is True
 
 
-def test_detect_intel_igpu_not_found_linux():
+def test_detect_intel_igpu_not_found_linux(clean_gpu_globals):
     """detect_gpu() returns vendor=none when no GPU at all on Linux."""
     with (
         patch("subprocess.run", side_effect=FileNotFoundError),
@@ -614,7 +689,7 @@ def test_detect_intel_igpu_not_found_linux():
     assert metrics_mod._INTEL_IGPU is False
 
 
-def test_detect_amd_takes_priority_over_intel():
+def test_detect_amd_takes_priority_over_intel(clean_gpu_globals):
     """AMD dGPU wins when both DRIVER=amdgpu and DRIVER=i915 are present."""
     uevent_paths = [
         "/sys/class/drm/card0/device/uevent",
@@ -644,6 +719,8 @@ def test_detect_amd_takes_priority_over_intel():
 def test_get_gpu_stats_intel_routes_to_intel_stats():
     """get_gpu_stats() routes to _gpu_stats_intel() when _INTEL_IGPU is True."""
     with (
+        # detection has already happened; these tests describe its RESULT
+        patch.object(metrics_mod, "_GPU_DETECTED", True),
         patch.object(metrics_mod, "_INTEL_IGPU", True),
         patch.object(metrics_mod, "_NVIDIA_FOUND", False),
         patch.object(metrics_mod, "_APPLE_SILICON", False),
@@ -657,9 +734,11 @@ def test_get_gpu_stats_intel_routes_to_intel_stats():
     assert vram_total == 0.0
 
 
-def test_get_gpu_stats_intel_no_tool_returns_zeros():
-    """_gpu_stats_intel() returns zeros when intel_gpu_top is not installed."""
+def test_get_gpu_stats_intel_no_tool_reports_unmeasured():
+    """No intel_gpu_top means UNMEASURED, not a GPU sitting at 0%."""
     with (
+        # detection has already happened; these tests describe its RESULT
+        patch.object(metrics_mod, "_GPU_DETECTED", True),
         patch.object(metrics_mod, "_INTEL_IGPU", True),
         patch.object(metrics_mod, "_NVIDIA_FOUND", False),
         patch.object(metrics_mod, "_APPLE_SILICON", False),
@@ -669,9 +748,9 @@ def test_get_gpu_stats_intel_no_tool_returns_zeros():
     ):
         gpu_pct, vram_used, vram_total = get_gpu_stats()
 
-    assert gpu_pct == 0.0
-    assert vram_used == 0.0
-    assert vram_total == 0.0
+    assert gpu_pct is None
+    assert vram_used is None
+    assert vram_total is None
 
 
 def test_get_gpu_stats_intel_timeout_captures_partial_output():
@@ -682,6 +761,8 @@ def test_get_gpu_stats_intel_timeout_captures_partial_output():
     exc = sp.TimeoutExpired(cmd=["intel_gpu_top"], timeout=0.4, output=sample_json)
 
     with (
+        # detection has already happened; these tests describe its RESULT
+        patch.object(metrics_mod, "_GPU_DETECTED", True),
         patch.object(metrics_mod, "_INTEL_IGPU", True),
         patch.object(metrics_mod, "_NVIDIA_FOUND", False),
         patch.object(metrics_mod, "_APPLE_SILICON", False),
@@ -696,9 +777,11 @@ def test_get_gpu_stats_intel_timeout_captures_partial_output():
     assert vram_total == 0.0
 
 
-def test_get_gpu_stats_cpu_only_returns_zeros():
-    """get_gpu_stats() returns zeros when no GPU was detected (CPU-only)."""
+def test_get_gpu_stats_cpu_only_reports_unmeasured():
+    """No GPU at all means UNMEASURED. hermia-dl2e: 0.0 asserts a measurement we do not have."""
     with (
+        # detection has already happened; these tests describe its RESULT
+        patch.object(metrics_mod, "_GPU_DETECTED", True),
         patch.object(metrics_mod, "_NVIDIA_FOUND", False),
         patch.object(metrics_mod, "_APPLE_SILICON", False),
         patch.object(metrics_mod, "_INTEL_IGPU", False),
@@ -706,6 +789,234 @@ def test_get_gpu_stats_cpu_only_returns_zeros():
     ):
         gpu_pct, vram_used, vram_total = get_gpu_stats()
 
-    assert gpu_pct == 0.0
-    assert vram_used == 0.0
-    assert vram_total == 0.0
+    assert gpu_pct is None
+    assert vram_used is None
+    assert vram_total is None
+
+
+def test_cpu_only_host_reports_none_not_zero(clean_gpu_globals):
+    """hermia-dl2e: "no GPU" and "GPU idle" are different facts."""
+    with patch.object(metrics_mod, "_GPU_DETECTED", True):
+        m = metrics_mod.get_system_metrics()
+    assert m["gpu_pct"] is None, "a machine with no GPU has not measured 0% utilisation"
+    assert m["vram_used_gb"] is None
+    assert m["cpu_pct"] is not None, "CPU is always measurable"
+
+
+def test_peak_omits_a_field_it_never_measured():
+    """An omitted key is what lets runner.py write None instead of a fabricated 0.0."""
+    s = metrics_mod.MetricsSampler()
+    s.samples = [
+        {"cpu_pct": 10.0, "ram_used_gb": 4.0, "gpu_pct": None,
+         "vram_used_gb": None, "vram_total_gb": None},
+        {"cpu_pct": 50.0, "ram_used_gb": 5.0, "gpu_pct": None,
+         "vram_used_gb": None, "vram_total_gb": None},
+    ]
+    peak = s.peak()
+    assert peak["cpu_pct"] == 50.0
+    assert "gpu_pct" not in peak, "an unmeasured field must be absent, not zero"
+    assert "vram_used_gb" not in peak
+
+
+def test_get_gpu_stats_initialises_detection_itself(clean_gpu_globals):
+    """hermia-dl2e: three callers bypassed MetricsSampler.start() entirely.
+
+    runner.py's cold-load VRAM before/after and preflight.py -- the code that tells a user
+    whether a model fits in their VRAM -- call get_gpu_stats() directly. With detection
+    wired only into the sampler they read globals at their defaults and preflight would
+    have answered 0 GB. Initialising at the READ is the placement a new caller cannot bypass.
+    """
+    with patch.object(metrics_mod, "detect_gpu") as detect:
+        metrics_mod.get_gpu_stats()
+    assert detect.called, "get_gpu_stats() must ensure detection, not assume it"
+
+
+def test_no_collector_fabricates_a_zero_when_its_probe_fails(clean_gpu_globals):
+    """hermia-dl2e: finishing the class. 0.0 is a measurement; absence is not.
+
+    Every collector used to return 0.0 when its tool was missing or crashed, so a host with
+    no intel_gpu_top, no nvidia-smi, or a failing ioreg recorded "GPU at 0%" -- indistinguishable
+    from a real idle GPU. Found one layer at a time across three rounds of outside-family review.
+    """
+    cases = {
+        "no GPU": dict(_NVIDIA_FOUND=False, _APPLE_SILICON=False, _INTEL_IGPU=False, _AMD_DEV=None),
+        "intel, tool missing": dict(
+            _NVIDIA_FOUND=False, _APPLE_SILICON=False, _INTEL_IGPU=True, _AMD_DEV=None
+        ),
+        "nvidia, smi missing": dict(
+            _NVIDIA_FOUND=True, _APPLE_SILICON=False, _INTEL_IGPU=False, _AMD_DEV=None
+        ),
+    }
+    for label, globals_ in cases.items():
+        for name, value in globals_.items():
+            setattr(metrics_mod, name, value)
+        with patch.object(metrics_mod, "_GPU_DETECTED", True), patch(
+            "subprocess.run", side_effect=FileNotFoundError
+        ):
+            gpu_pct, vram_used, _ = metrics_mod.get_gpu_stats()
+            recorded = metrics_mod.get_system_metrics()
+        assert gpu_pct is None, f"{label}: utilisation was not measured, so it is not 0.0"
+        assert vram_used is None, f"{label}: VRAM was not measured, so it is not 0.0"
+        assert recorded["gpu_pct"] is None, f"{label}: a recorded row must not claim 0.0"
+
+
+def test_sampler_primes_the_cpu_counter(clean_gpu_globals):
+    """psutil.cpu_percent's first call in a process always returns 0.0 (hermia-dl2e)."""
+    calls = []
+    real = metrics_mod.MetricsSampler
+
+    with patch("psutil.cpu_percent", side_effect=lambda **kw: calls.append(1) or 5.0):
+        s = real()
+        s.start()
+        s.stop()
+    assert calls, "start() must take and discard a priming reading"
+
+
+# ---------------------------------------------------------------------------
+# hermia-j6a8 — an unprobed GPU is UNKNOWN, never zero
+# ---------------------------------------------------------------------------
+
+def _no_gpu_anywhere(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make every probe come up empty, as they all do on Windows for a non-NVIDIA card."""
+    monkeypatch.setattr(metrics_mod, "_detect_nvidia", lambda: (False, "", 0.0, 0.0))
+    monkeypatch.setattr(metrics_mod, "_detect_apple_silicon", lambda: (False, "", 0.0))
+    monkeypatch.setattr(metrics_mod, "_find_amdgpu_dev", lambda: None)
+    monkeypatch.setattr(metrics_mod, "_detect_intel_igpu", lambda: (False, ""))
+
+
+def test_unprobed_platform_reports_unknown_not_none(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """On Windows, "no GPU" is a claim hermia is not entitled to make.
+
+    Confirmed on real hardware 2026-09-12: a 16 GB RX 7800 XT reported vendor='none'.
+    The AMD probe is `glob('/sys/class/drm/card*/device/uevent')` -- Linux sysfs -- and the
+    Intel probe is equally POSIX, so on Windows neither can find a card that is physically
+    present. nvidia-smi DOES work on Windows, so an NVIDIA card is still detected; it is
+    specifically the AMD and Intel paths that have no Windows implementation. An empty
+    result there means NOT PROBED, which is a different fact from NO GPU PRESENT.
+    """
+    _no_gpu_anywhere(monkeypatch)
+    monkeypatch.setattr(sys, "platform", "win32")
+    info = metrics_mod.detect_gpu()
+    assert info["vendor"] == "unknown", (
+        "a platform with no AMD/Intel probe must not claim there is no GPU"
+    )
+    assert info["found"] is False
+
+
+def test_unprobed_platform_does_not_fabricate_a_vram_measurement(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """0.0 GB is a MEASUREMENT. None is the absence of one. They are not interchangeable."""
+    _no_gpu_anywhere(monkeypatch)
+    monkeypatch.setattr(sys, "platform", "win32")
+    assert metrics_mod.detect_gpu()["vram_total_gb"] is None
+
+
+def test_genuinely_gpu_less_posix_host_still_reports_none_vendor(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """On Linux every probe is implemented, so an empty result IS evidence of no GPU.
+
+    This is the negative control for the test above: the fix must not turn every
+    CPU-only host into "unknown", which would destroy a real signal.
+    """
+    _no_gpu_anywhere(monkeypatch)
+    monkeypatch.setattr(sys, "platform", "linux")
+    info = metrics_mod.detect_gpu()
+    assert info["vendor"] == "none"
+    assert info["vram_total_gb"] is None, "absent VRAM is still not a measurement of zero"
+
+
+def test_intel_mac_with_discrete_amd_gpu_is_unknown_not_none(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """macOS has no /sys/class/drm either, so the AMD probe is as blind there as on Windows.
+
+    Found by the outside-family review gate on the first version of this fix, which keyed on
+    `sys.platform != "win32"` and so still published a darwin host reaching this fallback as
+    vendor='none' -> 'local:cpu' -> system RAM -- the exact defect this bead exists to remove,
+    reproduced one platform over.
+
+    ⚠️ SCOPE, narrowed after a SECOND gate pass called out the original wording. This proves
+    only what it mocks: a darwin host where every probe came up empty. It does NOT prove the
+    2019 16-inch MacBook Pro case its first docstring claimed, because that machine has an
+    Intel UHD 630 alongside its discrete AMD card, `_detect_intel_igpu` matches ANY darwin
+    display whose model contains "Intel", and it is checked BEFORE this fallback -- so such a
+    machine exits at vendor='intel' and never reaches the code under test. That shadowing is
+    a real, separate defect (hermia-mont) and this test must not be read as covering it.
+    """
+    _no_gpu_anywhere(monkeypatch)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    info = metrics_mod.detect_gpu()
+    assert info["vendor"] == "unknown", (
+        "the AMD sysfs probe cannot run on darwin, so 'no GPU' is not a claim we can make"
+    )
+    assert info["vram_total_gb"] is None
+
+
+def test_found_amd_card_with_unreadable_vram_reports_none(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, clean_gpu_globals: None
+) -> None:
+    """Same fabrication, one layer down: the card IS found, the measurement is not.
+
+    `mem_info_vram_total` can be absent or unreadable (permissions, a kernel that does not
+    export it, a driver mid-reload). The except arm used to substitute 0.0, publishing a
+    measurement of zero for a card hermia had just successfully identified.
+    """
+    monkeypatch.setattr(metrics_mod, "_detect_nvidia", lambda: (False, "", 0.0, 0.0))
+    monkeypatch.setattr(metrics_mod, "_detect_apple_silicon", lambda: (False, "", 0.0))
+    # A real device path whose mem_info_vram_total does not exist -> the except arm.
+    dev = tmp_path / "sys" / "class" / "drm" / "card0" / "device"
+    dev.mkdir(parents=True)
+    monkeypatch.setattr(metrics_mod, "_find_amdgpu_dev", lambda: str(dev))
+
+    info = metrics_mod.detect_gpu()
+
+    assert info["found"] is True, "positive control: the card must still be detected"
+    assert info["vendor"] == "amd"
+    assert info["vram_total_gb"] is None, "an unreadable measurement is not a measurement of 0"
+
+
+def test_amd_vram_file_that_is_empty_or_garbage_does_not_crash_detection(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, clean_gpu_globals: None
+) -> None:
+    """`int("")` raises ValueError, which an `except OSError` does not catch.
+
+    The file can exist and be readable yet hold nothing useful -- a driver mid-reload, a
+    kernel that exports the node before populating it. The original except arm named only
+    OSError, so this escaped as an unhandled crash out of detect_gpu() rather than being
+    recorded as an unmeasured value. Found by the outside-family gate.
+    """
+    dev = tmp_path / "sys" / "class" / "drm" / "card0" / "device"
+    dev.mkdir(parents=True)
+    monkeypatch.setattr(metrics_mod, "_detect_nvidia", lambda: (False, "", 0.0, 0.0))
+    monkeypatch.setattr(metrics_mod, "_detect_apple_silicon", lambda: (False, "", 0.0))
+    monkeypatch.setattr(metrics_mod, "_find_amdgpu_dev", lambda: str(dev))
+
+    for garbage in ("", "   ", "not-a-number", "12.5GB"):
+        (dev / "mem_info_vram_total").write_text(garbage, encoding="utf-8")
+        info = metrics_mod.detect_gpu()
+        assert info["found"] is True, f"card must still be found for {garbage!r}"
+        assert info["vram_total_gb"] is None, f"{garbage!r} is not a measurement"
+
+
+def test_amd_enumeration_survives_a_garbage_vram_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, clean_gpu_globals: None
+) -> None:
+    """The same flaw sits one level earlier, in _find_amdgpu_dev's ranking read.
+
+    It crashes during card ENUMERATION, before detect_gpu() reaches the VRAM read at all,
+    so fixing only the later site would leave the earlier one live.
+    """
+    drm = tmp_path / "sys" / "class" / "drm"
+    dev = drm / "card0" / "device"
+    dev.mkdir(parents=True)
+    (dev / "uevent").write_text("DRIVER=amdgpu\n", encoding="utf-8")
+    (dev / "mem_info_vram_total").write_text("", encoding="utf-8")
+    monkeypatch.setattr(metrics_mod.glob, "glob", lambda _p: [str(dev / "uevent")])
+
+    assert metrics_mod._find_amdgpu_dev() == str(dev), (
+        "a card with an unreadable VRAM value still exists and must still be enumerated"
+    )

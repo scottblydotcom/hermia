@@ -87,6 +87,32 @@ def test_single_turn_unchanged_no_turns_field():
     assert res["turn_count"] == 1
 
 
+def test_multiturn_keeps_only_final_turn_thinking():
+    # _play_turns propagates ONLY the final turn's thinking (thinking=last.thinking),
+    # never an earlier turn or a concatenation. Correct today; pin it against a
+    # future refactor that mirrors the token/elapsed summation (hermia-cv5z).
+    thinks = iter(["FIRST turn reasoning", "SECOND turn reasoning"])
+    texts = iter(["intermediate reply", '{"ok": true}'])
+    t = MagicMock()
+    t.is_api_mode = True
+
+    def gen(model, messages, **opts):
+        return Response(
+            text=next(texts),
+            tokens=5,
+            elapsed_sec=0.1,
+            orchestration="ollama",
+            orchestration_version=None,
+            is_api_mode=True,
+            thinking=next(thinks),
+        )
+
+    t.generate.side_effect = gen
+    res = run_test("m", _MT_TEST, MagicMock(), transport=t)
+    assert res["raw_thinking"] == "SECOND turn reasoning"
+    assert "FIRST" not in res["raw_thinking"]
+
+
 # ---------------------------------------------------------------------------
 # E3 — determinism: same canned replies → identical result dict
 # ---------------------------------------------------------------------------
@@ -279,7 +305,11 @@ def test_play_turns_coerces_none_assistant_text_to_empty_string():
         f"Expected '' but got {assistant_msg['content']!r} — None was not coerced"
     )
     # run_test must complete normally (schema check runs on second reply)
-    assert result["failure_reason"] == "" or result["failure_reason"] == "SCHEMA_FAIL"
+    # "mt-none-text" is a synthetic id with no entry in SCHEMA_CHECKS, and hermia-omz5
+    # relabelled that case SCHEMA_FAIL -> GRADER_ERROR: a missing checker is a gap in the
+    # harness, not a malformed envelope from the model. This test's point is that run_test
+    # COMPLETES rather than raising, which all three labels satisfy.
+    assert result["failure_reason"] in ("", "SCHEMA_FAIL", "GRADER_ERROR")
 
 
 # ---------------------------------------------------------------------------

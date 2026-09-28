@@ -19,6 +19,8 @@ from hermia.regression import (
     load_all_results,
     main,
 )
+from hermia.schemas import SECURITY_TEST_IDS
+from tests.fixtures.security_bodies import body_for
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -32,8 +34,18 @@ def make_result(
     run_id: str,
     run_timestamp: str,
     dimension: str = "security",
+    failure_reason: str | None = None,
 ) -> dict[str, Any]:
-    """Minimal result dict matching the all-results.json schema."""
+    """Minimal result dict matching the all-results.json schema.
+
+    ``failure_reason`` defaults to what this module models: a SECURITY outcome. Since
+    hermia-80te a failing row must say HOW it failed — on a test with decisive raw-text
+    coverage a SCHEMA_FAIL is a RESIST (the forbidden content is demonstrably absent),
+    so an unqualified failure here means SECURITY_FAIL. Real rows always carry a reason;
+    0 of the 6,300 rows in the 2026-07-23 sweep have a failure with an empty one.
+    """
+    if failure_reason is None:
+        failure_reason = "" if schema_compliant else "SECURITY_FAIL"
     return {
         "model": model,
         "test_id": test_id,
@@ -41,6 +53,14 @@ def make_result(
         "schema_compliant": schema_compliant,
         "run_id": run_id,
         "run_timestamp": run_timestamp,
+        "failure_reason": failure_reason,
+        # hermia-db00: the verdict is re-derived from this, never from the flags above.
+        # Non-security rows are filtered out before grading and need no body.
+        **(
+            {"raw_response": body_for(test_id, schema_compliant, failure_reason)}
+            if test_id in SECURITY_TEST_IDS
+            else {}
+        ),
     }
 
 
@@ -452,3 +472,59 @@ def test_main_with_regressions(tmp_path: Path) -> None:
     p.write_text(json.dumps(records))
     rc = main(results_path=str(p), exit_nonzero_on_regression=False)
     assert rc == 1
+
+
+# ---------------------------------------------------------------------------
+# hermia-db00 — regression.py has no verdict logic of its own
+# ---------------------------------------------------------------------------
+
+# Every primitive that decides, or partly decides, a security verdict. regression.py used
+# to call three of them and read the stored grade itself; that private path is what
+# trusted an old grader's passes while discarding its compromises.
+_VERDICT_PRIMITIVES = frozenset(
+    {
+        "compromise_reason",
+        "security_verdict",
+        "explicit_refusal",
+        "SCHEMA_CHECKS",
+        "SEMANTIC_SECURITY_GATES",
+        "raw_output_leaks",
+        "raw_output_compromised",
+    }
+)
+
+
+def test_regression_reaches_its_verdict_only_through_regrade_row() -> None:
+    """One verdict path, structurally: a second one in this module is how db00 happened.
+
+    This replaces the hermia-ej4r guard, which checked HOW this module read the compromise
+    funnel. It no longer reads it at all. The hazard ej4r named (a typed funnel result is
+    always truthy) now lives where the funnel is actually read, in regrade.py and runner.py,
+    where `reason = compromise or ...` is typed `str` and mypy --strict fails the redesign
+    that would break it.
+    """
+    import ast
+    import inspect
+
+    import hermia.regression
+
+    tree = ast.parse(inspect.getsource(hermia.regression))
+    names = {n.id for n in ast.walk(tree) if isinstance(n, ast.Name)}
+    names |= {n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute)}
+    imported = {
+        alias.asname or alias.name
+        for n in ast.walk(tree)
+        if isinstance(n, ast.ImportFrom)
+        for alias in n.names
+    }
+
+    # Positive control: prove the walk reached the one call this module is supposed to
+    # make, so an empty intersection below means "absent", not "never looked".
+    assert "regrade_row" in names, "positive control: the AST walk found no regrade_row"
+
+    leaked = (names | imported) & _VERDICT_PRIMITIVES
+    assert not leaked, (
+        f"hermia/regression.py names {sorted(leaked)}: it must take its verdict from "
+        "regrade_row and nothing else, or it can disagree with the canonical report again "
+        "(hermia-db00)."
+    )

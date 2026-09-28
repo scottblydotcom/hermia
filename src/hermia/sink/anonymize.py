@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from hermia import __version__
+from hermia import __git_sha__, __version__
 
 # Explicit whitelist of fields safe to share.  Default-deny: anything NOT
 # listed here is dropped, including future fields not yet imagined.
@@ -46,17 +46,26 @@ SUBMIT_WHITELIST: frozenset[str] = frozenset(
         "cold_warm_delta_tps",
         "signals",
         "corpus_sha256",
+        # Dataset-stable pseudonym (node-a, node-b). Safe to export BY DESIGN and
+        # the reason machine_id itself stays out: without this entry the
+        # default-deny pass silently drops the pseudonym, and an export carries
+        # no way to tell one machine's rows from another's.
+        "machine_pseudonym",
     }
 )
 
 # Category prefixes for failure_reason reduction.  Longest matches first to
 # avoid SCHEMA_FAIL being incorrectly categorised as the shorter "ERROR".
 _KNOWN_FAILURE_PREFIXES: tuple[str, ...] = (
+    "SECURITY_FAIL",
     "SCHEMA_FAIL",
+    "GRADER_ERROR",
     "JSON_PARSE_ERROR",
+    "EMPTY_CONTENT_WITH_THINKING",
     "EMPTY_RESPONSE",
     "CONTENT_LEAK",
     "TIMEOUT",
+    "RETRY_EXHAUSTED",
     "OLLAMA_ERROR",
     "API_ERROR",
     "ERROR",
@@ -87,9 +96,10 @@ def anonymize_row(row: dict[str, Any]) -> dict[str, Any]:
     """Return an anonymized copy of *row* safe for community submission.
 
     Only whitelisted fields are copied.  ``failure_reason`` is replaced by
-    ``failure_category`` (the prefix only).  The Hermia version is stamped
-    in ``hermia_version``.  No host identity, raw text, client hardware
-    metrics, run ids, or timestamps are ever emitted.
+    ``failure_category`` (the prefix only).  The Hermia version and git
+    commit are stamped in ``hermia_version`` and ``git_sha``.  No host
+    identity, raw text, client hardware metrics, run ids, or timestamps
+    are ever emitted.
     """
     out: dict[str, Any] = {k: row[k] for k in SUBMIT_WHITELIST if k in row}
 
@@ -120,4 +130,73 @@ def anonymize_row(row: dict[str, Any]) -> dict[str, Any]:
 
     out["failure_category"] = _categorize_failure(row.get("failure_reason"))
     out["hermia_version"] = __version__
+    out["git_sha"] = __git_sha__
+    return out
+
+
+# ---------------------------------------------------------------------------
+# machine_id pseudonymisation (hermia-cfqv)
+# ---------------------------------------------------------------------------
+
+
+def _letters(index: int) -> str:
+    """``0 -> a`` … ``25 -> z``, ``26 -> aa``, spreadsheet-style."""
+    letters = ""
+    n = index
+    while True:
+        letters = chr(ord("a") + n % 26) + letters
+        n = n // 26 - 1
+        if n < 0:
+            break
+    return letters
+
+
+def _pseudonym(index: int) -> str:
+    """``0 -> node-a`` … ``25 -> node-z``, ``26 -> node-aa``, spreadsheet-style."""
+    return f"node-{_letters(index)}"
+
+
+def assign_machine_pseudonyms(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Replace ``machine_id`` with a dataset-stable ``machine_pseudonym``.
+
+    ``machine_id`` is a salted hash: locally unique, globally meaningless. It is
+    still not exported — it is replaced by ``node-a``, ``node-b``, … assigned in
+    first-appearance order, so a reader can tell rows apart by machine without
+    receiving any value that ties back to a box. Neither the salt nor this
+    mapping is ever written to output, and ``machine_id`` is deliberately absent
+    from ``SUBMIT_WHITELIST`` so it cannot leak through the normal path either.
+
+    A ``machine_id`` that is ``None`` or absent means NOT MEASURED, and yields a
+    ``None`` pseudonym rather than being pooled into a shared bucket — otherwise
+    every unidentified machine would look like one machine.
+
+    Input rows are never mutated; new dicts are returned.
+    """
+    assigned: dict[str, str] = {}
+    unidentified: dict[str, str] = {}
+    out: list[dict[str, Any]] = []
+    for row in rows:
+        new = dict(row)
+        machine_id = new.pop("machine_id", None)
+        if isinstance(machine_id, str) and machine_id:
+            if machine_id not in assigned:
+                assigned[machine_id] = _pseudonym(len(assigned))
+            new["machine_pseudonym"] = assigned[machine_id]
+        elif "machine_pseudonym" in new:
+            pass  # already assigned; applying twice must not blank it
+        else:
+            # An id we could not derive is NOT the same as "one unknown
+            # machine". Emitting None for all of them pools ten unidentified
+            # boxes into a single bucket, and a reader sees one machine with ten
+            # runs. Separate them using the operator's own grouping key — which
+            # is dropped from the export either way, so nothing leaks — and fall
+            # back to None only when there is genuinely nothing to group on.
+            key = row.get("fleet_host_name") or row.get("host")
+            if isinstance(key, str) and key:
+                if key not in unidentified:
+                    unidentified[key] = f"unidentified-{_letters(len(unidentified))}"
+                new["machine_pseudonym"] = unidentified[key]
+            else:
+                new["machine_pseudonym"] = None
+        out.append(new)
     return out

@@ -14,13 +14,13 @@ class TestHostsScreen:
         async def _run() -> None:
             async with HermiaApp().run_test() as pilot:
                 pilot.app.config.hosts = [
-                    Host(name="eric-5090", url="http://e:11434", engine="ollama"),
+                    Host(name="node-a", url="http://e:11434", engine="ollama"),
                     Host(name="m3-pro", url="http://m:4000", engine="openai-compat"),
                 ]
                 pilot.app.push_screen(HostsScreen())
                 await pilot.pause()
                 screen: HostsScreen = pilot.app.screen  # type: ignore[assignment]
-                assert screen.host_names == ["eric-5090", "m3-pro"]
+                assert screen.host_names == ["node-a", "m3-pro"]
 
         asyncio.run(_run())
 
@@ -378,7 +378,7 @@ class TestHostsScreenBusMigration:
         async def _run() -> None:
             async with HermiaApp().run_test() as pilot:
                 pilot.app.config.hosts = [
-                    Host(name="eric-5090", url="http://e:11434", engine="ollama")
+                    Host(name="node-a", url="http://e:11434", engine="ollama")
                 ]
                 received: list[dict] = []
 
@@ -396,7 +396,7 @@ class TestHostsScreenBusMigration:
                 )
                 await pilot.pause()
                 await asyncio.wait_for(task, timeout=3.0)
-                assert received[0]["host_name"] == "eric-5090"
+                assert received[0]["host_name"] == "node-a"
 
         asyncio.run(_run())
 

@@ -94,7 +94,7 @@ class TestRunnerDetailScreenBus:
                 assert screen.is_awaiting_result is True
 
                 await pilot.app.bus.publish("run.trial_finished", {
-                    "host_name": "eric-5090",
+                    "host_name": "node-a",
                     "model_name": "qwen3:32b",
                     "test_id": "t1",
                     "repeat_idx": 1,

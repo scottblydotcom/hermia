@@ -223,7 +223,7 @@ For agentic systems, **ME 2.4** is the critical subcategory: a model that passed
 | ME 2.3 Benchmark similar to deployment | ✅ Hermia runs on a local GPU node against live Ollama | Eval prompts are static; real-world prompt distribution not sampled |
 | ME 2.4 Production monitoring | ✅ Grafana: CPU, RAM, GPU%, VRAM, inference latency | ❌ No eval accuracy metrics in Grafana (schema pass rate, security test pass rate) |
 | ME 3.1 Track emergent risks | ❌ None | Results stored in JSONL but no regression detection or alerting |
-| ME 1.3 Independent review | ✅ Gemini Code Assist reviews PRs | Reviews code only, not model behavior changes |
+| ME 1.3 Independent review | ✅ CodeRabbit + Antigravity (`agy`) review PRs | Reviews code only, not model behavior changes |
 | MA 4.1 Post-deployment monitoring | ✅ Prometheus scrapes node_exporter | ❌ No model-behavior alerting; no incident response runbook for model regression |
 | MA 2.2 Risk response plans | ❌ None | No documented response for "safe-lane model fails security test" |
 

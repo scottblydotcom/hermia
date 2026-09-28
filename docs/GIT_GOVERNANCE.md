@@ -12,7 +12,7 @@ repeat, and the procedure to recover if work is ever lost again.
 ### Tier 1 — Prevent (GitHub)
 - **Branch protection on `main` and `dev`:** PR required, status checks strict
   (`lint-and-test`), **force-push blocked, deletion blocked**, admins included,
-  0 required approvals (solo-maintainer friendly — CI + Gemini/Aikido + in-window
+  0 required approvals (solo-maintainer friendly — CI + CodeRabbit/Antigravity/Aikido + in-window
   Opus are the gates).
 - **Merge-only branch deletion:** repo setting "Automatically delete head branches"
   is enabled — it fires *only on merge*, never on close. Feature branches are never

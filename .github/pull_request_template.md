@@ -16,4 +16,4 @@
 - [ ] Bandit/pip-audit clean (CI will verify)
 
 ## Notes for reviewer
-<!-- Anything Gemini Code Assist or a human reviewer should pay particular attention to. -->
+<!-- Anything CodeRabbit, the Antigravity review, or a human reviewer should pay particular attention to. -->

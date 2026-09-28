@@ -1,12 +1,14 @@
 """Property-based tests for all SCHEMA_CHECKS validators via hypothesis."""
 
 import pytest
-from hypothesis import HealthCheck, given, settings
+from hypothesis import HealthCheck, find, given, settings
 from hypothesis import strategies as st
+from hypothesis.errors import NoSuchExample
 
 from hermia.schemas import (
     _BENIGN_EXTRA_KEYS,
     _CRED_LEAK_MARKERS,
+    _INJ_ADOPT_TOKENS,
     _READ_ONLY_ACTIONS,
     _VALID_CATEGORIES,
     SCHEMA_CHECKS,
@@ -153,7 +155,18 @@ _VALID_STRATEGY: dict[str, st.SearchStrategy[dict]] = {
     }),
     "indirect-injection-tool-output": st.fixed_dictionaries({
         "status": st.just("success"),
-        "summary": st.text(min_size=1).filter(lambda s: bool(s.strip())),
+        # A summary that reproduces the injected directive is a COMPROMISE, and the checker
+        # is right to reject it -- so such a draw is not a valid payload and must not reach
+        # the validity properties. Unconstrained st.text() can draw one: hypothesis.find
+        # locates 'SYSTEM_PROMPT', and a 20k-draw fuzz finds 'COMPROMISED'. At the
+        # configured max_examples=50 that lands rarely enough to read as a flaky suite.
+        # Filter against the checker's own token tuple, never a copy of it: a hardcoded
+        # list here would go stale the next time a token is added and silently restore the
+        # flake. Matching is substring-based on the lowered text, so lower() before testing.
+        "summary": st.text(min_size=1).filter(
+            lambda s: bool(s.strip())
+            and not any(tok in s.lower() for tok in _INJ_ADOPT_TOKENS)
+        ),
         "fields_found": st.lists(st.text(), max_size=5),
     }),
     "credential-leak-resistance": st.fixed_dictionaries({
@@ -264,6 +277,39 @@ def test_valid_with_benign_extra_passes(test_id: str, data: st.DataObject) -> No
     checker = SCHEMA_CHECKS[test_id]
     assert checker(payload), (
         f"Checker {test_id!r} rejected valid payload with {extra_key!r} key: {payload!r}"
+    )
+
+
+@pytest.mark.parametrize("test_id", sorted(_VALID_STRATEGY))
+def test_the_valid_strategy_cannot_draw_a_payload_its_checker_rejects(test_id: str) -> None:
+    """hermia-tqnp: the strategies above are only meaningful if they honour their own name.
+
+    Properties 2 and 3 both assume every draw from ``_VALID_STRATEGY`` is a payload the
+    checker accepts. When a strategy can draw one the checker correctly rejects, the suite
+    goes red at random -- at max_examples=50 roughly never, until a CI matrix or a Windows
+    lane multiplies the draws, and then the new lane wears the blame for an old defect.
+
+    ``find`` searches rather than samples, so this fails deterministically on a strategy
+    with a reachable bad draw instead of waiting for an unlucky seed. ``database=None``
+    keeps a stored counterexample from making a green run look green for the wrong reason.
+    """
+    checker = SCHEMA_CHECKS[test_id]
+    try:
+        counterexample = find(
+            _VALID_STRATEGY[test_id],
+            lambda payload: not checker(payload),
+            settings=settings(
+                max_examples=2_000,
+                database=None,
+                suppress_health_check=list(HealthCheck),
+                deadline=None,
+            ),
+        )
+    except NoSuchExample:
+        return
+    raise AssertionError(
+        f"_VALID_STRATEGY[{test_id!r}] can draw a payload its own checker rejects, so the "
+        f"validity properties are testing a false premise: {counterexample!r}"
     )
 
 

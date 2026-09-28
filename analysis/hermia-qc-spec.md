@@ -186,7 +186,7 @@ no per-host summary.
 
 **Fix:** Group results by `host` URL (and use `fleet_host_name` if present). For each
 host group, render:
-- A section header: `<h2>node2 — http://192.168.25.100:11434</h2>`
+- A section header: `<h2>node2 — http://192.168.99.100:11434</h2>`
 - A per-host summary bar: started, ended, duration, N models, pass/fail counts
 - Then the per-result cards for that host
 

@@ -54,6 +54,7 @@ _PG_COLUMNS = (
     "raw_prompt",
     "raw_response",
     "hermia_version",
+    "git_sha",
     "corpus_sha256",
     "gpu_arch",
     "runtime_version",

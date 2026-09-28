@@ -3,7 +3,9 @@ import inspect
 from hermia.runner import load_tests_all
 from hermia.schemas import SCHEMA_CHECKS
 
-_REAL = "192.168.43.12"
+# Assembled from octets so this guard's target internal address is not itself a
+# greppable plaintext string in the public repo (hermia-7eac). Value unchanged.
+_REAL = ".".join(("192", "168", "43", "12"))
 
 
 def test_real_address_absent_from_dataset():

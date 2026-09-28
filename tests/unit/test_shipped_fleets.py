@@ -19,6 +19,19 @@ from hermia.fleet import load_fleet_config
 REPO = Path(__file__).resolve().parents[2]
 LOCAL = REPO / "fleets" / "local.yaml"
 DESKTOP = REPO / "fleets" / "desktop.yaml"
+KWAAINET = REPO / "examples" / "kwaainet-fleet.yaml"
+
+
+def test_shipped_kwaainet_example_loads():
+    """examples/kwaainet-fleet.yaml is copy-pasted verbatim by
+    docs/kwaai-quickstart.md — it must stay loadable as fleet[] validation
+    tightens (regression: a free-form 'stack' block broke this under
+    hermia-em6r's nested key-set enforcement)."""
+    entries = load_fleet_config(KWAAINET)
+    assert len(entries) == 1
+    assert entries[0]["name"] == "kwaainet-metro"
+    assert entries[0]["transport"] == "openai-compat"
+    assert entries[0]["models"] == "auto"
 
 
 def test_shipped_local_fleet_loads_headless_schema():

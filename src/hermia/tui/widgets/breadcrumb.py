@@ -1,6 +1,6 @@
 """Breadcrumb — segmented drill-path header.
 
-`hermia ▸ fleet ▸ kwaainet-baseline ▸ hosts ▸ marcus`
+`hermia ▸ fleet ▸ kwaainet-baseline ▸ hosts ▸ node-b`
 
 Each segment is clickable (mouse) and the host screen can call jump_to(i)
 to handle keyboard jumps. The widget emits Breadcrumb.Jumped(index) which

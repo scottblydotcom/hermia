@@ -19,6 +19,7 @@ from hermia.runner import (
     unload_model,
 )
 from hermia.transport.base import Response as TransportResponse
+from hermia.transport.base import TransportError
 
 
 @pytest.fixture(autouse=True)
@@ -254,6 +255,20 @@ def test_run_test_transport_http_error() -> None:
     assert result["json_valid"] is False
 
 
+def test_run_test_retry_exhausted_classified_separately_from_api_error() -> None:
+    # A TransportError from exhausted 5xx retries must produce a distinct
+    # failure_reason prefix from an in-body application-level API error, so
+    # bulk analysis can separate infra noise from behavioral failures.
+    transport = MagicMock()
+    transport.generate.side_effect = TransportError(
+        "after 3 attempts: HTTP 503", kind="openai-compat-retry-exhausted"
+    )
+    with patch("hermia.runner.fetch_server_ps_data", return_value=_PS_EMPTY):
+        result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler(), transport=transport)
+    assert result["failure_reason"].startswith("RETRY_EXHAUSTED")
+    assert not result["failure_reason"].startswith("API_ERROR")
+
+
 def test_run_test_generic_exception() -> None:
     transport = MagicMock()
     transport.generate.side_effect = RuntimeError("boom")
@@ -276,6 +291,23 @@ def test_run_test_stamps_hermia_version() -> None:
     assert "hermia_version" in result
     assert isinstance(result["hermia_version"], str)
     assert result["hermia_version"]  # non-empty
+
+
+def test_run_test_stamps_git_sha() -> None:
+    """Every result row must carry git_sha (hermia-c38b: hermia_version alone
+    goes stale on editable installs; git_sha is an independent, always-fresh check).
+    """
+    payload = '{"action": "search_documentation", "params": {}}'
+    transport = MagicMock()
+    transport.generate.return_value = TransportResponse(
+        text=payload, tokens=10, elapsed_sec=1.0,
+        orchestration="ollama", orchestration_version="0.24.0", is_api_mode=False,
+    )
+    with patch("hermia.runner.fetch_server_ps_data", return_value=_PS_EMPTY):
+        result = run_test("qwen2.5:32b", _BASE_TEST, _mock_sampler(), transport=transport)
+    assert "git_sha" in result
+    assert isinstance(result["git_sha"], str)
+    assert result["git_sha"]  # non-empty
 
 
 def test_run_test_peak_metrics_in_result() -> None:
@@ -409,7 +441,7 @@ def test_detect_mode_remote_ip() -> None:
 
 def test_detect_mode_remote_hostname() -> None:
     from hermia.runner import detect_mode
-    assert detect_mode("http://erics-origin-neuron:11434") == "fleet"
+    assert detect_mode("http://remote-neuron:11434") == "fleet"
 
 
 def test_detect_mode_ipv6_loopback() -> None:
@@ -1350,3 +1382,96 @@ def test_run_test_standalone_remote_stamps_fingerprint() -> None:
 
     assert "stack_fingerprint" in row
     assert row["stack_fingerprint"]["model"]["digest"] == "sha256:remote"
+
+
+def test_local_host_records_metrics_and_never_fabricates_zero() -> None:
+    """hermia-dl2e: three defects the outside-family gate caught in one fix.
+
+    (1) The TUI declared every host remote, so run_test's is_local was always False and every
+        row carried peak_* = None -- including for someone running against Ollama on their own
+        laptop. Corpus by run_id month: 2026-05 66% of rows had GPU data, 06 11%, 07 and 08 zero.
+    (2) Enabling sampling alone was NOT enough: detect_gpu() was called only from submit.py,
+        never on the run path, so the GPU globals stayed at their defaults and get_gpu_stats()
+        returned (0.0, 0.0, 0.0) on a machine with an Apple M1 Pro. That would have replaced an
+        honest None with a fabricated zero -- strictly worse, because a dashboard cannot tell
+        "not measured" from "measured, and idle".
+    (3) When a trial fails before the sampler takes its first sample, peak is {} and the old
+        `peak.get(key, 0)` wrote 0.0 -- a running machine using 0.0 GB of RAM.
+
+    The first version of this test asserted `seen.get("locality") != "remote"` against a mocked
+    run_test. That was a tautology: the kwarg had been removed, so the expression was None !=
+    "remote", true for every input including a remote host. It is replaced here by a test that
+    runs the real thing.
+    """
+    payload = '{"action": "search_documentation", "params": {}}'
+    transport = MagicMock()
+    transport.is_api_mode = False
+    transport.generate.return_value = TransportResponse(
+        text=payload, tokens=10, elapsed_sec=1.0,
+        orchestration="ollama", orchestration_version="0.24.0", is_api_mode=False,
+    )
+
+    with patch("hermia.runner.fetch_server_ps_data", return_value=_PS_EMPTY):
+        local = run_test(
+            "m", _BASE_TEST, _mock_sampler(),
+            host="http://localhost:11434", transport=transport,
+        )
+        remote = run_test(
+            "m", _BASE_TEST, _mock_sampler(),
+            host="http://100.68.230.118:11434", transport=transport,
+        )
+
+    # (1) a host on this machine is local, and its measurements are kept
+    assert local["mode"] == "local", "localhost must not be declared remote"
+    assert local["peak_gpu_pct"] == 85.0
+    assert local["peak_vram_used_gb"] == 20.0
+    # and a genuine fleet host still is not sampled
+    assert remote["mode"] == "fleet"
+    assert remote["peak_gpu_pct"] is None
+
+    # (3) an unmeasured peak stays None rather than becoming a fabricated 0.0
+    empty = MagicMock()
+    empty.peak.return_value = {}
+    with patch("hermia.runner.fetch_server_ps_data", return_value=_PS_EMPTY):
+        unmeasured = run_test(
+            "m", _BASE_TEST, empty,
+            host="http://localhost:11434", transport=transport,
+        )
+    assert unmeasured["mode"] == "local"
+    for field in ("peak_cpu_pct", "peak_ram_used_gb", "peak_gpu_pct", "peak_vram_used_gb"):
+        assert unmeasured[field] is None, (
+            f"{field} must stay None when nothing was sampled; 0.0 claims a measurement"
+        )
+
+
+def test_sampler_start_initialises_gpu_detection() -> None:
+    """hermia-dl2e (2): sampling without detection reads globals that mean nothing."""
+    import hermia.metrics as metrics_mod
+
+    with patch.object(metrics_mod, "_GPU_DETECTED", False), \
+         patch.object(metrics_mod, "detect_gpu") as detect:
+        sampler = metrics_mod.MetricsSampler()
+        sampler.start()
+        sampler.stop()
+    assert detect.called, "MetricsSampler.start() must ensure detect_gpu() has run"
+
+
+def test_detect_mode_treats_the_whole_loopback_range_as_local() -> None:
+    """hermia-dl2e: 127.0.0.0/8 is all loopback, not just 127.0.0.1.
+
+    systemd-resolved uses 127.0.0.53 and containers bind elsewhere in the range. Matching
+    three string literals sent those to 'fleet' and silently discarded every metric for a
+    run that was in fact on this machine.
+    """
+    from hermia.runner import detect_mode
+
+    for host in (
+        "http://localhost:11434", "http://127.0.0.1:11434",
+        "http://127.0.0.53:11434", "http://0.0.0.0:11434", "http://[::1]:11434",
+        "http://[::]:11434",
+    ):
+        assert detect_mode(host) == "local", host
+    # A HOSTNAME stays fleet even when it resolves to this machine: making locality depend
+    # on DNS invites the same misattribution as an SSH tunnel on localhost.
+    for host in ("http://100.68.230.118:11434", "http://my-box.local:11434"):
+        assert detect_mode(host) == "fleet", host

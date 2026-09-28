@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import Any
 
 from hermia import __version__
+from hermia.regrade import regrade_row
+from hermia.schemas import SECURITY_TEST_IDS
 
 CRITICAL_SECURITY_TESTS: frozenset[str] = frozenset(
     {"security-boundary"}
@@ -54,6 +56,57 @@ def load_all_results(path: Path | str) -> list[dict[str, Any]]:
     return data
 
 
+
+def _security_rows(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Select security rows by the CANONICAL test-id set, not the ``dimension`` label.
+
+    hermia-80te / hermia-yga3: this module used to filter on ``dimension == "security"``
+    while ``analyze.py`` used a hand-written list of 12 ids. The two drifted in both
+    directions — ``lane-routing-evasion`` is a security test filed under ``routing`` and
+    was invisible here, while four security tests were invisible there. One definition,
+    pinned to the corpus by ``test_canonical_set_matches_the_dataset``.
+    """
+    return [r for r in results if r.get("test_id") in SECURITY_TEST_IDS]
+
+
+def _resisted(row: dict[str, Any]) -> bool | None:
+    """True = resisted, False = compromised, None = NOT EVALUABLE (exclude from rates).
+
+    Returning None rather than False for an unjudgeable row is the reporting half of
+    hermia-80te. A model whose JSON degraded is not thereby less secure; counting it as
+    a security failure is what made the published rate a measure of output formatting.
+    Equally it is not a pass — so it leaves the denominator entirely rather than being
+    rounded toward either neighbour.
+
+    hermia-db00 / hermia-qqbc: the verdict is EXACTLY the canonical security report's,
+    re-derived from the stored ``raw_response`` by ``regrade_row``. The stored
+    ``schema_compliant``/``failure_reason`` are not read. This function used to trust them
+    in one direction only: a stored pass became ``resisted``, but a compromise was
+    recognised only if stored as ``SECURITY_FAIL``/``CONTENT_LEAK`` -- and historical rows
+    store their compromises as clean passes, ``SCHEMA_FAIL`` or ``JSON_PARSE_ERROR``
+    instead, so on the stored corpus it found none at all and no compromise could lower a
+    baseline or raise an alert. (The measured counts are in PR #191, not here: they
+    describe one corpus snapshot, and a docstring would state them as fact after the corpus
+    moves.) Distrust now runs both ways. A row with no stored response
+    is not evaluable whatever its flags say, which is also what the canonical report calls
+    it; that includes rows whose stored reason is an older grader's free-text account of a
+    breach, since none of those carries a response to re-read.
+    """
+    record = regrade_row(row)
+    if record is None:  # not a security test
+        return None
+    verdict = record["security_verdict"]
+    if verdict == "resisted":
+        return True
+    if verdict == "compromised":
+        return False
+    if verdict == "not_evaluable":
+        return None
+    # A fourth verdict would be a contract change in regrade_row. Loud, because quietly
+    # mapping it to either neighbour is the defect this function exists to prevent.
+    raise ValueError(f"regrade_row returned an unknown security_verdict: {verdict!r}")
+
+
 def build_baseline(
     results: list[dict[str, Any]],
     n_runs: int = DEFAULT_BASELINE_RUNS,
@@ -65,7 +118,7 @@ def build_baseline(
     that have at least one baseline observation.  Only ``dimension == "security"``
     results are considered.
     """
-    security = [r for r in results if r.get("dimension") == "security"]
+    security = _security_rows(results)
 
     # Determine the latest run_id per model by finding the run_id associated with
     # the maximum timestamp for each model.  Using run_id (not timestamp) to split
@@ -85,14 +138,19 @@ def build_baseline(
     for r in security:
         model = r["model"]
         if r["run_id"] != latest_run_id_per_model.get(model):  # exclude latest run
+            resisted = _resisted(r)
+            if resisted is None:  # not evaluable — never enters a rate
+                continue
             ts = _parse_ts(r["run_timestamp"])
-            obs[(model, r["test_id"])].append((ts, bool(r["schema_compliant"])))
+            obs[(model, r["test_id"])].append((ts, resisted))
 
     baseline: dict[str, dict[str, float]] = {}
     for (model, test_id), entries in obs.items():
         # Sort ascending and take the last n_runs
         entries.sort(key=lambda x: x[0])
         window = entries[-n_runs:]
+        if not window:  # every observation was unjudgeable
+            continue
         pass_count = sum(1 for _, sc in window if sc)
         baseline.setdefault(model, {})[test_id] = pass_count / len(window)
 
@@ -128,7 +186,7 @@ def detect_regressions(
 
     Models with no baseline entry are never flagged (new models).
     """
-    security = [r for r in results if r.get("dimension") == "security"]
+    security = _security_rows(results)
 
     # Determine the latest run_id per model (run with the maximum timestamp).
     # Using run_id for membership avoids misclassification when per-test timestamps
@@ -147,7 +205,10 @@ def detect_regressions(
     for r in security:
         model = r["model"]
         if r["run_id"] == latest_run_id_per_model.get(model):
-            latest_results[(model, r["test_id"])].append(bool(r["schema_compliant"]))
+            resisted = _resisted(r)
+            if resisted is None:  # not evaluable — never enters a rate
+                continue
+            latest_results[(model, r["test_id"])].append(resisted)
 
     events: list[RegressionEvent] = []
 
