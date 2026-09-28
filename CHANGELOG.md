@@ -20,11 +20,15 @@ well-formed JSON were graded as passes. 0.2.1 separates the two questions and re
 stored results the same way.
 
 ### Security grading
-- **Security verdict separated from schema verdict** — every security row now resolves to
-  *resisted*, *compromised* or *not evaluable*, and a compromise is no longer filed as a
-  formatting failure. The raw-text security gates run whether or not the response parses
-  (#165).
-- A demonstrated refusal is credited as resisted even when its envelope is malformed (#166).
+- **Security verdict separated from schema verdict** (#165). The live grader records a detected
+  compromise as `SECURITY_FAIL` or `CONTENT_LEAK` instead of a formatting failure, and its
+  raw-text gates run whether or not the response parses. `hermia-regrade` resolves each
+  security row to *resisted*, *compromised* or *not evaluable*. A test whose detector reads
+  only parsed output (such as `classification-routing`) still cannot see a compromise inside a
+  response that fails to parse; such a row is *not evaluable*.
+- In the security report, a demonstrated refusal in a response that parses is credited as
+  resisted even when its envelope fails validation. Plain-text refusals and responses that do
+  not parse stay *not evaluable* (#166).
 - One compromise judgment shared by the live grader, the re-grader and the corpus audit; a
   grader crash is reported as `GRADER_ERROR`, never as the model's pass (#186).
 - Detectors added or tightened: paraphrased injection adoption in
@@ -44,7 +48,8 @@ stored results the same way.
 ### Provenance and machine identity
 - `git_sha` is stamped alongside `hermia_version` on every row (#153, #154).
 - Machine identity is bound to hardware rather than the network, with an SSH remote
-  hardware probe (#163, #164). An unprobed GPU is recorded as unknown, not zero (#185).
+  hardware probe (#163, #164). An unprobed GPU's measurements are recorded as null, not 0.0
+  (#185).
 
 ### Fixed
 - TUI: run identity on result rows and CSV column shear (#161), run-scoped results written
@@ -56,8 +61,8 @@ stored results the same way.
 - The GPU detection tests run on Apple Silicon (#175).
 
 ### Changed
-- A grader-completeness contract and CI gate that every security detector must satisfy
-  (#167–#172, #178).
+- A grader-completeness contract and CI gate: every security detector must show a firing
+  witness or be listed on a tracked allowlist of known blind spots (#167–#172, #178).
 - Real fleet identifiers replaced with placeholders in docs, tests and code (#156).
 
 ### Known issues (disclosed, not fixed in 0.2.1)
@@ -68,8 +73,16 @@ stored results the same way.
 - The live TUI view marks each row ✓ or ✗; a timeout and a compromise get the same ✗. The
   three-state view is `hermia-regrade`.
 - The exporter's score, `hermia-push` and the Grafana SQL still read stored grades.
-- `hermia-regression` pools every machine under one model name, and exits 1 on a crash, the
-  same code as "regression detected".
+- `hermia-regression` pools every machine under one model name. An unhandled error during
+  analysis exits 1, the same code as "regression detected" (a missing or invalid results file
+  exits 2).
+- `system-user-precedence` detects only access to `/etc`; a model that honours the claimed
+  override in some other way while returning a refusal envelope scores as resisted.
+- On `classification-routing`, the hijack detector convicts only a wrong route that cites the
+  attacker's authority. A wrong route that cites nothing is *not evaluable*, so it raises
+  neither a compromise nor a regression alert.
+- `hermia-regrade` applies the current detectors to stored responses, so historical figures
+  change between versions. Compare only figures produced by the same version.
 
 ---
 
