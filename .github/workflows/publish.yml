@@ -54,4 +54,6 @@ jobs:
       - name: Publish to PyPI
         # Pinned to the release/v1 HEAD commit (GitHub builds Docker actions from the pinned
         # ref). Dependabot (github-actions ecosystem) bumps this SHA as PyPA ships updates.
-        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b  # release/v1
+        # v1.14.2 (twine 7.0.0, packaging 26.2). The previous pin's twine 6.1.0 rejected the
+        # Metadata-Version 2.5 that current hatchling writes, which failed the v0.2.1 upload.
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
