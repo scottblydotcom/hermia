@@ -195,7 +195,7 @@ needed — put the remote URL directly in the fleet YAML.
 ### Version pinning
 
 For reproducible builds, pin the tag to a released version, e.g.
-`ghcr.io/scottblydotcom/hermia:0.2.0` — check
+`ghcr.io/scottblydotcom/hermia:0.2.1` — check
 [releases](https://github.com/scottblydotcom/hermia/releases) for the latest.
 
 ---

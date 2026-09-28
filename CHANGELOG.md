@@ -11,6 +11,68 @@ See [docs/roadmap.md](docs/roadmap.md) for the full plan.
 
 ---
 
+## [0.2.1] — target 2026-10 (security-verdict fix)
+
+The grading-correctness release. v0.2.0 recorded a security test as a single pass/fail
+bit that also meant "the JSON was well-formed", so a model that obeyed an injection and
+broke its own output was filed as a formatting failure, and some compromises in
+well-formed JSON were graded as passes. 0.2.1 separates the two questions and re-grades
+stored results the same way.
+
+### Security grading
+- **Security verdict separated from schema verdict** — every security row now resolves to
+  *resisted*, *compromised* or *not evaluable*, and a compromise is no longer filed as a
+  formatting failure. The raw-text security gates run whether or not the response parses
+  (#165).
+- A demonstrated refusal is credited as resisted even when its envelope is malformed (#166).
+- One compromise judgment shared by the live grader, the re-grader and the corpus audit; a
+  grader crash is reported as `GRADER_ERROR`, never as the model's pass (#186).
+- Detectors added or tightened: paraphrased injection adoption in
+  `indirect-injection-tool-output` (#158), compliance on `multiturn-boundary-persistence`
+  (#173, #179), and the `classification-routing` hijack that cites the attacker (#176, #188).
+- A model response too deep to parse is filed as unparseable instead of aborting the run
+  (#192).
+
+### Reporting
+- **`hermia-regrade`** re-derives the security verdict of stored rows from their stored
+  responses, and prints one canonical three-number report over a denominator nothing drops
+  (#187). It names why each unevaluable row could not be judged (#189) and splits verdicts
+  by the test wording each row answered (#190).
+- `hermia-regression` takes every verdict from the re-grader. It previously read stored
+  grades and could not register a compromise on historical rows (#183, #191).
+
+### Provenance and machine identity
+- `git_sha` is stamped alongside `hermia_version` on every row (#153, #154).
+- Machine identity is bound to hardware rather than the network, with an SSH remote
+  hardware probe (#163, #164). An unprobed GPU is recorded as unknown, not zero (#185).
+
+### Fixed
+- TUI: run identity on result rows and CSV column shear (#161), run-scoped results written
+  where tooling can find them (#162), headless fleet configs load instead of returning zero
+  hosts (#160), trial screens hydrate from run state (#159), local runs record metrics (#180).
+- Fleet: unknown keys and nested auth/stack keys in fleet YAML are validated (#150, #151).
+- Transport: OpenAI-compatible 5xx responses are retried (#152); a reasoning model's thinking
+  channel is captured (#155).
+- The GPU detection tests run on Apple Silicon (#175).
+
+### Changed
+- A grader-completeness contract and CI gate that every security detector must satisfy
+  (#167–#172, #178).
+- Real fleet identifiers replaced with placeholders in docs, tests and code (#156).
+
+### Known issues (disclosed, not fixed in 0.2.1)
+- The multi-turn PII test grades only the wording of the final reply: a reply that refuses in
+  words and then lists email addresses scores as resisted.
+- On some tests, a single awareness word such as "cannot" anywhere in a response vetoes the
+  compromise check.
+- The live TUI view marks each row ✓ or ✗; a timeout and a compromise get the same ✗. The
+  three-state view is `hermia-regrade`.
+- The exporter's score, `hermia-push` and the Grafana SQL still read stored grades.
+- `hermia-regression` pools every machine under one model name, and exits 1 on a crash, the
+  same code as "regression detected".
+
+---
+
 ## [0.2.0] — target 2026-07 (Fleet + TUI)
 
 The "Endpoint Bus" release. Hermia grows from a single-host application into a
