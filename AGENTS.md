@@ -175,7 +175,7 @@ A task is not done until every applicable gate below is cleared, in order.
    └─ Runs at user privilege — safe only on a read-only mount of this (public) repo in a throwaway container
 
 5. Opus on-demand review (for complex or security-sensitive changes)
-   └─ Triggered via /review slash command in Claude Code
+   └─ Triggered via `/code-review high` in Claude Code (`ultra` is a billed cloud review)
    └─ Use for any change touching eval logic, schema validation, or CI/security workflows
 
 DONE. Not before.
