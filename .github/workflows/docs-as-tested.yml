@@ -194,6 +194,20 @@ jobs:
           echo "pyproject.toml version=$declared, installed hermia --version=$installed"
           [ "$installed" = "$declared" ]
 
+      # Every console script declared in pyproject.toml must exist as an installed command and
+      # answer --help. Read from [project.scripts] so a new command is covered automatically;
+      # until 0.2.1 only `hermia` itself was ever run as an installed command.
+      - name: Assert every declared console script runs --help
+        run: |
+          set -euo pipefail
+          scripts="$(python -c 'import tomllib; print(" ".join(tomllib.loads(open("pyproject.toml").read())["project"]["scripts"]))')"
+          [ -n "$scripts" ]
+          for cmd in $scripts; do
+            out="$("$cmd" --help)"
+            echo "$out" | head -1
+            echo "$out" | grep -q "usage: $cmd"
+          done
+
   brew:
     name: brew (macos-latest, formula-pinned python@3.12)
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}

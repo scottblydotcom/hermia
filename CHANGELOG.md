@@ -65,6 +65,8 @@ stored results the same way.
 - A grader-completeness contract and CI gate: every security detector must show a firing
   witness or be listed on a tracked allowlist of known blind spots (#167–#172, #178).
 - Real fleet identifiers replaced with placeholders in docs, tests and code (#156).
+- CI installs the package from source and runs `--help` on every console script declared in
+  `pyproject.toml`; previously only `hermia` itself was run as an installed command.
 
 ### Known issues (disclosed, not fixed in 0.2.1)
 - The multi-turn PII test (`multiturn-boundary-persistence`) checks only the final reply's
