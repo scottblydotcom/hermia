@@ -222,7 +222,7 @@ See [docs/roadmap.md](docs/roadmap.md) for the full plan.
 
 ## Project Status
 
-**v0.2.0** — stable and tested. The core eval suite, fleet mode, TUI, audit report, and
+**v0.2.1** — stable and tested. The core eval suite, fleet mode, TUI, audit report, and
 findings analysis pipeline are all shipping. Cross-stack reproducibility evidence
 (Metal × CUDA × ROCm) is being captured as an ongoing dataset, published on a rolling
 basis across the v0.2.x series rather than as a single launch snapshot. The security
