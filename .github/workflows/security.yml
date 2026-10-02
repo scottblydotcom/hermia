@@ -37,7 +37,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: TruffleHog — entropy + credential scan
-        uses: trufflesecurity/trufflehog@0fa069c12f0c7baf431041cd1e564a9c5058846c  # main 2026-05-16
+        uses: trufflesecurity/trufflehog@e28360875917c9c730f9c64aae29fb93aa6c359e  # main 2026-05-16
         with:
           # Lob detector (hermia-v0h6): Lob issues test_<random> API keys, colliding
           # with pytest's test_<description> naming convention. Confirmed 3x false
