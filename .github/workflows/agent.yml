@@ -18,7 +18,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          # 1.22 is end-of-life: govulncheck flagged 24 standard-library vulns in
+          # go1.22.12, all fixed in later releases (hermia-4m7). 'stable' plus
+          # check-latest fetches the newest patched release instead of the runner's
+          # cached one, so govulncheck scans the current standard library.
+          go-version: 'stable'
+          check-latest: true
           cache-dependency-path: cmd/hermia-agent/go.sum
       - name: go vet
         run: go vet ./...
@@ -41,7 +46,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          # 1.22 is end-of-life: govulncheck flagged 24 standard-library vulns in
+          # go1.22.12, all fixed in later releases (hermia-4m7). 'stable' plus
+          # check-latest fetches the newest patched release instead of the runner's
+          # cached one, so govulncheck scans the current standard library.
+          go-version: 'stable'
+          check-latest: true
           cache-dependency-path: cmd/hermia-agent/go.sum
       - name: go vet
         run: go vet ./...
@@ -53,4 +63,7 @@ jobs:
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
           govulncheck ./...
+          # The agent only does real work on Windows (gpu_windows.go, x/sys/windows);
+          # the default scan analyses the Linux stub build, so scan Windows too.
+          GOOS=windows govulncheck ./...
         working-directory: cmd/hermia-agent
