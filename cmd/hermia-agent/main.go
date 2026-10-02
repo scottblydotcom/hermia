@@ -32,13 +32,21 @@ func envOr(key, fallback string) string {
 	return fallback
 }
 
+// gpuQuery samples GPU engine utilisation. queryGPU is the per-platform implementation
+// (PDH on Windows, an always-erroring stub elsewhere); tests inject their own.
+type gpuQuery func(ctx context.Context, threshold float64) gpuResult
+
 func newGPUHandler(nodeID, errorMode string, threshold float64) http.HandlerFunc {
+	return newGPUHandlerWithQuery(nodeID, errorMode, threshold, queryGPU)
+}
+
+func newGPUHandlerWithQuery(nodeID, errorMode string, threshold float64, query gpuQuery) http.HandlerFunc {
 	if errorMode != "fail-closed" && errorMode != "fail-open" {
 		log.Fatalf("newGPUHandler: invalid errorMode %q: must be fail-closed or fail-open", errorMode)
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		sampledAt := time.Now().UTC().Format(time.RFC3339)
-		result := queryGPU(r.Context(), threshold)
+		result := query(r.Context(), threshold)
 		w.Header().Set("Content-Type", "application/json")
 
 		if result.Err != nil {
