@@ -15,7 +15,8 @@ Rows are keyed by the sha256 of their exact line bytes plus an occurrence index,
 key does not depend on any field the grader might change. Rows are never copied out; the
 snapshot holds keys, test ids and verdicts only.
 
-Exit 0 = snapshot written, or diff printed. Exit 1 = the inputs are unusable.
+Exit 0 = snapshot written, or a usable diff printed. Exit 2 = the diff proves nothing (same
+grader, unidentified or uncommitted grader source, or different row sets). Exit 1 = bad input.
 """
 
 from __future__ import annotations
@@ -57,7 +58,7 @@ def snapshot(pattern: str) -> dict[str, Any]:
     from hermia.regrade import regrade_row
     from hermia.schemas import SECURITY_TEST_IDS
 
-    files = sorted(glob.glob(pattern))
+    files = sorted(glob.glob(pattern, recursive=True))
     if not files:
         raise SystemExit(f"no files match {pattern!r}")
     verdicts: dict[str, list[str]] = {}
@@ -89,23 +90,32 @@ def snapshot(pattern: str) -> dict[str, Any]:
     }
 
 
-def diff(a_path: str, b_path: str) -> None:
+def diff(a_path: str, b_path: str) -> int:
+    """Print the verdict moves from A to B. Returns 2 when the comparison proves nothing."""
     a = json.loads(Path(a_path).read_text())
     b = json.loads(Path(b_path).read_text())
     print("A:", a["grader"], a["rows"], "rows", a["counts"])
     print("B:", b["grader"], b["rows"], "rows", b["counts"])
+    unusable = []
     if a["grader"] == b["grader"]:
-        print("WARNING: both snapshots came from the same grader; this diff proves nothing.")
+        unusable.append("both snapshots came from the same grader")
+    if "unknown" in (a["grader"]["git_sha"], b["grader"]["git_sha"]):
+        unusable.append("a snapshot could not identify its grader's commit")
+    if "yes" in (a["grader"]["src_dirty"], b["grader"]["src_dirty"]):
+        unusable.append("a snapshot was graded from uncommitted source")
     av, bv = a["verdicts"], b["verdicts"]
     only_a, only_b = set(av) - set(bv), set(bv) - set(av)
     if only_a or only_b:
-        print(f"WARNING: row sets differ ({len(only_a)} only in A, {len(only_b)} only in B)")
+        unusable.append(f"row sets differ ({len(only_a)} only in A, {len(only_b)} only in B)")
     moves = Counter(
         (av[k][0], av[k][1], bv[k][1]) for k in set(av) & set(bv) if av[k][1] != bv[k][1]
     )
     print(f"verdict moves: {sum(moves.values())}")
     for (test_id, before, after), n in sorted(moves.items()):
         print(f"  {n:5d}  {test_id}: {before} -> {after}")
+    for reason in unusable:
+        print(f"UNUSABLE: {reason}; this diff proves nothing.")
+    return 2 if unusable else 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -115,8 +125,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--diff", nargs=2, metavar=("A", "B"), help="diff two snapshots")
     args = ap.parse_args(argv)
     if args.diff:
-        diff(*args.diff)
-        return 0
+        return diff(*args.diff)
     if not args.out:
         ap.error("--out or --diff is required")
     snap = snapshot(args.corpus)
