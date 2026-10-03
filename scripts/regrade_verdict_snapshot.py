@@ -107,8 +107,10 @@ def diff(a_path: str, b_path: str) -> int:
     print("A:", a["grader"], a["rows"], "rows", a["counts"])
     print("B:", b["grader"], b["rows"], "rows", b["counts"])
     unusable = []
-    if a["grader"] == b["grader"]:
-        unusable.append("both snapshots came from the same grader")
+    # Compare commits, not the whole identity: two clean checkouts of ONE commit differ only in
+    # their module path, and they still grade with the same code (CodeRabbit, PR #211).
+    if a["grader"]["git_sha"] == b["grader"]["git_sha"]:
+        unusable.append("both snapshots graded the same commit")
     if "unknown" in (a["grader"]["git_sha"], b["grader"]["git_sha"]):
         unusable.append("a snapshot could not identify its grader's commit")
     if "yes" in (a["grader"]["src_dirty"], b["grader"]["src_dirty"]):
