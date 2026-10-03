@@ -34,6 +34,13 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+# Grade THIS checkout's code, not whatever `hermia` the interpreter has installed. An editable
+# install points at one worktree; a site-packages install at none. Either would make two runs from
+# two checkouts grade the same code, which the identity check in `diff` would then flag as unusable.
+_SRC = Path(__file__).resolve().parents[1] / "src"
+if (_SRC / "hermia").is_dir():
+    sys.path.insert(0, str(_SRC))
+
 
 def _grader_identity() -> dict[str, str]:
     import hermia
