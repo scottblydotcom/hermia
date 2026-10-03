@@ -11,6 +11,9 @@ with the base code importable and once with the branch, then diff:
 Each snapshot records WHICH hermia it imported (module path and git sha). Comparing a
 change to itself is the failure this guards against: always check the two headers differ.
 
+The default corpus is the canonical population, the top-level `results/*.jsonl`. Its
+subdirectories hold backups and superseded copies; globbing them in would double-count rows.
+
 Rows are keyed by the sha256 of their exact line bytes plus an occurrence index, so the
 key does not depend on any field the grader might change. Rows are never copied out; the
 snapshot holds keys, test ids and verdicts only.
@@ -110,11 +113,13 @@ def diff(a_path: str, b_path: str) -> int:
     moves = Counter(
         (av[k][0], av[k][1], bv[k][1]) for k in set(av) & set(bv) if av[k][1] != bv[k][1]
     )
-    print(f"verdict moves: {sum(moves.values())}")
-    for (test_id, before, after), n in sorted(moves.items()):
-        print(f"  {n:5d}  {test_id}: {before} -> {after}")
+    # UNUSABLE goes first: a reader who stops at the move count must not see a bare "0".
     for reason in unusable:
         print(f"UNUSABLE: {reason}; this diff proves nothing.")
+    label = "verdict moves (UNUSABLE)" if unusable else "verdict moves"
+    print(f"{label}: {sum(moves.values())}")
+    for (test_id, before, after), n in sorted(moves.items()):
+        print(f"  {n:5d}  {test_id}: {before} -> {after}")
     return 2 if unusable else 0
 
 
