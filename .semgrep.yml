@@ -1,0 +1,75 @@
+# Deserialization sinks that Bandit (B301/B302/B506/B614) and ruff flake8-bandit
+# (S3xx) do NOT flag. Deliberately scoped to the GAP only — it stays silent on
+# plain pickle/dill/marshal/yaml/pandas/torch, which the existing stack covers,
+# so findings do not duplicate. Semgrep resolves import aliases and from-imports,
+# so `import joblib as jl` / `from joblib import load` are covered automatically.
+#
+# Known limits (by design, not bugs): matches are syntactic, with no taint/trust
+# analysis — every joblib.load / numpy allow_pickle=True fires regardless of data
+# source. Suppress a reviewed, trusted call with `# nosemgrep: <rule-id>` + reason.
+# Not covered: a bare local/attr named `_pickle` or `np` (name collision), a reduce
+# tuple built in a variable then returned, and `np.load(**opts)` kwargs unpacking.
+rules:
+  - id: untrusted-deser-load-unflagged-by-bandit
+    message: >-
+      Unsafe deserialization via joblib.load / _pickle / numpy allow_pickle is
+      arbitrary code execution on untrusted input, and is NOT caught by Bandit or
+      ruff flake8-bandit. Load only trusted, integrity-checked data, or use a safe
+      format (JSON, safetensors). Suppress a trusted call with # nosemgrep + reason.
+    severity: ERROR
+    languages: [python]
+    metadata:
+      category: security
+      cwe: "CWE-502: Deserialization of Untrusted Data"
+      references:
+        - https://docs.python.org/3/library/pickle.html#restricting-globals
+      note: complements Bandit B301/B302/B506/B614 + ruff S3xx, which miss these sinks.
+    patterns:
+      - pattern-either:
+          - pattern: joblib.load(...)
+          - pattern: _pickle.load(...)
+          - pattern: _pickle.loads(...)
+          - patterns:
+              - pattern: $NP.load(..., allow_pickle=True, ...)
+              - metavariable-regex: { metavariable: $NP, regex: ^(np|numpy)$ }
+          - patterns:
+              # allow_pickle passed positionally (3rd positional arg of numpy.load)
+              - pattern: $NP.load($A, $B, True, ...)
+              - metavariable-regex: { metavariable: $NP, regex: ^(np|numpy)$ }
+  - id: pickle-reduce-rce-gadget
+    message: >-
+      __reduce__/__reduce_ex__ returning a process or eval primitive is a classic
+      pickle RCE gadget: unpickling this object runs the call. If serialization is
+      intended, restrict the reducer to data constructors, never os/subprocess/eval.
+    severity: WARNING
+    languages: [python]
+    metadata:
+      category: security
+      cwe: "CWE-502: Deserialization of Untrusted Data"
+    patterns:
+      - pattern-either:
+          - pattern: |
+              def __reduce__(self):
+                ...
+                return ($F, ...)
+          - pattern: |
+              def __reduce_ex__(self, $P):
+                ...
+                return ($F, ...)
+      - metavariable-pattern:
+          metavariable: $F
+          patterns:
+            - pattern-either:
+                - patterns:
+                    - pattern: os.$M
+                    - metavariable-regex:
+                        metavariable: $M
+                        regex: ^(system|popen|posix_spawn|exec[lv][a-z]*|spawn[lv][a-z]*)$
+                - patterns:
+                    - pattern: subprocess.$M
+                    - metavariable-regex:
+                        metavariable: $M
+                        regex: ^(run|Popen|call|check_call|check_output|getoutput|getstatusoutput)$
+                - pattern: eval
+                - pattern: exec
+                - pattern: __import__
