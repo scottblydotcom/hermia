@@ -71,6 +71,25 @@ jobs:
       - name: Bandit SAST
         run: bandit -r src/ -ll
 
+  semgrep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.11"
+      - name: Install semgrep
+        # pinned to avoid silent engine/rule changes; bump deliberately and re-validate
+        run: pip install "semgrep==1.168.0"
+      - name: Semgrep SAST (local deserialization-gap rules)
+        # Local rules only (.semgrep.yml) — no Semgrep cloud, no login, metrics off.
+        # Covers unsafe-deser sinks Bandit/ruff-S miss: joblib, _pickle, numpy
+        # allow_pickle, and __reduce__/__reduce_ex__ RCE gadgets. --error fails on
+        # any finding; suppress a reviewed, trusted call with a # nosemgrep comment.
+        env:
+          SEMGREP_SEND_METRICS: "off"
+        run: semgrep scan --config .semgrep.yml --error --disable-version-check src/ tests/
+
   pip-audit:
     runs-on: ubuntu-latest
     steps:
