@@ -161,7 +161,7 @@ def compute_host_class(gpu_info: dict[str, Any]) -> str:
         if gpu_info.get("api") == "metal":
             return "local:other"
         card_upper = card.upper()
-        if any(x in card_upper for x in ("7900", "7800", "7700")):
+        if any(x in card_upper for x in ("7900", "7800", "7700", "7600")):
             return "local:rocm/rdna3"
         if any(x in card_upper for x in ("6900", "6800", "6700", "6600", "6500", "6400")):
             return "local:rocm/rdna2"

@@ -17,6 +17,9 @@ _NVIDIA_VRAM_TOTAL_GB: float = 0.0
 _APPLE_SILICON: bool = False
 _APPLE_VRAM_TOTAL_GB: float = 0.0
 _INTEL_IGPU: bool = False
+# A discrete card found on macOS (hermia-mont). No sampler reads it; it exists so that
+# gpu_present() does not call a machine with a card CPU-only.
+_MAC_DISCRETE: bool = False
 NVIDIA_MIN_SUPPORTED_COMPUTE: float = 6.0
 
 
@@ -346,15 +349,19 @@ def detect_gpu() -> dict[str, Any]:
     """Detect GPU hardware at run start. Updates module-level cache.
 
     Tries NVIDIA first (via nvidia-smi), then Apple Silicon (via ioreg/sysctl),
-    then AMD (via sysfs), then Intel iGPU (via i915/system_profiler).
-    Returns a dict with keys: found (bool), vendor (str), card (str),
-    dev_path (str), vram_total_gb (float | None -- None means NOT MEASURED, never 0.0).
+    then AMD (via sysfs), then a macOS discrete AMD/NVIDIA card (via system_profiler,
+    preferred over the iGPU: hermia-mont), then Intel iGPU (via i915/system_profiler).
+    Returns a dict with keys: found (bool), vendor (str), card (str: the MODEL name, "" when
+    unknown, never a DRM node: hermia-gq0g), dev_path (str), vram_total_gb (float | None --
+    None means NOT MEASURED, never 0.0), compute_cap (float), and, for a macOS discrete
+    card only, api="metal".
     vendor is one of: nvidia, apple, amd, intel, none, unknown.
     "none" asserts no GPU is present; "unknown" means no probe for this platform
     could run, so hermia is not entitled to make that assertion (hermia-j6a8).
     """
     global _AMD_DEV, _NVIDIA_FOUND, _NVIDIA_VRAM_TOTAL_GB  # noqa: PLW0603
-    global _APPLE_SILICON, _APPLE_VRAM_TOTAL_GB, _INTEL_IGPU  # noqa: PLW0603
+    global _APPLE_SILICON, _APPLE_VRAM_TOTAL_GB, _INTEL_IGPU, _MAC_DISCRETE  # noqa: PLW0603
+    _MAC_DISCRETE = False
 
     found, name, vram_total_gb, compute_cap = _detect_nvidia()
     if found:
@@ -419,6 +426,7 @@ def detect_gpu() -> dict[str, Any]:
         # No sampler exists for a Mac's discrete card: the AMD sampler reads Linux sysfs and
         # nvidia-smi does not run on macOS. Detection is identity and capacity only.
         _INTEL_IGPU = False
+        _MAC_DISCRETE = True
         return {
             "found": True,
             "vendor": mac_vendor,
@@ -526,7 +534,10 @@ def _gpu_stats_sysfs() -> tuple[float | None, float | None, float | None]:
 def gpu_present() -> bool:
     """Is there a GPU at all? Distinguishes "no GPU" from "GPU idle" (hermia-dl2e)."""
     ensure_gpu_detected()
-    return _NVIDIA_FOUND or _APPLE_SILICON or _INTEL_IGPU or _AMD_DEV is not None
+    return (
+        _NVIDIA_FOUND or _APPLE_SILICON or _INTEL_IGPU or _MAC_DISCRETE
+        or _AMD_DEV is not None
+    )
 
 
 def get_gpu_stats() -> tuple[float | None, float | None, float | None]:

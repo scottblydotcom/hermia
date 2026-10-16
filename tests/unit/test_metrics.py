@@ -100,6 +100,7 @@ def clean_gpu_globals():
         "_APPLE_SILICON": False,
         "_APPLE_VRAM_TOTAL_GB": 0.0,
         "_INTEL_IGPU": False,
+        "_MAC_DISCRETE": False,
         # The detection latch, added with ensure_gpu_detected(). Omitting it left detection
         # marked done while the six values above were reset, so ensure_gpu_detected() would
         # not re-run and every later test saw a machine with no GPU. Exactly the pollution
@@ -1205,3 +1206,37 @@ def test_instinct_cards_classify_as_instinct(monkeypatch: pytest.MonkeyPatch) ->
     assert compute_host_class(instinct) == "local:rocm/instinct"
     assert compute_host_class({"vendor": "amd", "card": "MI300X"}) == "local:rocm/instinct"
     assert compute_host_class({"vendor": "amd", "card": "Radeon RX Vega 64"}) == "local:vulkan/amd"
+
+
+def test_amd_card_name_ignores_a_failed_lspci(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """lspci exiting non-zero is no name, not its stdout."""
+    (tmp_path / "uevent").write_text("DRIVER=amdgpu\nPCI_SLOT_NAME=0000:03:00.0\n")
+
+    def failing(cmd, **kw):
+        return subprocess.CompletedProcess(cmd, 1, stdout='a "b" "c" "d"\n', stderr="")
+
+    monkeypatch.setattr(metrics_mod.subprocess, "run", failing)
+    assert metrics_mod._amd_card_name(str(tmp_path)) == ""
+
+
+def test_mac_with_discrete_nvidia_reports_nvidia_and_a_gpu(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """An older Intel Mac's NVIDIA card is found, and gpu_present() agrees there is a GPU."""
+    _mac_with(
+        monkeypatch,
+        {"sppci_model": "Intel Iris Pro"},
+        {"sppci_model": "NVIDIA GeForce GT 750M", "spdisplays_vram": "2 GB"},
+    )
+    info = metrics_mod.detect_gpu()
+    assert (info["vendor"], info["vram_total_gb"]) == ("nvidia", 2.0)
+    monkeypatch.setattr(metrics_mod, "_GPU_DETECTED", True)
+    assert metrics_mod.gpu_present() is True
+
+
+def test_rx_7600_is_rdna3(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Code review: a real RDNA3 product_name with no 7700/7800/7900 in it."""
+    rx7600 = {"vendor": "amd", "card": "AMD Radeon RX 7600"}
+    assert compute_host_class(rx7600) == "local:rocm/rdna3"
