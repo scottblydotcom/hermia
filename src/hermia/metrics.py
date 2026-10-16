@@ -4,6 +4,7 @@ import glob
 import json
 import platform
 import re
+import shlex
 import subprocess
 import sys
 import threading
@@ -170,6 +171,92 @@ def _gpu_stats_apple_silicon() -> tuple[float | None, float | None, float | None
         return None, None, _APPLE_VRAM_TOTAL_GB
 
 
+def _amd_card_name(dev: str) -> str:
+    """The AMD GPU's MODEL name for sysfs device dir ``dev``, or "" when nothing names it.
+
+    hermia-gq0g: the AMD branch used to take the DRM node ("card0") out of the path, so every
+    AMD card was named "card0" and compute_host_class() could never match a model. Sources, in
+    order: the driver's own ``product_name`` (present for some boards), then ``lspci -mm`` for
+    the card's PCI slot (the PCI ID database's device name). Blank, never the node name, when
+    neither answers: a blank name falls to the generic class instead of pretending to be one.
+    """
+    try:
+        with open(f"{dev}/product_name") as f:
+            name = f.read().strip()
+        if name:
+            return name
+    except OSError:
+        pass
+    slot = ""
+    try:
+        with open(f"{dev}/uevent") as f:
+            for line in f:
+                if line.startswith("PCI_SLOT_NAME="):
+                    slot = line.split("=", 1)[1].strip()
+                    break
+    except OSError:
+        return ""
+    if not slot:
+        return ""
+    try:
+        r = subprocess.run(  # noqa: S603
+            ["lspci", "-mm", "-s", slot],  # noqa: S607
+            capture_output=True, text=True, timeout=5,
+        )
+        first = r.stdout.splitlines()[0] if r.stdout else ""
+        fields = shlex.split(first)
+        # -mm: slot, class, vendor, device, [-rXX] [-pXX], subsystem vendor, subsystem device
+        return fields[3] if r.returncode == 0 and len(fields) > 3 else ""
+    except (subprocess.SubprocessError, OSError, ValueError):
+        return ""
+
+
+_MAC_VRAM = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*(GB|MB)\s*$", re.IGNORECASE)
+
+
+def _detect_mac_discrete() -> tuple[str, str, float | None] | None:
+    """The discrete AMD or NVIDIA card on an Intel Mac, as (vendor, model, vram_gb).
+
+    hermia-mont: system_profiler lists every display device, but detection stopped at the
+    first Intel entry, so a Mac with an iGPU AND a discrete card (2019 16-inch MacBook Pro,
+    Mac Pro with an Intel GPU, eGPU) was reported as its iGPU, with host RAM as its memory.
+    Intel and Apple entries are skipped; among discrete cards the largest known VRAM wins.
+    vram_gb is None when system_profiler does not state it: not measured, never host RAM.
+    Returns None off darwin or when no discrete card is listed. Not verified on real Intel-Mac
+    hardware; the field names follow system_profiler's documented JSON.
+    """
+    if sys.platform != "darwin":
+        return None
+    try:
+        r = subprocess.run(  # noqa: S603
+            ["system_profiler", "SPDisplaysDataType", "-json"],  # noqa: S607
+            capture_output=True, text=True, timeout=5,
+        )
+        entries = json.loads(r.stdout).get("SPDisplaysDataType", [])
+    except (subprocess.SubprocessError, json.JSONDecodeError, OSError, AttributeError):
+        return None
+    best: tuple[str, str, float | None] | None = None
+    for entry in entries if isinstance(entries, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        model = str(entry.get("sppci_model", ""))
+        vendor_field = str(entry.get("spdisplays_vendor", "")).lower()
+        if "nvidia" in model.lower() or "nvidia" in vendor_field:
+            vendor = "nvidia"
+        elif ("amd" in vendor_field or "0x1002" in vendor_field
+              or "radeon" in model.lower() or model.upper().startswith("AMD")):
+            vendor = "amd"
+        else:
+            continue  # Intel iGPU, Apple, or unidentifiable: not a discrete card
+        vram: float | None = None
+        m = _MAC_VRAM.match(str(entry.get("spdisplays_vram", "")))
+        if m:
+            vram = float(m.group(1)) / (1024 if m.group(2).upper() == "MB" else 1)
+        if best is None or (vram or 0.0) > (best[2] or 0.0):
+            best = (vendor, model, vram)
+    return best
+
+
 def _detect_intel_igpu() -> tuple[bool, str]:
     """Detect Intel iGPU. Returns (found, name).
 
@@ -306,7 +393,7 @@ def detect_gpu() -> dict[str, Any]:
     _AMD_DEV = _find_amdgpu_dev()
     if _AMD_DEV is not None:
         _INTEL_IGPU = False
-        card = _AMD_DEV.split("/sys/class/drm/")[-1].split("/")[0]
+        card = _amd_card_name(_AMD_DEV)
         amd_vram: float | None
         try:
             with open(f"{_AMD_DEV}/mem_info_vram_total") as f:
@@ -324,6 +411,24 @@ def detect_gpu() -> dict[str, Any]:
             "dev_path": _AMD_DEV,
             "vram_total_gb": amd_vram,
             "compute_cap": 0.0,
+        }
+
+    mac_discrete = _detect_mac_discrete()
+    if mac_discrete is not None:
+        mac_vendor, mac_card, mac_vram = mac_discrete
+        # No sampler exists for a Mac's discrete card: the AMD sampler reads Linux sysfs and
+        # nvidia-smi does not run on macOS. Detection is identity and capacity only.
+        _INTEL_IGPU = False
+        return {
+            "found": True,
+            "vendor": mac_vendor,
+            "card": mac_card,
+            "dev_path": "",
+            "vram_total_gb": mac_vram,
+            "compute_cap": 0.0,
+            # macOS drives a discrete card through Metal; compute_host_class() reads this
+            # rather than sys.platform, so the label follows the DETECTED machine.
+            "api": "metal",
         }
 
     found_intel, intel_name = _detect_intel_igpu()

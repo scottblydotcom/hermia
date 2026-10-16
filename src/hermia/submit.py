@@ -156,12 +156,17 @@ def compute_host_class(gpu_info: dict[str, Any]) -> str:
         return "local:other"
 
     if vendor == "amd":
+        # macOS drives AMD cards through Metal; the vocabulary has no value for that, and
+        # "vulkan" would be a false claim (hermia-mont). local:other is surfaced for expansion.
+        if gpu_info.get("api") == "metal":
+            return "local:other"
         card_upper = card.upper()
         if any(x in card_upper for x in ("7900", "7800", "7700")):
             return "local:rocm/rdna3"
         if any(x in card_upper for x in ("6900", "6800", "6700", "6600", "6500", "6400")):
             return "local:rocm/rdna2"
-        if card_upper.startswith("MI"):
+        # Real names read "AMD Instinct MI210" (hermia-gq0g); a bare "MI300X" also counts.
+        if "INSTINCT" in card_upper or re.match(r"MI\d", card_upper):
             return "local:rocm/instinct"
         return "local:vulkan/amd"
 
