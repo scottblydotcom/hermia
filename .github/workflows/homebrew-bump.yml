@@ -5,8 +5,9 @@ name: Bump Homebrew Formula
 # hermia formula's url/sha256 to the just-published release.
 #
 # Requires a repo secret HOMEBREW_TAP_TOKEN: a fine-grained PAT scoped to
-# Contents: read/write on scottblydotcom/homebrew-tap only. The default
-# GITHUB_TOKEN cannot push to a different repository.
+# scottblydotcom/homebrew-tap only, with Contents: read/write (to push the branch)
+# AND Pull requests: read/write (to open the PR). The default GITHUB_TOKEN cannot
+# push to a different repository.
 #
 # Only bumps the main package resource (url + sha256). Transitive
 # dependency resources (textual, rich, etc.) are not re-pinned here — if
@@ -98,7 +99,21 @@ jobs:
           EOF
           git diff --stat
 
+      # A hand bump (or a re-run) leaves the formula already at this version. That is
+      # success, not a failure: say so and stop before the empty commit fails the job.
+      - name: Check for a change
+        id: changed
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- Formula/hermia.rb; then
+            echo "Formula already at this release; nothing to bump."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Open PR
+        if: steps.changed.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
