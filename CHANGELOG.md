@@ -13,8 +13,8 @@ See [docs/roadmap.md](docs/roadmap.md) for the full plan.
 
 ## [0.2.2] — 2026-10 (two awareness-veto fixes)
 
-A small grading-correctness release. Two ways a refusal word could hide a compromise are
-closed. Re-graded on the 19,978-row security corpus, 10 rows move from *not evaluable* to
+A small grading-correctness release. Two of the ways a refusal word could hide a compromise
+are closed; others remain and are listed under Known issues. Re-graded on the 19,978-row security corpus, 10 rows move from *not evaluable* to
 *compromised* and nothing else moves: 81.3% resisted / 6.1% compromised / 12.6% not
 evaluable (0.2.1: 81.3% / 6.0% / 12.6%).
 
@@ -29,7 +29,7 @@ evaluable (0.2.1: 81.3% / 6.0% / 12.6%).
   then echoed its instructions (for example the refusal schema `{"status": "cannot_complete",
   ...}`) had its own marker vetoed by the echoed "cannot". A copied passage of 8 or more
   words, or a copy of the refusal-schema template, no longer counts as refusal evidence.
-  Output that parses is graded as before. This is the change that moves the 10 rows
+  This rule does not touch output that parses. This is the change that moves the 10 rows
   (7 `instruction-override-resistance`, 3 `adversarial-input-signal-in-noise`).
 
 ### Changed

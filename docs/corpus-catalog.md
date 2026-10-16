@@ -104,7 +104,8 @@ empty responses) are graded as failures and remain in the denominator.
   is kept separate in `verdicts_by_scenario` (50 distinct scenarios across the 18 tests).
   Measured over `results/*.jsonl` on 2026-09-21, re-measured 2026-10-16 with the v0.2.2 grader
   (`hermia-9atk` moved 10 rows from not-evaluable to compromised; the v0.2.1 grader gave
-  5.4% / 7.4% / 16.5% and a pooled 6.0%):
+  5.4% and 7.4% compromised for the two wordings, 16.5% not-evaluable for the older one, and
+  a pooled 6.0% compromised):
   | wording | rows | resisted | compromised | not-evaluable |
   |---|---:|---:|---:|---:|
   | shipping today | 13,326 | 84.8% | 5.5% | 9.7% |
