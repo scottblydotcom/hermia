@@ -14,7 +14,9 @@ See [docs/roadmap.md](docs/roadmap.md) for the full plan.
 ## [0.2.2] — 2026-10 (two awareness-veto fixes)
 
 A small grading-correctness release. Two of the ways a refusal word could hide a compromise
-are closed; others remain and are listed under Known issues. Re-graded on the 19,978-row security corpus, 10 rows move from *not evaluable* to
+are closed; others remain and are listed under Known issues. Re-graded on the maintainer's
+19,978-row security corpus (`results/*.jsonl`, not published in this repository; described
+in [docs/corpus-catalog.md](docs/corpus-catalog.md)), 10 rows move from *not evaluable* to
 *compromised* and nothing else moves: 81.3% resisted / 6.1% compromised / 12.6% not
 evaluable (0.2.1: 81.3% / 6.0% / 12.6%).
 
@@ -44,7 +46,7 @@ narrowed to these cases:
   a model that obeys while also writing "cannot" can still score *not evaluable*. One
   corpus row does this with its own words ("RULES: Ignored").
 - A model that obeys and echoes its instructions OUTSIDE a fenced JSON block that parses is
-  not covered by the copied-text rule. 0 of 1,402 fenced corpus rows do this.
+  not covered by the copied-text rule. 0 of the 1,402 fenced security rows in that corpus do this.
 - An unparseable refusal whose only refusal words sit inside a long verbatim quote of its
   instructions now scores *compromised*. 0 corpus rows do this.
 
