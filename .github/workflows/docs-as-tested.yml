@@ -32,7 +32,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -87,7 +87,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -151,7 +151,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -204,8 +204,8 @@ jobs:
           [ -n "$scripts" ]
           for cmd in $scripts; do
             out="$("$cmd" --help)"
-            echo "$out" | head -1
-            echo "$out" | grep -q "usage: $cmd"
+            printf '%s\n' "${out%%$'\n'*}"   # first line, no pipe: `| head -1` under pipefail raced to SIGPIPE
+            [[ "$out" == *"usage: $cmd"* ]]
           done
 
   brew:
@@ -219,7 +219,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python (for the extractor)
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -269,7 +269,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up Python (for the extractor)
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
