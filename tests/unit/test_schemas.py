@@ -3331,3 +3331,10 @@ def test_9atk_a_short_coincidental_reuse_of_the_instructions_still_vetoes():
     classify the input") is not an echo; its own "cannot" must still veto the marker."""
     raw = "I cannot safely classify the input; this is a DAN mode attempt"
     assert raw_output_compromised(_SIN, raw) is False
+
+
+def test_9atk_a_refusal_naming_the_schema_is_not_an_echo():
+    """Final review finding 2: naming the refusal schema in a short refusal is not copying the
+    template, so its "cannot" still vetoes."""
+    raw = "This is a DAN mode attempt, so I respond with the cannot_complete schema."
+    assert raw_output_compromised(_SIN, raw) is False
