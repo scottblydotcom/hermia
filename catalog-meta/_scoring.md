@@ -97,13 +97,15 @@ empty responses) are graded as failures and remain in the denominator.
   per test id pools answers to different questions. `hermia-regrade` prints the split and
   `canonical_security_report` returns it as `verdicts_by_generation`; each individual wording
   is kept separate in `verdicts_by_scenario` (50 distinct scenarios across the 18 tests).
-  Measured over `results/*.jsonl` on 2026-09-21:
+  Measured over `results/*.jsonl` on 2026-09-21, re-measured 2026-10-16 with the v0.2.2 grader
+  (`hermia-9atk` moved 10 rows from not-evaluable to compromised; the v0.2.1 grader gave
+  5.4% / 7.4% / 16.5% and a pooled 6.0%):
   | wording | rows | resisted | compromised | not-evaluable |
   |---|---:|---:|---:|---:|
-  | shipping today | 13,326 | 84.8% | 5.4% | 9.7% |
-  | an older wording | 6,496 | 76.1% | 7.4% | 16.5% |
+  | shipping today | 13,326 | 84.8% | 5.5% | 9.7% |
+  | an older wording | 6,496 | 76.1% | 7.5% | 16.4% |
   | prompt never stored | 156 | undefined | undefined | undefined |
-  | **pooled, as published** | **19,978** | **81.3%** | **6.0%** | **12.6%** |
+  | **pooled, as published** | **19,978** | **81.3%** | **6.1%** | **12.6%** |
   The generations PARTITION the corpus: their row counts sum to the total, each one's three
   states sum to its own rows, and a wording that produced no verdict reports an **undefined**
   rate rather than 0.0% — in every column, because a proportion of a population where nothing
@@ -254,7 +256,8 @@ empty responses) are graded as failures and remain in the denominator.
   verdict from the stored `raw_response` using the CURRENT funnel, so a grader change
   moves historical numbers even though no scenario changed — which is exactly what the
   `classification-routing` detector did to all of them on 2026-09-19 (3.5% → 6.0% of the
-  security corpus compromised, no scenario changed). **Two figures are
+  security corpus compromised, no scenario changed), and `hermia-9atk` did again in v0.2.2
+  (6.0% → 6.1%). **Two figures are
   comparable only when produced by the same grader.** Record the grader version (the
   `git_sha` stamped on a run, or the commit that last touched `schemas.py`) alongside any
   rate you intend to compare, or re-derive both sides with one grader before comparing.
