@@ -204,8 +204,8 @@ jobs:
           [ -n "$scripts" ]
           for cmd in $scripts; do
             out="$("$cmd" --help)"
-            echo "$out" | head -1
-            echo "$out" | grep -q "usage: $cmd"
+            printf '%s\n' "${out%%$'\n'*}"   # first line, no pipe: `| head -1` under pipefail raced to SIGPIPE
+            [[ "$out" == *"usage: $cmd"* ]]
           done
 
   brew:
