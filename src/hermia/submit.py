@@ -143,6 +143,12 @@ def compute_host_class(gpu_info: dict[str, Any]) -> str:
     vendor: str = gpu_info.get("vendor", "none")
     card: str = gpu_info.get("card", "")
 
+    # A discrete card on macOS runs through Metal, whatever its maker: no CUDA, no ROCm, no
+    # Vulkan. The vocabulary has no value for that, so local:other (hermia-mont; review
+    # findings 5, 11, 13 -- a Mac NVIDIA card was labelled local:cuda/*).
+    if gpu_info.get("api") == "metal":
+        return "local:other"
+
     if vendor == "nvidia":
         for pattern, cls in _NVIDIA_MATCHERS:
             if pattern.search(card):
@@ -156,10 +162,6 @@ def compute_host_class(gpu_info: dict[str, Any]) -> str:
         return "local:other"
 
     if vendor == "amd":
-        # macOS drives AMD cards through Metal; the vocabulary has no value for that, and
-        # "vulkan" would be a false claim (hermia-mont). local:other is surfaced for expansion.
-        if gpu_info.get("api") == "metal":
-            return "local:other"
         card_upper = card.upper()
         if any(x in card_upper for x in ("7900", "7800", "7700", "7600")):
             return "local:rocm/rdna3"

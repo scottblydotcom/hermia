@@ -188,7 +188,7 @@ def _amd_card_name(dev: str) -> str:
             name = f.read().strip()
         if name:
             return name
-    except OSError:
+    except (OSError, ValueError):  # ValueError: a non-UTF-8 byte in the FRU string
         pass
     slot = ""
     try:
@@ -214,6 +214,36 @@ def _amd_card_name(dev: str) -> str:
         return ""
 
 
+# One system_profiler SPDisplaysDataType answer per detection pass, shared by the Mac probes.
+# Two independent calls could disagree (a cold first call timing out, the second succeeding),
+# which silently restored the iGPU-and-host-RAM answer hermia-mont removes. Outside a pass
+# (a direct call, a test) every call fetches afresh.
+_NO_PASS: Any = object()
+_UNFETCHED: Any = object()
+_SPD_CACHE: Any = _NO_PASS
+
+
+def _spdisplays_entries() -> list[dict[str, Any]] | None:
+    """The SPDisplaysDataType entries, or None when system_profiler could not be read."""
+    global _SPD_CACHE  # noqa: PLW0603
+    if _SPD_CACHE is not _NO_PASS and _SPD_CACHE is not _UNFETCHED:
+        return _SPD_CACHE  # type: ignore[no-any-return]
+    entries: list[dict[str, Any]] | None
+    try:
+        r = subprocess.run(  # noqa: S603
+            ["system_profiler", "SPDisplaysDataType", "-json"],  # noqa: S607
+            capture_output=True, text=True, timeout=5,
+        )
+        raw = json.loads(r.stdout).get("SPDisplaysDataType", [])
+        entries = [e for e in raw if isinstance(e, dict)] if isinstance(raw, list) else []
+    except (subprocess.SubprocessError, json.JSONDecodeError, OSError, AttributeError):
+        entries = None
+    if _SPD_CACHE is _UNFETCHED:
+        _SPD_CACHE = entries
+    return entries
+
+
+_MAC_MIN_DISCRETE_VRAM_GB = 0.25  # below every real Mac discrete card (smallest: 512 MB)
 _MAC_VRAM = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*(GB|MB)\s*$", re.IGNORECASE)
 
 
@@ -230,18 +260,11 @@ def _detect_mac_discrete() -> tuple[str, str, float | None] | None:
     """
     if sys.platform != "darwin":
         return None
-    try:
-        r = subprocess.run(  # noqa: S603
-            ["system_profiler", "SPDisplaysDataType", "-json"],  # noqa: S607
-            capture_output=True, text=True, timeout=5,
-        )
-        entries = json.loads(r.stdout).get("SPDisplaysDataType", [])
-    except (subprocess.SubprocessError, json.JSONDecodeError, OSError, AttributeError):
+    entries = _spdisplays_entries()
+    if entries is None:
         return None
     best: tuple[str, str, float | None] | None = None
-    for entry in entries if isinstance(entries, list) else []:
-        if not isinstance(entry, dict):
-            continue
+    for entry in entries:
         model = str(entry.get("sppci_model", ""))
         vendor_field = str(entry.get("spdisplays_vendor", "")).lower()
         if "nvidia" in model.lower() or "nvidia" in vendor_field:
@@ -255,6 +278,10 @@ def _detect_mac_discrete() -> tuple[str, str, float | None] | None:
         m = _MAC_VRAM.match(str(entry.get("spdisplays_vram", "")))
         if m:
             vram = float(m.group(1)) / (1024 if m.group(2).upper() == "MB" else 1)
+            # A card macOS has no accelerator driver for reports only its boot framebuffer
+            # (a few MB). That is not the card's memory: not measured (review, finding 4).
+            if vram < _MAC_MIN_DISCRETE_VRAM_GB:
+                vram = None
         if best is None or (vram or 0.0) > (best[2] or 0.0):
             best = (vendor, model, vram)
     return best
@@ -268,18 +295,10 @@ def _detect_intel_igpu() -> tuple[bool, str]:
     Returns (False, "") when not found or on other platforms.
     """
     if sys.platform == "darwin":
-        try:
-            r = subprocess.run(  # noqa: S603
-                ["system_profiler", "SPDisplaysDataType", "-json"],  # noqa: S607
-                capture_output=True, text=True, timeout=5,
-            )
-            data: dict[str, Any] = json.loads(r.stdout)
-            for entry in data.get("SPDisplaysDataType", []):
-                model = entry.get("sppci_model", "")
-                if "Intel" in model:
-                    return True, model
-        except (subprocess.SubprocessError, json.JSONDecodeError, OSError, KeyError):
-            pass
+        for entry in _spdisplays_entries() or []:
+            model = str(entry.get("sppci_model", ""))
+            if "Intel" in model:
+                return True, model
         return False, ""
 
     if sys.platform == "linux":
@@ -346,6 +365,19 @@ def ensure_gpu_detected() -> None:
 
 
 def detect_gpu() -> dict[str, Any]:
+    """Detect GPU hardware at run start. See _detect_gpu_once for the probe order and keys.
+
+    Wraps one detection pass so the Mac probes share a single system_profiler answer.
+    """
+    global _SPD_CACHE  # noqa: PLW0603
+    _SPD_CACHE = _UNFETCHED
+    try:
+        return _detect_gpu_once()
+    finally:
+        _SPD_CACHE = _NO_PASS
+
+
+def _detect_gpu_once() -> dict[str, Any]:
     """Detect GPU hardware at run start. Updates module-level cache.
 
     Tries NVIDIA first (via nvidia-smi), then Apple Silicon (via ioreg/sysctl),

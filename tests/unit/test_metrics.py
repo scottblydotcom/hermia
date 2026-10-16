@@ -184,6 +184,9 @@ def test_detect_gpu_picks_highest_vram_when_multiple_amdgpu(clean_gpu_globals):
         "/sys/class/drm/card1/device/mem_info_vram_total": str(8 * 1024**3),
         "/sys/class/drm/card2/device/uevent": "DRIVER=amdgpu\n",
         "/sys/class/drm/card2/device/mem_info_vram_total": str(16 * 1024**3),
+        # Named explicitly: the default below ("0") would otherwise be read AS the product name.
+        "/sys/class/drm/card1/device/product_name": "AMD Radeon RX 6600\n",
+        "/sys/class/drm/card2/device/product_name": "AMD Radeon RX 6800 XT\n",
     }
 
     def fake_open(path, *a, **kw):
@@ -199,9 +202,9 @@ def test_detect_gpu_picks_highest_vram_when_multiple_amdgpu(clean_gpu_globals):
     ):
         info = detect_gpu()
 
-    # Selection is by device path; the name is not the node name (hermia-gq0g).
+    # Selection is by device path, and the name is the SELECTED card's model (hermia-gq0g).
     assert info["dev_path"] == "/sys/class/drm/card2/device"
-    assert info["card"] != "card2"
+    assert info["card"] == "AMD Radeon RX 6800 XT"
     assert abs(info["vram_total_gb"] - 16.0) < 0.01
 
 
@@ -937,7 +940,7 @@ def test_genuinely_gpu_less_posix_host_still_reports_none_vendor(
     assert info["vram_total_gb"] is None, "absent VRAM is still not a measurement of zero"
 
 
-def test_intel_mac_with_discrete_amd_gpu_is_unknown_not_none(
+def test_mac_where_every_probe_is_empty_is_unknown_not_none(
     monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
 ) -> None:
     """macOS has no /sys/class/drm either, so the AMD probe is as blind there as on Windows.
@@ -954,6 +957,9 @@ def test_intel_mac_with_discrete_amd_gpu_is_unknown_not_none(
     display whose model contains "Intel", and it is checked BEFORE this fallback -- so such a
     machine exits at vendor='intel' and never reaches the code under test. That shadowing is
     a real, separate defect (hermia-mont) and this test must not be read as covering it.
+    hermia-mont is now fixed and covered by test_intel_mac_with_discrete_amd_reports_the_amd_card;
+    this test was renamed from ..._intel_mac_with_discrete_amd_gpu_is_unknown_not_none, whose
+    name claimed the opposite of the current behaviour.
     """
     _no_gpu_anywhere(monkeypatch)
     monkeypatch.setattr(sys, "platform", "darwin")
@@ -1083,19 +1089,40 @@ def test_amd_card_name_falls_back_to_lspci(tmp_path: Path, monkeypatch: pytest.M
     assert compute_host_class({"vendor": "amd", "card": name}) == "local:rocm/rdna3"
 
 
-def test_amd_card_name_unknown_is_blank_not_drm_node(
+def test_amd_card_name_unknown_is_blank_not_drm_node(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With no name source the answer is blank: never the DRM node name the bug published.
+
+    The device path is the REAL sysfs shape, so the old extraction
+    (dev.split("/sys/class/drm/")[-1].split("/")[0]) would yield "card0" here. A tmp_path
+    could not catch that regression: the old code yields "" for it (review, test-truth).
+    """
+    dev = "/sys/class/drm/card0/device"
+    files = {f"{dev}/uevent": "DRIVER=amdgpu\nPCI_SLOT_NAME=0000:03:00.0\n"}
+
+    def fake_open(path, *a, **kw):
+        if path not in files:
+            raise FileNotFoundError(path)
+        return mock_open(read_data=files[path])()
+
+    def no_lspci(cmd, **kw):
+        raise FileNotFoundError("lspci")
+
+    monkeypatch.setattr("builtins.open", fake_open)
+    monkeypatch.setattr(metrics_mod.subprocess, "run", no_lspci)
+    assert metrics_mod._amd_card_name(dev) == ""
+
+
+def test_amd_card_name_survives_a_non_utf8_product_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """With no name source the answer is blank: never the DRM node name the bug published."""
-    dev = tmp_path / "card0" / "device"
-    dev.mkdir(parents=True)
-    (dev / "uevent").write_text("DRIVER=amdgpu\nPCI_SLOT_NAME=0000:03:00.0\n")
+    """A FRU string with a stray non-UTF-8 byte falls through instead of crashing detection."""
+    (tmp_path / "product_name").write_bytes(b"AMD Instinct MI\xff\n")
 
     def no_lspci(cmd, **kw):
         raise FileNotFoundError("lspci")
 
     monkeypatch.setattr(metrics_mod.subprocess, "run", no_lspci)
-    assert metrics_mod._amd_card_name(str(dev)) == ""
+    assert metrics_mod._amd_card_name(str(tmp_path)) == ""
 
 
 def test_detect_gpu_amd_branch_uses_model_name(
@@ -1123,7 +1150,10 @@ def _mac_with(monkeypatch: pytest.MonkeyPatch, *entries: dict) -> None:
     monkeypatch.setattr(metrics_mod, "_detect_mac_discrete", _REAL_MAC_DISCRETE)
     monkeypatch.setattr(metrics_mod, "_detect_intel_igpu", _REAL_INTEL_IGPU)
     monkeypatch.setattr(sys, "platform", "darwin")
-    monkeypatch.setattr(metrics_mod.subprocess, "run", _run_returning(_spdisplays(*entries)))
+    monkeypatch.setattr(
+        metrics_mod.subprocess, "run",
+        _run_returning(_spdisplays(*entries), ["system_profiler", "SPDisplaysDataType", "-json"]),
+    )
 
 
 def test_intel_mac_with_discrete_amd_reports_the_amd_card(
@@ -1240,3 +1270,88 @@ def test_rx_7600_is_rdna3(monkeypatch: pytest.MonkeyPatch) -> None:
     """Code review: a real RDNA3 product_name with no 7700/7800/7900 in it."""
     rx7600 = {"vendor": "amd", "card": "AMD Radeon RX 7600"}
     assert compute_host_class(rx7600) == "local:rocm/rdna3"
+
+
+
+def test_mac_prefers_the_largest_discrete_card(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """Internal 5500M, a bigger eGPU, a smaller eGPU: the largest stated VRAM wins.
+
+    The largest is in the MIDDLE, so neither "first discrete wins" nor "last wins" passes.
+    """
+    _mac_with(
+        monkeypatch,
+        {"sppci_model": "Intel UHD Graphics 630"},
+        {"sppci_model": "AMD Radeon Pro 5500M", "spdisplays_vram": "8 GB"},
+        {"sppci_model": "AMD Radeon RX 6800 XT", "spdisplays_vram": "16 GB"},
+        {"sppci_model": "Radeon RX 580", "spdisplays_vram": "4 GB"},
+    )
+    info = metrics_mod.detect_gpu()
+    assert (info["card"], info["vram_total_gb"]) == ("AMD Radeon RX 6800 XT", 16.0)
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"sppci_model": "Radeon Pro 560X", "spdisplays_vram": "4 GB"},  # name only: 'radeon'
+        {"sppci_model": "FirePro", "spdisplays_vendor": "ATI (0x1002)", "spdisplays_vram": "4 GB"},
+    ],
+)
+def test_mac_amd_recognised_by_radeon_or_pci_id(
+    entry: dict, monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """Apple names some AMD cards without 'AMD' ('Radeon Pro 560X'); older text gives the PCI ID."""
+    _mac_with(monkeypatch, {"sppci_model": "Intel UHD Graphics 630"}, entry)
+    assert metrics_mod.detect_gpu()["vendor"] == "amd"
+
+
+def test_mac_framebuffer_sized_vram_is_not_measured(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """A card with no macOS driver reports only its boot framebuffer: not its memory."""
+    _mac_with(
+        monkeypatch,
+        {"sppci_model": "AMD Radeon RX 7900 XTX", "spdisplays_vram": "7 MB"},
+    )
+    info = metrics_mod.detect_gpu()
+    assert info["vendor"] == "amd"
+    assert info["vram_total_gb"] is None
+    assert compute_unified_memory_gb(info) is None
+
+
+def test_mac_nvidia_card_is_not_labelled_cuda(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """macOS cannot run CUDA: a Mac's NVIDIA card is local:other, like its AMD card."""
+    _mac_with(monkeypatch, {"sppci_model": "NVIDIA GeForce GTX 1080", "spdisplays_vram": "8 GB"})
+    info = metrics_mod.detect_gpu()
+    assert info["vendor"] == "nvidia"
+    assert compute_host_class(info) == "local:other"
+
+
+def test_mac_probes_share_one_system_profiler_answer(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """A cold first call that times out must not let a second call bring back iGPU + host RAM."""
+    _no_gpu_anywhere(monkeypatch)
+    monkeypatch.setattr(metrics_mod, "_detect_mac_discrete", _REAL_MAC_DISCRETE)
+    monkeypatch.setattr(metrics_mod, "_detect_intel_igpu", _REAL_INTEL_IGPU)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    calls = []
+    good = _spdisplays(
+        {"sppci_model": "Intel UHD Graphics 630"},
+        {"sppci_model": "AMD Radeon Pro 5500M", "spdisplays_vram": "8 GB"},
+    )
+
+    def first_times_out(cmd, **kw):
+        calls.append(cmd)
+        if len(calls) == 1:
+            raise subprocess.TimeoutExpired(cmd, 5)
+        return subprocess.CompletedProcess(cmd, 0, stdout=good, stderr="")
+
+    monkeypatch.setattr(metrics_mod.subprocess, "run", first_times_out)
+    info = metrics_mod.detect_gpu()
+    assert len(calls) == 1, "one system_profiler call per detection pass"
+    assert info["vendor"] == "unknown", "an unread profiler is NOT an Intel-only Mac"
+    assert compute_unified_memory_gb(info) is None
