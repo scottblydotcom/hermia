@@ -17,9 +17,12 @@ _NVIDIA_VRAM_TOTAL_GB: float = 0.0
 _APPLE_SILICON: bool = False
 _APPLE_VRAM_TOTAL_GB: float = 0.0
 _INTEL_IGPU: bool = False
-# A discrete card found on macOS (hermia-mont). No sampler reads it; it exists so that
-# gpu_present() does not call a machine with a card CPU-only.
+# A discrete card found on macOS (hermia-mont). There is no live sampler for it (the AMD
+# sampler reads Linux sysfs; nvidia-smi does not run on macOS), so utilisation and VRAM in use
+# are not measured -- but the card's TOTAL VRAM was, and get_gpu_stats() reports it, as the
+# NVIDIA and Apple paths report their cached totals.
 _MAC_DISCRETE: bool = False
+_MAC_VRAM_TOTAL_GB: float | None = None
 NVIDIA_MIN_SUPPORTED_COMPUTE: float = 6.0
 
 
@@ -178,10 +181,11 @@ def _amd_card_name(dev: str) -> str:
     """The AMD GPU's MODEL name for sysfs device dir ``dev``, or "" when nothing names it.
 
     hermia-gq0g: the AMD branch used to take the DRM node ("card0") out of the path, so every
-    AMD card was named "card0" and compute_host_class() could never match a model. Sources, in
-    order: the driver's own ``product_name`` (present for some boards), then ``lspci -mm`` for
-    the card's PCI slot (the PCI ID database's device name). Blank, never the node name, when
-    neither answers: a blank name falls to the generic class instead of pretending to be one.
+    AMD card was named "card0". Sources, in order: the driver's own ``product_name`` (present
+    for some boards), then ``lspci -mm`` for the card's PCI slot (the PCI ID database's device
+    name). Blank, never the node name, when neither answers. The name is identity only: it
+    does not set the host class, which is local:vulkan/amd for every Linux AMD card
+    (hermia-68jm).
     """
     try:
         with open(f"{dev}/product_name") as f:
@@ -251,12 +255,14 @@ def _detect_mac_discrete() -> tuple[str, str, float | None] | None:
     """The discrete AMD or NVIDIA card on an Intel Mac, as (vendor, model, vram_gb).
 
     hermia-mont: system_profiler lists every display device, but detection stopped at the
-    first Intel entry, so a Mac with an iGPU AND a discrete card (2019 16-inch MacBook Pro,
-    Mac Pro with an Intel GPU, eGPU) was reported as its iGPU, with host RAM as its memory.
-    Intel and Apple entries are skipped; among discrete cards the largest known VRAM wins.
-    vram_gb is None when system_profiler does not state it: not measured, never host RAM.
-    Returns None off darwin or when no discrete card is listed. Not verified on real Intel-Mac
-    hardware; the field names follow system_profiler's documented JSON.
+    first Intel entry, so an Intel Mac with an iGPU AND a discrete card (15- and 16-inch
+    MacBook Pro, iMac, or an eGPU on any Intel Mac) was reported as its iGPU, with host RAM as
+    its memory. Intel and Apple entries are skipped; among discrete cards the largest known
+    VRAM wins. vram_gb is None when system_profiler does not state it, or states only a
+    framebuffer-sized figure: not measured, never host RAM. Returns None off darwin or when no
+    discrete card is listed. The field names and value formats ("%d MB" / "%.2g GB") were
+    confirmed from Apple's SPDisplays reporter binary (review, 2026-10-16); the code has not
+    run on a real Intel Mac.
     """
     if sys.platform != "darwin":
         return None
@@ -403,7 +409,9 @@ def _detect_gpu_once() -> dict[str, Any]:
     """
     global _AMD_DEV, _NVIDIA_FOUND, _NVIDIA_VRAM_TOTAL_GB  # noqa: PLW0603
     global _APPLE_SILICON, _APPLE_VRAM_TOTAL_GB, _INTEL_IGPU, _MAC_DISCRETE  # noqa: PLW0603
+    global _MAC_VRAM_TOTAL_GB  # noqa: PLW0603
     _MAC_DISCRETE = False
+    _MAC_VRAM_TOTAL_GB = None
 
     found, name, vram_total_gb, compute_cap = _detect_nvidia()
     if found:
@@ -465,10 +473,12 @@ def _detect_gpu_once() -> dict[str, Any]:
     mac_discrete = _detect_mac_discrete()
     if mac_discrete is not None:
         mac_vendor, mac_card, mac_vram = mac_discrete
-        # No sampler exists for a Mac's discrete card: the AMD sampler reads Linux sysfs and
-        # nvidia-smi does not run on macOS. Detection is identity and capacity only.
+        # No live sampler exists for a Mac's discrete card: the AMD sampler reads Linux sysfs
+        # and nvidia-smi does not run on macOS. Its capacity IS known and is kept for
+        # get_gpu_stats(); utilisation and VRAM in use stay unmeasured.
         _INTEL_IGPU = False
-        _MAC_DISCRETE = True
+        _MAC_VRAM_TOTAL_GB = mac_vram
+        _MAC_DISCRETE = True  # set last, as the NVIDIA and Apple branches do
         return {
             "found": True,
             "vendor": mac_vendor,
@@ -609,6 +619,10 @@ def get_gpu_stats() -> tuple[float | None, float | None, float | None]:
 
     if _INTEL_IGPU:
         return _gpu_stats_intel()
+
+    if _MAC_DISCRETE:
+        # Capacity measured at detection; utilisation and VRAM in use have no macOS probe.
+        return None, None, _MAC_VRAM_TOTAL_GB
 
     if _AMD_DEV is None:
         return None, None, None

@@ -101,6 +101,7 @@ def clean_gpu_globals():
         "_APPLE_VRAM_TOTAL_GB": 0.0,
         "_INTEL_IGPU": False,
         "_MAC_DISCRETE": False,
+        "_MAC_VRAM_TOTAL_GB": None,
         # The detection latch, added with ensure_gpu_detected(). Omitting it left detection
         # marked done while the six values above were reset, so ensure_gpu_detected() would
         # not re-run and every later test saw a machine with no GPU. Exactly the pollution
@@ -1378,3 +1379,69 @@ def test_detection_passes_do_not_overlap(
     a.join(5)
     b.join(5)
     assert results["A"]["vendor"] == results["B"]["vendor"] == "amd"
+
+
+
+def test_mac_discrete_card_reports_its_vram_total_in_live_stats(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """Scott 2026-10-17: a detected Mac card's VRAM is reported, not dropped by the sampler.
+
+    Capacity was measured at detection; utilisation and VRAM in use have no macOS probe and
+    stay None (not measured), never 0.0.
+    """
+    _mac_with(
+        monkeypatch,
+        {"sppci_model": "Intel UHD Graphics 630"},
+        {"sppci_model": "AMD Radeon Pro 5500M", "spdisplays_vram": "8 GB"},
+    )
+    metrics_mod.ensure_gpu_detected()
+    assert metrics_mod.get_gpu_stats() == (None, None, 8.0)
+    assert metrics_mod.get_system_metrics()["vram_total_gb"] == 8.0
+
+
+def test_mac_discrete_card_with_unstated_vram_reports_none(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """No stated VRAM: the live total is not measured either -- never host RAM, never 0.0."""
+    _mac_with(monkeypatch, {"sppci_model": "AMD Radeon Pro 5300M"})
+    metrics_mod.ensure_gpu_detected()
+    assert metrics_mod.get_gpu_stats() == (None, None, None)
+
+
+def test_reads_after_detection_never_wait_on_the_detection_lock(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """Review 2026-10-17, finding 2: once detected, the sampler's reads must not block.
+
+    Another thread holds the detection lock for the whole test; gpu_present() and
+    get_gpu_stats() must still return. (MetricsSampler.start() detects before its thread
+    exists, so this is the only window in which the sampler could have waited.)
+    """
+    import threading as _threading
+
+    _mac_with(monkeypatch, {"sppci_model": "AMD Radeon Pro 5500M", "spdisplays_vram": "8 GB"})
+    metrics_mod.ensure_gpu_detected()
+    held, release = _threading.Event(), _threading.Event()
+
+    def hold() -> None:
+        with metrics_mod._DETECT_LOCK:
+            held.set()
+            release.wait(5)
+
+    holder = _threading.Thread(target=hold)
+    holder.start()
+    assert held.wait(5)
+    out: dict[str, object] = {}
+    reader = _threading.Thread(
+        target=lambda: out.update(present=metrics_mod.gpu_present(),
+                                  stats=metrics_mod.get_gpu_stats())
+    )
+    reader.start()
+    reader.join(1)
+    blocked = reader.is_alive()
+    release.set()
+    holder.join(5)
+    reader.join(5)
+    assert not blocked, "a read after detection waited on the detection lock"
+    assert out == {"present": True, "stats": (None, None, 8.0)}
