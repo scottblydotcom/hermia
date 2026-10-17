@@ -4,6 +4,7 @@ import glob
 import json
 import platform
 import re
+import shlex
 import subprocess
 import sys
 import threading
@@ -16,6 +17,13 @@ _NVIDIA_VRAM_TOTAL_GB: float = 0.0
 _APPLE_SILICON: bool = False
 _APPLE_VRAM_TOTAL_GB: float = 0.0
 _INTEL_IGPU: bool = False
+# A discrete card found on macOS (hermia-mont). There is no live sampler for it (the AMD
+# sampler reads Linux sysfs; nvidia-smi does not run on macOS), so utilisation and VRAM in use
+# are not measured. Its TOTAL VRAM is kept when system_profiler states it (None when it does
+# not, or states only a framebuffer), and get_gpu_stats() reports it, as the NVIDIA and Apple
+# paths report their cached totals.
+_MAC_DISCRETE: bool = False
+_MAC_VRAM_TOTAL_GB: float | None = None
 NVIDIA_MIN_SUPPORTED_COMPUTE: float = 6.0
 
 
@@ -170,6 +178,122 @@ def _gpu_stats_apple_silicon() -> tuple[float | None, float | None, float | None
         return None, None, _APPLE_VRAM_TOTAL_GB
 
 
+def _amd_card_name(dev: str) -> str:
+    """The AMD GPU's MODEL name for sysfs device dir ``dev``, or "" when nothing names it.
+
+    hermia-gq0g: the AMD branch used to take the DRM node ("card0") out of the path, so every
+    AMD card was named "card0". Sources, in order: the driver's own ``product_name`` (present
+    for some boards), then ``lspci -mm`` for the card's PCI slot (the PCI ID database's device
+    name). Blank, never the node name, when neither answers. The name is identity only: it
+    does not set the host class, which is local:vulkan/amd for every Linux AMD card
+    (hermia-68jm).
+    """
+    try:
+        with open(f"{dev}/product_name") as f:
+            name = f.read().strip()
+        if name:
+            return name
+    except (OSError, ValueError):  # ValueError: a non-UTF-8 byte in the FRU string
+        pass
+    slot = ""
+    try:
+        with open(f"{dev}/uevent") as f:
+            for line in f:
+                if line.startswith("PCI_SLOT_NAME="):
+                    slot = line.split("=", 1)[1].strip()
+                    break
+    except OSError:
+        return ""
+    if not slot:
+        return ""
+    try:
+        r = subprocess.run(  # noqa: S603
+            ["lspci", "-mm", "-s", slot],  # noqa: S607
+            capture_output=True, text=True, timeout=5,
+        )
+        first = r.stdout.splitlines()[0] if r.stdout else ""
+        fields = shlex.split(first)
+        # -mm: slot, class, vendor, device, [-rXX] [-pXX], subsystem vendor, subsystem device
+        return fields[3] if r.returncode == 0 and len(fields) > 3 else ""
+    except (subprocess.SubprocessError, OSError, ValueError):
+        return ""
+
+
+# One system_profiler SPDisplaysDataType answer per detection pass, shared by the Mac probes.
+# Two independent calls could disagree (a cold first call timing out, the second succeeding),
+# which silently restored the iGPU-and-host-RAM answer hermia-mont removes. Outside a pass
+# (a direct call, a test) every call fetches afresh.
+_NO_PASS: Any = object()
+_UNFETCHED: Any = object()
+_SPD_CACHE: Any = _NO_PASS
+
+
+def _spdisplays_entries() -> list[dict[str, Any]] | None:
+    """The SPDisplaysDataType entries, or None when system_profiler could not be read."""
+    global _SPD_CACHE  # noqa: PLW0603
+    if _SPD_CACHE is not _NO_PASS and _SPD_CACHE is not _UNFETCHED:
+        return _SPD_CACHE  # type: ignore[no-any-return]
+    entries: list[dict[str, Any]] | None
+    try:
+        r = subprocess.run(  # noqa: S603
+            ["system_profiler", "SPDisplaysDataType", "-json"],  # noqa: S607
+            capture_output=True, text=True, timeout=5,
+        )
+        raw = json.loads(r.stdout).get("SPDisplaysDataType", [])
+        entries = [e for e in raw if isinstance(e, dict)] if isinstance(raw, list) else []
+    except (subprocess.SubprocessError, json.JSONDecodeError, OSError, AttributeError):
+        entries = None
+    if _SPD_CACHE is _UNFETCHED:
+        _SPD_CACHE = entries
+    return entries
+
+
+_MAC_MIN_DISCRETE_VRAM_GB = 0.25  # below every real Mac discrete card (smallest: 512 MB)
+_MAC_VRAM = re.compile(r"^\s*(\d+(?:\.\d+)?)\s*(GB|MB)\s*$", re.IGNORECASE)
+
+
+def _detect_mac_discrete() -> tuple[str, str, float | None] | None:
+    """The discrete AMD or NVIDIA card on an Intel Mac, as (vendor, model, vram_gb).
+
+    hermia-mont: system_profiler lists every display device, but detection stopped at the
+    first Intel entry, so an Intel Mac with an iGPU AND a discrete card (15- and 16-inch
+    MacBook Pro, iMac, or an eGPU on any Intel Mac) was reported as its iGPU, with host RAM as
+    its memory. Intel and Apple entries are skipped; among discrete cards the largest known
+    VRAM wins. vram_gb is None when system_profiler does not state it, or states only a
+    framebuffer-sized figure: not measured, never host RAM. Returns None off darwin or when no
+    discrete card is listed. The field names and value formats ("%d MB" / "%.2g GB") were
+    confirmed from Apple's SPDisplays reporter binary (review, 2026-10-16); the code has not
+    run on a real Intel Mac.
+    """
+    if sys.platform != "darwin":
+        return None
+    entries = _spdisplays_entries()
+    if entries is None:
+        return None
+    best: tuple[str, str, float | None] | None = None
+    for entry in entries:
+        model = str(entry.get("sppci_model", ""))
+        vendor_field = str(entry.get("spdisplays_vendor", "")).lower()
+        if "nvidia" in model.lower() or "nvidia" in vendor_field:
+            vendor = "nvidia"
+        elif ("amd" in vendor_field or "0x1002" in vendor_field
+              or "radeon" in model.lower() or model.upper().startswith("AMD")):
+            vendor = "amd"
+        else:
+            continue  # Intel iGPU, Apple, or unidentifiable: not a discrete card
+        vram: float | None = None
+        m = _MAC_VRAM.match(str(entry.get("spdisplays_vram", "")))
+        if m:
+            vram = float(m.group(1)) / (1024 if m.group(2).upper() == "MB" else 1)
+            # A card macOS has no accelerator driver for reports only its boot framebuffer
+            # (a few MB). That is not the card's memory: not measured (review, finding 4).
+            if vram < _MAC_MIN_DISCRETE_VRAM_GB:
+                vram = None
+        if best is None or (vram or 0.0) > (best[2] or 0.0):
+            best = (vendor, model, vram)
+    return best
+
+
 def _detect_intel_igpu() -> tuple[bool, str]:
     """Detect Intel iGPU. Returns (found, name).
 
@@ -178,18 +302,10 @@ def _detect_intel_igpu() -> tuple[bool, str]:
     Returns (False, "") when not found or on other platforms.
     """
     if sys.platform == "darwin":
-        try:
-            r = subprocess.run(  # noqa: S603
-                ["system_profiler", "SPDisplaysDataType", "-json"],  # noqa: S607
-                capture_output=True, text=True, timeout=5,
-            )
-            data: dict[str, Any] = json.loads(r.stdout)
-            for entry in data.get("SPDisplaysDataType", []):
-                model = entry.get("sppci_model", "")
-                if "Intel" in model:
-                    return True, model
-        except (subprocess.SubprocessError, json.JSONDecodeError, OSError, KeyError):
-            pass
+        for entry in _spdisplays_entries() or []:
+            model = str(entry.get("sppci_model", ""))
+            if "Intel" in model:
+                return True, model
         return False, ""
 
     if sys.platform == "linux":
@@ -210,8 +326,8 @@ def _gpu_stats_intel() -> tuple[float | None, float | None, float | None]:
 
     intel_gpu_top streams JSON objects continuously; we run it briefly and
     capture output on TimeoutExpired. VRAM is not exposed by i915/xe sysfs
-    without kernel perf access, so vram fields are always 0.0.
-    Returns (0.0, 0.0, 0.0) on any failure or when not on Linux.
+    without kernel perf access, so the VRAM fields it does return are 0.0.
+    Returns (None, None, None) when not on Linux or on any failure (not measured).
     """
     if sys.platform != "linux":
         return None, None, None
@@ -240,6 +356,7 @@ def _gpu_stats_intel() -> tuple[float | None, float | None, float | None]:
 
 
 _GPU_DETECTED = False
+_DETECT_LOCK = threading.RLock()
 
 
 def ensure_gpu_detected() -> None:
@@ -251,23 +368,51 @@ def ensure_gpu_detected() -> None:
     global _GPU_DETECTED  # noqa: PLW0603
     if _GPU_DETECTED:
         return
-    detect_gpu()
-    _GPU_DETECTED = True
+    # The sampler thread and the main thread can both arrive here first; the lock makes the
+    # once-only check atomic, so detection is not run twice in parallel (CodeRabbit, #219).
+    with _DETECT_LOCK:
+        if _GPU_DETECTED:
+            return
+        detect_gpu()
+        _GPU_DETECTED = True
 
 
 def detect_gpu() -> dict[str, Any]:
+    """Detect GPU hardware at run start. See _detect_gpu_once for the probe order and keys.
+
+    Wraps one detection pass so the Mac probes share a single system_profiler answer.
+    """
+    global _SPD_CACHE  # noqa: PLW0603
+    # One pass at a time: a concurrent pass would reset the shared system_profiler answer
+    # between this pass's discrete-card and Intel probes, and the module globals it writes
+    # are read as a set. Reentrant because ensure_gpu_detected() holds it while calling here.
+    with _DETECT_LOCK:
+        _SPD_CACHE = _UNFETCHED
+        try:
+            return _detect_gpu_once()
+        finally:
+            _SPD_CACHE = _NO_PASS
+
+
+def _detect_gpu_once() -> dict[str, Any]:
     """Detect GPU hardware at run start. Updates module-level cache.
 
     Tries NVIDIA first (via nvidia-smi), then Apple Silicon (via ioreg/sysctl),
-    then AMD (via sysfs), then Intel iGPU (via i915/system_profiler).
-    Returns a dict with keys: found (bool), vendor (str), card (str),
-    dev_path (str), vram_total_gb (float | None -- None means NOT MEASURED, never 0.0).
+    then AMD (via sysfs), then a macOS discrete AMD/NVIDIA card (via system_profiler,
+    preferred over the iGPU: hermia-mont), then Intel iGPU (via i915/system_profiler).
+    Returns a dict with keys: found (bool), vendor (str), card (str: the MODEL name, "" when
+    unknown, never a DRM node: hermia-gq0g), dev_path (str), vram_total_gb (float | None --
+    None means NOT MEASURED; the one 0.0 is the Intel iGPU branch, which has no dedicated
+    VRAM), compute_cap (float), and, for a macOS discrete card only, api="metal".
     vendor is one of: nvidia, apple, amd, intel, none, unknown.
     "none" asserts no GPU is present; "unknown" means no probe for this platform
     could run, so hermia is not entitled to make that assertion (hermia-j6a8).
     """
     global _AMD_DEV, _NVIDIA_FOUND, _NVIDIA_VRAM_TOTAL_GB  # noqa: PLW0603
-    global _APPLE_SILICON, _APPLE_VRAM_TOTAL_GB, _INTEL_IGPU  # noqa: PLW0603
+    global _APPLE_SILICON, _APPLE_VRAM_TOTAL_GB, _INTEL_IGPU, _MAC_DISCRETE  # noqa: PLW0603
+    global _MAC_VRAM_TOTAL_GB  # noqa: PLW0603
+    _MAC_DISCRETE = False
+    _MAC_VRAM_TOTAL_GB = None
 
     found, name, vram_total_gb, compute_cap = _detect_nvidia()
     if found:
@@ -306,7 +451,7 @@ def detect_gpu() -> dict[str, Any]:
     _AMD_DEV = _find_amdgpu_dev()
     if _AMD_DEV is not None:
         _INTEL_IGPU = False
-        card = _AMD_DEV.split("/sys/class/drm/")[-1].split("/")[0]
+        card = _amd_card_name(_AMD_DEV)
         amd_vram: float | None
         try:
             with open(f"{_AMD_DEV}/mem_info_vram_total") as f:
@@ -324,6 +469,27 @@ def detect_gpu() -> dict[str, Any]:
             "dev_path": _AMD_DEV,
             "vram_total_gb": amd_vram,
             "compute_cap": 0.0,
+        }
+
+    mac_discrete = _detect_mac_discrete()
+    if mac_discrete is not None:
+        mac_vendor, mac_card, mac_vram = mac_discrete
+        # No live sampler exists for a Mac's discrete card: the AMD sampler reads Linux sysfs
+        # and nvidia-smi does not run on macOS. Its capacity IS known and is kept for
+        # get_gpu_stats(); utilisation and VRAM in use stay unmeasured.
+        _INTEL_IGPU = False
+        _MAC_VRAM_TOTAL_GB = mac_vram
+        _MAC_DISCRETE = True  # set last, as the NVIDIA and Apple branches do
+        return {
+            "found": True,
+            "vendor": mac_vendor,
+            "card": mac_card,
+            "dev_path": "",
+            "vram_total_gb": mac_vram,
+            "compute_cap": 0.0,
+            # macOS drives a discrete card through Metal; compute_host_class() reads this
+            # rather than sys.platform, so the label follows the DETECTED machine.
+            "api": "metal",
         }
 
     found_intel, intel_name = _detect_intel_igpu()
@@ -349,9 +515,10 @@ def detect_gpu() -> dict[str, Any]:
     # NO GPU PRESENT, and collapsing the two is what let a real card be reported as absent.
     # The predicate is "does a probe for every vendor exist on THIS platform", not "is this
     # Windows". `_find_amdgpu_dev` globs /sys/class/drm, which is Linux sysfs -- it cannot
-    # find a card on macOS either. An Intel Mac with a discrete AMD GPU (Mac Pro, 2019 16",
-    # any eGPU) therefore lands here exactly as Scott's Windows box did, and an earlier
-    # version of this fix would still have published it as vendor='none' -> 'local:cpu' ->
+    # find a card on macOS either. Since hermia-mont, an Intel Mac's discrete card is found
+    # by _detect_mac_discrete (system_profiler) before this point; a Mac lands here only when
+    # system_profiler could not be read, and then, like Scott's Windows box, it is NOT PROBED.
+    # An earlier version of this fix published that case as vendor='none' -> 'local:cpu' ->
     # system RAM. Caught by the outside-family gate, which was right: a Windows-shaped fix
     # for a platform-coverage bug reproduced the bug one platform over.
     # Linux is the only platform where nvidia, AMD and Intel are all genuinely probed.
@@ -421,14 +588,18 @@ def _gpu_stats_sysfs() -> tuple[float | None, float | None, float | None]:
 def gpu_present() -> bool:
     """Is there a GPU at all? Distinguishes "no GPU" from "GPU idle" (hermia-dl2e)."""
     ensure_gpu_detected()
-    return _NVIDIA_FOUND or _APPLE_SILICON or _INTEL_IGPU or _AMD_DEV is not None
+    return (
+        _NVIDIA_FOUND or _APPLE_SILICON or _INTEL_IGPU or _MAC_DISCRETE
+        or _AMD_DEV is not None
+    )
 
 
 def get_gpu_stats() -> tuple[float | None, float | None, float | None]:
     """Return (gpu_pct, vram_used_gb, vram_total_gb).
 
-    Routes to nvidia-smi, Apple Silicon ioreg, Intel i915, or AMD rocm-smi/sysfs
-    based on what detect_gpu() found.
+    Routes to nvidia-smi, Apple Silicon ioreg, Intel i915, a macOS discrete card (capacity
+    only: the total VRAM measured at detection, utilisation and use unmeasured), or AMD
+    rocm-smi/sysfs, based on what detect_gpu() found.
 
     A field is None when it was NOT MEASURED — no GPU, or the probe failed. 0.0 means
     measured and idle. Those are different claims and a recorded row must not confuse
@@ -451,6 +622,10 @@ def get_gpu_stats() -> tuple[float | None, float | None, float | None]:
 
     if _INTEL_IGPU:
         return _gpu_stats_intel()
+
+    if _MAC_DISCRETE:
+        # Capacity measured at detection; utilisation and VRAM in use have no macOS probe.
+        return None, None, _MAC_VRAM_TOTAL_GB
 
     if _AMD_DEV is None:
         return None, None, None
