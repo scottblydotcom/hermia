@@ -162,14 +162,14 @@ def compute_host_class(gpu_info: dict[str, Any]) -> str:
         return "local:other"
 
     if vendor == "amd":
-        card_upper = card.upper()
-        if any(x in card_upper for x in ("7900", "7800", "7700", "7600")):
-            return "local:rocm/rdna3"
-        if any(x in card_upper for x in ("6900", "6800", "6700", "6600", "6500", "6400")):
-            return "local:rocm/rdna2"
-        # Real names read "AMD Instinct MI210" (hermia-gq0g); a bare "MI300X" also counts.
-        if "INSTINCT" in card_upper or re.match(r"MI\d", card_upper):
-            return "local:rocm/instinct"
+        # Every Linux AMD card is local:vulkan/amd, as in every released version. Until
+        # hermia-gq0g the card name was the DRM node ("card0"), so the old name->generation
+        # rules (rdna3 / rdna2 / instinct) never fired. Turning them on with real names
+        # exposed that marketing names cannot carry them: older GCN cards matched RDNA digit
+        # runs inside OEM part names, real RDNA cards missed, and workstation boards that
+        # share an Instinct PCI ID were called Instinct. The "rocm" claim was never checked
+        # either. Scott, 2026-10-17: keep the generic label; the redesign (architecture ID,
+        # not marketing name) is hermia-68jm. `card` still carries the real model name.
         return "local:vulkan/amd"
 
     if vendor == "intel":

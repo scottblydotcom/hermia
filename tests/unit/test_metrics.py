@@ -1066,9 +1066,7 @@ def test_amd_card_name_reads_product_name(tmp_path: Path, monkeypatch: pytest.Mo
     """The driver's own product_name wins when it is present."""
     (tmp_path / "product_name").write_text("AMD Radeon RX 7800 XT\n")
     monkeypatch.setattr(sys, "platform", "linux")
-    name = metrics_mod._amd_card_name(str(tmp_path))
-    assert name == "AMD Radeon RX 7800 XT"
-    assert compute_host_class({"vendor": "amd", "card": name}) == "local:rocm/rdna3"
+    assert metrics_mod._amd_card_name(str(tmp_path)) == "AMD Radeon RX 7800 XT"
 
 
 def test_amd_card_name_falls_back_to_lspci(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1084,9 +1082,7 @@ def test_amd_card_name_falls_back_to_lspci(tmp_path: Path, monkeypatch: pytest.M
         _run_returning(out, ["lspci", "-mm", "-s", "0000:03:00.0"]),
     )
     monkeypatch.setattr(sys, "platform", "linux")
-    name = metrics_mod._amd_card_name(str(tmp_path))
-    assert name == "Navi 32 [Radeon RX 7700 XT / 7800 XT]"
-    assert compute_host_class({"vendor": "amd", "card": name}) == "local:rocm/rdna3"
+    assert metrics_mod._amd_card_name(str(tmp_path)) == "Navi 32 [Radeon RX 7700 XT / 7800 XT]"
 
 
 def test_amd_card_name_unknown_is_blank_not_drm_node(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1128,7 +1124,7 @@ def test_amd_card_name_survives_a_non_utf8_product_name(
 def test_detect_gpu_amd_branch_uses_model_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
 ) -> None:
-    """detect_gpu() reports the model, so the rdna2 branch is reachable on real hardware."""
+    """detect_gpu() reports the model name, never the DRM node (hermia-gq0g)."""
     _no_gpu_anywhere(monkeypatch)
     (tmp_path / "product_name").write_text("AMD Radeon RX 6800 XT\n")
     (tmp_path / "mem_info_vram_total").write_text("17163091968")
@@ -1137,7 +1133,7 @@ def test_detect_gpu_amd_branch_uses_model_name(
     info = metrics_mod.detect_gpu()
     assert info["vendor"] == "amd"
     assert info["card"] == "AMD Radeon RX 6800 XT"
-    assert compute_host_class(info) == "local:rocm/rdna2"
+    assert compute_host_class(info) == "local:vulkan/amd", "generic by decision (hermia-68jm)"
 
 
 _REAL_MAC_DISCRETE = metrics_mod.__dict__.get("_detect_mac_discrete")
@@ -1229,14 +1225,6 @@ def test_mac_discrete_is_none_off_darwin(monkeypatch: pytest.MonkeyPatch) -> Non
     assert metrics_mod._detect_mac_discrete() is None
 
 
-def test_instinct_cards_classify_as_instinct(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The instinct branch matched only names starting "MI"; real names start "AMD Instinct"."""
-    monkeypatch.setattr(sys, "platform", "linux")
-    instinct = {"vendor": "amd", "card": "AMD Instinct MI210"}
-    assert compute_host_class(instinct) == "local:rocm/instinct"
-    assert compute_host_class({"vendor": "amd", "card": "MI300X"}) == "local:rocm/instinct"
-    assert compute_host_class({"vendor": "amd", "card": "Radeon RX Vega 64"}) == "local:vulkan/amd"
-
 
 def test_amd_card_name_ignores_a_failed_lspci(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1264,12 +1252,6 @@ def test_mac_with_discrete_nvidia_reports_nvidia_and_a_gpu(
     assert (info["vendor"], info["vram_total_gb"]) == ("nvidia", 2.0)
     monkeypatch.setattr(metrics_mod, "_GPU_DETECTED", True)
     assert metrics_mod.gpu_present() is True
-
-
-def test_rx_7600_is_rdna3(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Code review: a real RDNA3 product_name with no 7700/7800/7900 in it."""
-    rx7600 = {"vendor": "amd", "card": "AMD Radeon RX 7600"}
-    assert compute_host_class(rx7600) == "local:rocm/rdna3"
 
 
 
