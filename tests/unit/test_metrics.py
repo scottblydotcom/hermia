@@ -1337,3 +1337,44 @@ def test_mac_probes_share_one_system_profiler_answer(
     assert len(calls) == 1, "one system_profiler call per detection pass"
     assert info["vendor"] == "unknown", "an unread profiler is NOT an Intel-only Mac"
     assert compute_unified_memory_gb(info) is None
+
+
+def test_detection_passes_do_not_overlap(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """CodeRabbit on #219: a second thread's pass must not start inside the first one.
+
+    Pass A blocks inside system_profiler; pass B (another thread) must not reach
+    system_profiler until A has finished, so B can never reset A's shared answer mid-pass.
+    """
+    import threading as _threading
+
+    _no_gpu_anywhere(monkeypatch)
+    monkeypatch.setattr(metrics_mod, "_detect_mac_discrete", _REAL_MAC_DISCRETE)
+    monkeypatch.setattr(metrics_mod, "_detect_intel_igpu", _REAL_INTEL_IGPU)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    entered = _threading.Event()
+    release = _threading.Event()
+    calls: list[str] = []
+    good = _spdisplays({"sppci_model": "AMD Radeon Pro 5500M", "spdisplays_vram": "8 GB"})
+
+    def blocking_run(cmd, **kw):
+        calls.append(_threading.current_thread().name)
+        if len(calls) == 1:
+            entered.set()
+            assert release.wait(5), "test deadlocked"
+        return subprocess.CompletedProcess(cmd, 0, stdout=good, stderr="")
+
+    monkeypatch.setattr(metrics_mod.subprocess, "run", blocking_run)
+    results: dict[str, dict] = {}
+    a = _threading.Thread(target=lambda: results.update(A=metrics_mod.detect_gpu()), name="A")
+    b = _threading.Thread(target=lambda: results.update(B=metrics_mod.detect_gpu()), name="B")
+    a.start()
+    assert entered.wait(5)
+    b.start()
+    b.join(0.3)
+    assert calls == ["A"], "pass B started while pass A was still inside system_profiler"
+    release.set()
+    a.join(5)
+    b.join(5)
+    assert results["A"]["vendor"] == results["B"]["vendor"] == "amd"

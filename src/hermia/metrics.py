@@ -349,6 +349,7 @@ def _gpu_stats_intel() -> tuple[float | None, float | None, float | None]:
 
 
 _GPU_DETECTED = False
+_DETECT_LOCK = threading.RLock()
 
 
 def ensure_gpu_detected() -> None:
@@ -360,8 +361,13 @@ def ensure_gpu_detected() -> None:
     global _GPU_DETECTED  # noqa: PLW0603
     if _GPU_DETECTED:
         return
-    detect_gpu()
-    _GPU_DETECTED = True
+    # The sampler thread and the main thread can both arrive here first; the lock makes the
+    # once-only check atomic, so detection is not run twice in parallel (CodeRabbit, #219).
+    with _DETECT_LOCK:
+        if _GPU_DETECTED:
+            return
+        detect_gpu()
+        _GPU_DETECTED = True
 
 
 def detect_gpu() -> dict[str, Any]:
@@ -370,11 +376,15 @@ def detect_gpu() -> dict[str, Any]:
     Wraps one detection pass so the Mac probes share a single system_profiler answer.
     """
     global _SPD_CACHE  # noqa: PLW0603
-    _SPD_CACHE = _UNFETCHED
-    try:
-        return _detect_gpu_once()
-    finally:
-        _SPD_CACHE = _NO_PASS
+    # One pass at a time: a concurrent pass would reset the shared system_profiler answer
+    # between this pass's discrete-card and Intel probes, and the module globals it writes
+    # are read as a set. Reentrant because ensure_gpu_detected() holds it while calling here.
+    with _DETECT_LOCK:
+        _SPD_CACHE = _UNFETCHED
+        try:
+            return _detect_gpu_once()
+        finally:
+            _SPD_CACHE = _NO_PASS
 
 
 def _detect_gpu_once() -> dict[str, Any]:
