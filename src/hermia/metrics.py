@@ -19,8 +19,9 @@ _APPLE_VRAM_TOTAL_GB: float = 0.0
 _INTEL_IGPU: bool = False
 # A discrete card found on macOS (hermia-mont). There is no live sampler for it (the AMD
 # sampler reads Linux sysfs; nvidia-smi does not run on macOS), so utilisation and VRAM in use
-# are not measured -- but the card's TOTAL VRAM was, and get_gpu_stats() reports it, as the
-# NVIDIA and Apple paths report their cached totals.
+# are not measured. Its TOTAL VRAM is kept when system_profiler states it (None when it does
+# not, or states only a framebuffer), and get_gpu_stats() reports it, as the NVIDIA and Apple
+# paths report their cached totals.
 _MAC_DISCRETE: bool = False
 _MAC_VRAM_TOTAL_GB: float | None = None
 NVIDIA_MIN_SUPPORTED_COMPUTE: float = 6.0
@@ -325,8 +326,8 @@ def _gpu_stats_intel() -> tuple[float | None, float | None, float | None]:
 
     intel_gpu_top streams JSON objects continuously; we run it briefly and
     capture output on TimeoutExpired. VRAM is not exposed by i915/xe sysfs
-    without kernel perf access, so vram fields are always 0.0.
-    Returns (0.0, 0.0, 0.0) on any failure or when not on Linux.
+    without kernel perf access, so the VRAM fields it does return are 0.0.
+    Returns (None, None, None) when not on Linux or on any failure (not measured).
     """
     if sys.platform != "linux":
         return None, None, None
@@ -401,8 +402,8 @@ def _detect_gpu_once() -> dict[str, Any]:
     preferred over the iGPU: hermia-mont), then Intel iGPU (via i915/system_profiler).
     Returns a dict with keys: found (bool), vendor (str), card (str: the MODEL name, "" when
     unknown, never a DRM node: hermia-gq0g), dev_path (str), vram_total_gb (float | None --
-    None means NOT MEASURED, never 0.0), compute_cap (float), and, for a macOS discrete
-    card only, api="metal".
+    None means NOT MEASURED; the one 0.0 is the Intel iGPU branch, which has no dedicated
+    VRAM), compute_cap (float), and, for a macOS discrete card only, api="metal".
     vendor is one of: nvidia, apple, amd, intel, none, unknown.
     "none" asserts no GPU is present; "unknown" means no probe for this platform
     could run, so hermia is not entitled to make that assertion (hermia-j6a8).
@@ -514,9 +515,10 @@ def _detect_gpu_once() -> dict[str, Any]:
     # NO GPU PRESENT, and collapsing the two is what let a real card be reported as absent.
     # The predicate is "does a probe for every vendor exist on THIS platform", not "is this
     # Windows". `_find_amdgpu_dev` globs /sys/class/drm, which is Linux sysfs -- it cannot
-    # find a card on macOS either. An Intel Mac with a discrete AMD GPU (Mac Pro, 2019 16",
-    # any eGPU) therefore lands here exactly as Scott's Windows box did, and an earlier
-    # version of this fix would still have published it as vendor='none' -> 'local:cpu' ->
+    # find a card on macOS either. Since hermia-mont, an Intel Mac's discrete card is found
+    # by _detect_mac_discrete (system_profiler) before this point; a Mac lands here only when
+    # system_profiler could not be read, and then, like Scott's Windows box, it is NOT PROBED.
+    # An earlier version of this fix published that case as vendor='none' -> 'local:cpu' ->
     # system RAM. Caught by the outside-family gate, which was right: a Windows-shaped fix
     # for a platform-coverage bug reproduced the bug one platform over.
     # Linux is the only platform where nvidia, AMD and Intel are all genuinely probed.
@@ -595,8 +597,9 @@ def gpu_present() -> bool:
 def get_gpu_stats() -> tuple[float | None, float | None, float | None]:
     """Return (gpu_pct, vram_used_gb, vram_total_gb).
 
-    Routes to nvidia-smi, Apple Silicon ioreg, Intel i915, or AMD rocm-smi/sysfs
-    based on what detect_gpu() found.
+    Routes to nvidia-smi, Apple Silicon ioreg, Intel i915, a macOS discrete card (capacity
+    only: the total VRAM measured at detection, utilisation and use unmeasured), or AMD
+    rocm-smi/sysfs, based on what detect_gpu() found.
 
     A field is None when it was NOT MEASURED — no GPU, or the probe failed. 0.0 means
     measured and idle. Those are different claims and a recorded row must not confuse

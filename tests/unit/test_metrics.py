@@ -446,6 +446,7 @@ def test_get_gpu_stats_falls_back_to_sysfs_when_rocm_returns_zeros():
         patch.object(metrics_mod, "_NVIDIA_FOUND", False),
         patch.object(metrics_mod, "_APPLE_SILICON", False),
         patch.object(metrics_mod, "_INTEL_IGPU", False),
+        patch.object(metrics_mod, "_MAC_DISCRETE", False),
         patch.object(metrics_mod, "_AMD_DEV", dev),
         patch("subprocess.run", return_value=mock_result),
         patch("hermia.metrics.glob.glob", return_value=[f"{dev}/uevent"]),
@@ -477,6 +478,7 @@ def test_get_gpu_stats_falls_back_to_sysfs_when_rocm_missing():
         patch.object(metrics_mod, "_NVIDIA_FOUND", False),
         patch.object(metrics_mod, "_APPLE_SILICON", False),
         patch.object(metrics_mod, "_INTEL_IGPU", False),
+        patch.object(metrics_mod, "_MAC_DISCRETE", False),
         patch.object(metrics_mod, "_AMD_DEV", dev),
         patch("subprocess.run", side_effect=FileNotFoundError),
         patch("hermia.metrics.glob.glob", return_value=[f"{dev}/uevent"]),
@@ -796,6 +798,7 @@ def test_get_gpu_stats_cpu_only_reports_unmeasured():
         patch.object(metrics_mod, "_NVIDIA_FOUND", False),
         patch.object(metrics_mod, "_APPLE_SILICON", False),
         patch.object(metrics_mod, "_INTEL_IGPU", False),
+        patch.object(metrics_mod, "_MAC_DISCRETE", False),
         patch.object(metrics_mod, "_AMD_DEV", None),
     ):
         gpu_pct, vram_used, vram_total = get_gpu_stats()
@@ -1412,11 +1415,14 @@ def test_mac_discrete_card_with_unstated_vram_reports_none(
 def test_reads_after_detection_never_wait_on_the_detection_lock(
     monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
 ) -> None:
-    """Review 2026-10-17, finding 2: once detected, the sampler's reads must not block.
+    """Review 2026-10-17, finding 2: once detected, reads must not block on the lock.
 
     Another thread holds the detection lock for the whole test; gpu_present() and
-    get_gpu_stats() must still return. (MetricsSampler.start() detects before its thread
-    exists, so this is the only window in which the sampler could have waited.)
+    get_gpu_stats() must still return. This PINS a property that already held before the
+    lock existed (the once-only check returns before taking it); on the previous commit the
+    test fails only on its VRAM assertion. It guards against a future change making reads
+    take the lock. It says nothing about the FIRST detection pass, which every caller still
+    waits for (about 0.7 s on an M1 Pro, longer if a probe tool hangs to its timeout).
     """
     import threading as _threading
 

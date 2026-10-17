@@ -214,7 +214,12 @@ def run_preflight(
         fits_total_vram = True if vram_total is None else size_gb <= vram_total
         # Unknown VRAM is not a failing check. Refusing to guess beats guessing wrong in
         # either direction -- a false "will not fit" is as unhelpful as a false "will".
-        fits_current_vram = True if vram_available is None else size_gb <= vram_available
+        # But VRAM available now can never exceed the total, so when only the amount in use
+        # is unmeasured (a Mac discrete card reports its total, not its use: hermia-mont), a
+        # model that exceeds the total cannot fit right now either.
+        fits_current_vram = (
+            fits_total_vram if vram_available is None else size_gb <= vram_available
+        )
         fits_ram = (size_gb * RAM_LOAD_MULTIPLIER) <= ram_available_gb
 
         if name in VULKAN_GFX900_BLOCKLIST and not fleet_mode:
