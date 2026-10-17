@@ -88,7 +88,7 @@ jobs:
         # any finding; suppress a reviewed, trusted call with a # nosemgrep comment.
         env:
           SEMGREP_SEND_METRICS: "off"
-        run: semgrep scan --config .semgrep.yml --error --disable-version-check src/ tests/
+        run: semgrep scan --config .semgrep.yml --error --disable-version-check src/ tests/ scripts/
 
   pip-audit:
     runs-on: ubuntu-latest
