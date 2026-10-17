@@ -172,12 +172,14 @@ class PreflightReport:
             if m.skip:
                 out.append(f"SKIP {m.name}: {m.reason}")
             elif not m.fits_current_vram:
-                out.append(
-                    f"WARN {m.name} ({m.size_gb:.1f} GB): tight fit — "
-                    f"{self.vram_available_gb:.1f} GB VRAM free, may stall"
-                    if self.vram_available_gb is not None
-                    else "VRAM could not be measured on this host"
-                )
+                if self.vram_available_gb is not None:
+                    detail = f"tight fit — {self.vram_available_gb:.1f} GB VRAM free, may stall"
+                else:
+                    # Only the amount in USE was unmeasured (a Mac discrete card reports its
+                    # total: hermia-mont); the model exceeds the known total. Say that, with
+                    # the model's own reason when it has one (fleet mode leaves it empty).
+                    detail = m.reason or "exceeds total VRAM; VRAM in use could not be measured"
+                out.append(f"WARN {m.name} ({m.size_gb:.1f} GB): {detail}")
         return out
 
 
