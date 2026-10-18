@@ -355,3 +355,16 @@ def test_load_fleet_refuses_a_host_that_is_not_a_string(tmp_path: Path) -> None:
     path.write_text(yaml.safe_dump({"name": "f", "fleet": [{"name": "h", "host": [_LOGIN_URL]}]}))
     with pytest.raises(TypeError, match="'host' must be a string"):
         load_fleet(path)
+
+
+def test_hosts_format_and_seed_refuse_a_url_that_is_not_a_string(tmp_path: Path) -> None:
+    """A YAML list around the address crashed the Hosts screen (outside review 2026-10-17)."""
+    host = {"name": "h", "url": ["http://127.0.0.1:11434"], "engine": "ollama"}
+    fleet = tmp_path / "f.yaml"
+    fleet.write_text(yaml.safe_dump({"name": "f", "hosts": [host]}))
+    with pytest.raises(TypeError, match="'url' must be a string"):
+        load_fleet(fleet)
+    seed = tmp_path / "hosts.yaml"
+    seed.write_text(yaml.safe_dump({"hosts": [host]}))
+    with pytest.raises(TypeError, match="'url' must be a string"):
+        load_hosts_seed(path=seed)

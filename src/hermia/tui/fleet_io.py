@@ -220,7 +220,9 @@ def _deserialize_host(d: Any) -> Host:
     for field in ("name", "url", "engine"):
         if not d.get(field):
             raise KeyError(f"Host entry missing required field: '{field}'")
-    reject_login_in_host(str(d["url"]), f"Host entry '{d['name']}'")
+    if not isinstance(d["url"], str):
+        raise TypeError(f"Host entry '{d['name']}': 'url' must be a string")
+    reject_login_in_host(d["url"], f"Host entry '{d['name']}'")
     return Host(
         name=d["name"],
         url=d["url"],
@@ -277,7 +279,9 @@ def _deserialize_seed_host(d: Any) -> Host:
     for field in ("name", "url", "engine"):
         if not d.get(field):
             raise KeyError(f"Seed host entry missing required field: '{field}'")
-    reject_login_in_host(str(d["url"]), f"Seed host entry '{d['name']}'")
+    if not isinstance(d["url"], str):
+        raise TypeError(f"Seed host entry '{d['name']}': 'url' must be a string")
+    reject_login_in_host(d["url"], f"Seed host entry '{d['name']}'")
     return Host(
         name=d["name"],
         url=d["url"],

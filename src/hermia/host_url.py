@@ -16,7 +16,7 @@ def reject_login_in_host(url: str, where: str) -> None:
         raise ValueError(
             f"{where}: the host address contains '@', i.e. a login written into the address "
             "(user:password@host). hermia does not accept logins in host addresses: they leak "
-            "into its output and saved results. To send a bearer token, put it in an environment "
-            "variable and name it with auth.bearer.key_env (fleet: files) or auth_header_env "
-            "(hosts: files). Username/password logins are not supported."
+            "into its output and saved results. hermia sends only a bearer token, set per host in "
+            "a fleet file from an environment variable: auth.bearer.key_env in a 'fleet:' file, "
+            "auth_header_env in a 'hosts:' file. Username/password logins are not supported."
         )

@@ -246,11 +246,11 @@ class TuiRunner:
                     "repeat_idx": 0,
                     "verdict": "error",
                     "elapsed_sec": 0.0,
-                    "failure_reason": f"HOST_ERROR: {host_result}",
-                    "output_preview": str(host_result)[:120],
+                    "failure_reason": f"HOST_ERROR: {_scrub(str(host_result), host)}",
+                    "output_preview": _scrub(str(host_result), host)[:120],
                     # The detail screen is the only place a host failure can be
                     # read in full; the 120-char preview above is for the row.
-                    "raw_response": f"HOST_ERROR: {host_result}",
+                    "raw_response": f"HOST_ERROR: {_scrub(str(host_result), host)}",
                 })
 
         if self._abort_requested:
@@ -312,7 +312,7 @@ class TuiRunner:
             result = _error_result(
                 model=model.name,
                 test=test,
-                host=host.url,
+                host=redact_secrets(host.url, None, [host.url]),
                 failure_reason=_timeout_msg,
                 elapsed_sec=timeout,
                 output_preview="",
@@ -323,7 +323,7 @@ class TuiRunner:
             result = _error_result(
                 model=model.name,
                 test=test,
-                host=host.url,
+                host=redact_secrets(host.url, None, [host.url]),
                 failure_reason=f"ERROR: {message}",
                 elapsed_sec=0.0,
                 # output_preview stays truncated for the row; raw_response
@@ -417,6 +417,17 @@ def _auth_headers(auth_env: str | None) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 
+def _redact_all(obj: Any, headers: dict[str, str], url: str) -> Any:
+    """``obj`` with redact_secrets applied to every string inside it, at any depth."""
+    if isinstance(obj, str):
+        return redact_secrets(obj, headers, [url])
+    if isinstance(obj, dict):
+        return {k: _redact_all(v, headers, url) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_redact_all(v, headers, url) for v in obj]
+    return obj
+
+
 def _scrub(text: str, host: Host) -> str:
     """``text`` without the host's token or any login in its URL (hermia-4mhr): an error that
     escapes run_test is shown on screen and saved in the row."""
@@ -463,9 +474,13 @@ def _real_run_test(
     # box reads as local, so the orchestrator's metrics would be attributed to a remote run.
     # machine_id stamping (hermia-cfqv) is what catches that class; widening this fix to
     # consult it needs its own change.
-    # headers= is what lets run_test scrub the token from its per-test error text (an
-    # InvalidHeader quotes the whole value) and authenticate its /api/ps and /api/show probes.
-    return run_test(
+    row = run_test(
         model_name, test, sampler,
-        host=host, headers=headers or None, transport=transport,
+        host=host, transport=transport,
     )
+    # run_test's per-test error text can quote the token whole (requests' InvalidHeader), and
+    # the TUI shows and saves it (hermia-4mhr). Scrub the row rather than pass headers= to
+    # run_test: that would also send the token on the Ollama-only probes run_test makes, which
+    # the TUI sends even to openai-compat hosts because it gives run_test no engine.
+    scrubbed: dict[str, Any] = _redact_all(row, headers, host)
+    return scrubbed
