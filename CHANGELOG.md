@@ -9,6 +9,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 See [docs/roadmap.md](docs/roadmap.md) for the full plan.
 
+### Changed
+- **A host address with a login in it (`user:password@host`) is refused** wherever a host
+  enters hermia: fleet files, TUI fleet and seed files, the Add Host form, `HERMIA_HOST`. Such
+  an address leaked the password into error messages, the run banner and every saved result
+  row (hermia-emsn). hermia authenticates only with a bearer token: `auth.bearer.key_env` in a
+  `fleet:` file, `auth_header_env` in a `hosts:` file. **A username/password (Basic auth)
+  proxy, such as nginx in front of Ollama, can no longer be reached.** That worked only because
+  the HTTP library turned the login into Basic auth; it was never documented, and there is no
+  replacement yet (hermia-vvv6).
+
+### Fixed
+- **An unreachable, misconfigured or erroring Ollama host is reported with its cause, never as
+  "no models"** (hermia-4mhr). The host is skipped and the rest of the fleet still runs; an odd
+  host address or token no longer crashes the whole run.
+- **A bearer token or URL password is no longer printed or saved** in discovery errors, the host
+  banner or per-test errors, in the TUI or headless.
+- **An Apple GPU is reported only with evidence** (hermia-ly6f): an Apple display entry, or bare
+  metal. A Mac whose probes failed no longer reports a GPU it never saw, and the probes work
+  under cron, where `/usr/sbin` is not on `PATH`.
+
+### Known issues
+- An openai-compat host that answers `/v1/models` with a page that is not a model list (an HTML
+  sign-in page, `{}`) is still reported as "no models" (hermia-tn01).
+
 ---
 
 ## [0.2.2] — 2026-10 (two awareness-veto fixes)
