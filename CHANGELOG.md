@@ -24,12 +24,15 @@ See [docs/roadmap.md](docs/roadmap.md) for the full plan.
   "no models"** (hermia-4mhr). The host is skipped and the rest of the fleet still runs; an odd
   host address or token no longer crashes the whole run.
 - **A bearer token or URL password is no longer printed or saved** in discovery errors, the host
-  banner or per-test errors, in the TUI or headless.
+  banner, or headless (`hermia --fleet`) per-test errors.
 - **An Apple GPU is reported only with evidence** (hermia-ly6f): an Apple display entry, or bare
   metal. A Mac whose probes failed no longer reports a GPU it never saw, and the probes work
   under cron, where `/usr/sbin` is not on `PATH`.
 
 ### Known issues
+- In the TUI, a per-test error can still carry a bearer token onto the screen and into saved
+  results, for example a token read from a file with Windows line endings (hermia-bw1q). This
+  predates this release. Headless runs are not affected.
 - An openai-compat host that answers `/v1/models` with a page that is not a model list (an HTML
   sign-in page, `{}`) is still reported as "no models" (hermia-tn01).
 

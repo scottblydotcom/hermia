@@ -106,7 +106,7 @@ class AddHostModal(ModalScreen[Host | None]):
             # without echoing the address (it holds the password), and keep the form open.
             self.app.notify(
                 "Host addresses can't contain a login (user:password@host). For a bearer token, "
-                "save the fleet, then set auth_header_env on this host in its file. "
+                "save the fleet, set auth_header_env on this host in its file, and reload it. "
                 "Username/password logins are not supported.",
                 severity="error",
             )
