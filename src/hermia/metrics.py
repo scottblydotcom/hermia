@@ -2,6 +2,7 @@
 
 import glob
 import json
+import os
 import platform
 import re
 import shlex
@@ -91,55 +92,76 @@ def _detect_nvidia() -> tuple[bool, str, float, float]:
         return False, "", 0.0, 0.0
 
 
-def _detect_apple_silicon() -> tuple[bool, str, float]:
-    """Detect Apple Silicon GPU. Returns (found, chip_name, vram_total_gb).
+def _sbin_env() -> dict[str, str]:
+    """The environment with /usr/sbin and /sbin on PATH, where macOS keeps sysctl and
+    system_profiler. cron and launchd jobs get PATH=/usr/bin:/bin, so a bare-metal Mac's GPU
+    evidence came back "not found" there (review, 2026-10-17)."""
+    path = os.environ.get("PATH", "")
+    extra = [d for d in ("/usr/sbin", "/sbin") if d not in path.split(os.pathsep)]
+    return {**os.environ, "PATH": os.pathsep.join([p for p in [path, *extra] if p])}
 
-    Uses sysctl hw.optional.arm64 so detection works even when Python runs
-    under Rosetta (where platform.machine() returns 'x86_64'). Total unified
-    memory is reported as vram_total_gb — on Apple Silicon, GPU and CPU share
-    the same physical memory pool.
+
+def _sysctl(name: str) -> str | None:
+    """`sysctl -n <name>`, stripped, or None when it cannot be read."""
+    try:
+        r = subprocess.run(  # noqa: S603
+            ["sysctl", "-n", name],  # noqa: S607
+            capture_output=True, text=True, timeout=2, env=_sbin_env(),
+        )
+    except (subprocess.SubprocessError, OSError):
+        return None
+    out = r.stdout.strip()
+    return out if r.returncode == 0 and out else None
+
+
+def _detect_apple_silicon() -> tuple[bool, str, float]:
+    """Detect an Apple Silicon GPU. Returns (found, chip_name, vram_total_gb).
+
+    Uses sysctl hw.optional.arm64 so detection works even when Python runs under Rosetta
+    (where platform.machine() returns 'x86_64').
+
+    hermia-ly6f: arm64 alone used to be taken as a GPU, named "Apple Silicon" when
+    system_profiler failed -- so a macOS VM with no display device recorded a GPU that does not
+    exist. A GPU is now reported only on positive evidence: system_profiler lists an Apple
+    display device, or the machine is bare-metal Apple Silicon (kern.hv_vmm_present == 0),
+    which always has one. The name comes from that listing or the chip's brand string, and
+    is blank rather than invented when neither answers.
+
+    Total unified memory is vram_total_gb: GPU and CPU share one physical pool. hw.memsize,
+    with psutil's total as a fallback -- the SAME pool, not a substitute (the two were equal
+    to the byte on an M1 Pro, 2026-10-17).
     """
     if sys.platform != "darwin":
         return False, "", 0.0
 
     # platform.machine() works for native arm64 Python; sysctl catches Rosetta
-    is_arm = platform.machine() == "arm64"
-    if not is_arm:
-        try:
-            r = subprocess.run(  # noqa: S603
-                ["sysctl", "-n", "hw.optional.arm64"],  # noqa: S607
-                capture_output=True, text=True, timeout=2,
-            )
-            is_arm = r.stdout.strip() == "1"
-        except (subprocess.SubprocessError, OSError):
-            pass
-
+    is_arm = platform.machine() == "arm64" or _sysctl("hw.optional.arm64") == "1"
     if not is_arm:
         return False, "", 0.0
 
-    # GPU model name from system_profiler (no sudo)
-    name = "Apple Silicon"
-    try:
-        r = subprocess.run(  # noqa: S603
-            ["system_profiler", "SPDisplaysDataType", "-json"],  # noqa: S607
-            capture_output=True, text=True, timeout=5,
-        )
-        data: dict[str, Any] = json.loads(r.stdout)
-        entries = data.get("SPDisplaysDataType", [])
-        if entries:
-            name = entries[0].get("sppci_model", name)
-    except (subprocess.SubprocessError, json.JSONDecodeError, OSError, KeyError):
-        pass
+    apple_entry = next(
+        (
+            e for e in _spdisplays_entries() or []
+            if "apple" in str(e.get("spdisplays_vendor", "")).lower()
+            or str(e.get("sppci_model", "")).startswith("Apple")
+        ),
+        None,
+    )
+    bare_metal = _sysctl("kern.hv_vmm_present") == "0"
+    if apple_entry is None and not bare_metal:
+        return False, "", 0.0  # no evidence of a GPU: say nothing rather than invent one
 
-    # Total unified memory from sysctl
-    vram_total_gb = 0.0
+    name = str(apple_entry.get("sppci_model") or "") if apple_entry is not None else ""
+    if not name and bare_metal:
+        # The chip's own name. Not in a VM: there it can name the host's chip.
+        name = _sysctl("machdep.cpu.brand_string") or ""
+
+    memsize = _sysctl("hw.memsize")
     try:
-        r = subprocess.run(  # noqa: S603
-            ["sysctl", "-n", "hw.memsize"],  # noqa: S607
-            capture_output=True, text=True, timeout=2,
-        )
-        vram_total_gb = int(r.stdout.strip()) / (1024**3)
-    except (subprocess.SubprocessError, ValueError, OSError):
+        vram_total_gb = int(memsize) / (1024**3) if memsize else 0.0
+    except ValueError:
+        vram_total_gb = 0.0
+    if not vram_total_gb:
         import psutil
         vram_total_gb = psutil.virtual_memory().total / (1024**3)
 
@@ -159,7 +181,7 @@ def _gpu_stats_apple_silicon() -> tuple[float | None, float | None, float | None
     try:
         r = subprocess.run(  # noqa: S603
             ["ioreg", "-r", "-d", "1", "-w", "0", "-c", "IOAccelerator"],  # noqa: S607
-            capture_output=True, text=True, timeout=5,
+            capture_output=True, text=True, timeout=5, env=_sbin_env(),
         )
         if r.returncode != 0 or not r.stdout:
             return None, None, _APPLE_VRAM_TOTAL_GB
@@ -237,7 +259,7 @@ def _spdisplays_entries() -> list[dict[str, Any]] | None:
     try:
         r = subprocess.run(  # noqa: S603
             ["system_profiler", "SPDisplaysDataType", "-json"],  # noqa: S607
-            capture_output=True, text=True, timeout=5,
+            capture_output=True, text=True, timeout=5, env=_sbin_env(),
         )
         raw = json.loads(r.stdout).get("SPDisplaysDataType", [])
         entries = [e for e in raw if isinstance(e, dict)] if isinstance(raw, list) else []

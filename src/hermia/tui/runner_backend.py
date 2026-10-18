@@ -12,6 +12,7 @@ Pass results_dir=None to skip disk writes (useful in tests).
 from __future__ import annotations
 
 import asyncio
+import os
 import secrets
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -19,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from hermia.backend import resolve_stack
-from hermia.runner import TEST_TIMEOUT
+from hermia.runner import TEST_TIMEOUT, redact_secrets
 from hermia.transport.openai_compat import MAX_5XX_RETRIES, RETRY_BACKOFF_SEC
 from hermia.tui.bus import SessionBus
 from hermia.tui.run_state import RunState
@@ -318,17 +319,18 @@ class TuiRunner:
                 raw_response=_timeout_msg,
             )
         except Exception as exc:  # noqa: BLE001
+            message = _scrub(str(exc), host)
             result = _error_result(
                 model=model.name,
                 test=test,
                 host=host.url,
-                failure_reason=f"ERROR: {exc}",
+                failure_reason=f"ERROR: {message}",
                 elapsed_sec=0.0,
                 # output_preview stays truncated for the row; raw_response
                 # keeps the whole message so the detail screen can show a full
                 # traceback-bearing error instead of its first 120 characters.
-                output_preview=str(exc)[:120],
-                raw_response=f"ERROR: {exc}",
+                output_preview=message[:120],
+                raw_response=f"ERROR: {message}",
             )
 
         self._n_completed += 1
@@ -409,6 +411,18 @@ def _make_run_id() -> str:
     return f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-{secrets.token_hex(3)}"
 
 
+def _auth_headers(auth_env: str | None) -> dict[str, str]:
+    """The Authorization header a host's auth_header_env names, or {} when unset or empty."""
+    token = os.environ.get(auth_env, "") if auth_env else ""
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
+def _scrub(text: str, host: Host) -> str:
+    """``text`` without the host's token or any login in its URL (hermia-4mhr): an error that
+    escapes run_test is shown on screen and saved in the row."""
+    return redact_secrets(text, _auth_headers(host.auth_header_env), [host.url])
+
+
 def _real_run_test(
     model_name: str,
     test: dict[str, Any],
@@ -418,18 +432,12 @@ def _real_run_test(
     auth_env: str | None,
 ) -> dict[str, Any]:
     """Production run_test bridge — called from asyncio.to_thread."""
-    import os
-
     from hermia.metrics import MetricsSampler
     from hermia.runner import run_test
     from hermia.transport.ollama import OllamaTransport
     from hermia.transport.openai_compat import OpenAICompatTransport
 
-    headers: dict[str, str] = {}
-    if auth_env:
-        token = os.environ.get(auth_env, "")
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
+    headers = _auth_headers(auth_env)
 
     transport = (
         OpenAICompatTransport(host, headers)
@@ -455,7 +463,9 @@ def _real_run_test(
     # box reads as local, so the orchestrator's metrics would be attributed to a remote run.
     # machine_id stamping (hermia-cfqv) is what catches that class; widening this fix to
     # consult it needs its own change.
+    # headers= is what lets run_test scrub the token from its per-test error text (an
+    # InvalidHeader quotes the whole value) and authenticate its /api/ps and /api/show probes.
     return run_test(
         model_name, test, sampler,
-        host=host, transport=transport,
+        host=host, headers=headers or None, transport=transport,
     )

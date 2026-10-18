@@ -1,5 +1,6 @@
 """Unit tests for runner.py — model management and test execution."""
 
+import json
 import os
 from unittest.mock import MagicMock, patch
 
@@ -78,16 +79,90 @@ def test_get_available_models_returns_list() -> None:
     assert result == MODEL_LIST
 
 
-def test_get_available_models_returns_empty_on_connection_error() -> None:
-    with patch("hermia.runner.requests.get", side_effect=requests.exceptions.ConnectionError):
-        assert get_available_models() == []
+# hermia-4mhr: these two tests used to assert that a refused connection and a body with no
+# "models" key both return [] -- the defect itself. [] now means only "reached the server, and
+# it has zero models"; every failure raises ModelDiscoveryError naming the host it tried.
+
+def test_get_available_models_reports_an_unreachable_host() -> None:
+    """Connection refused is 'could not reach <host>', never 'no models'."""
+    from hermia.runner import ModelDiscoveryError
+
+    with (
+        patch("hermia.runner.requests.get",
+              side_effect=requests.exceptions.ConnectionError("refused")),
+        pytest.raises(ModelDiscoveryError) as err,
+    ):
+        get_available_models(host="http://192.0.2.1:11434")
+    assert err.value.kind == "unreachable"
+    assert "could not reach http://192.0.2.1:11434/api/tags" in str(err.value), "the URL tried"
+    assert "ConnectionError: refused" in str(err.value), "the cause, not just the category"
 
 
-def test_get_available_models_returns_empty_on_missing_key() -> None:
-    mock_resp = MagicMock()
-    mock_resp.json.return_value = {}
-    with patch("hermia.runner.requests.get", return_value=mock_resp):
-        assert get_available_models() == []
+def test_get_available_models_reports_a_timeout_as_unreachable() -> None:
+    from hermia.runner import ModelDiscoveryError
+
+    with (
+        patch("hermia.runner.requests.get", side_effect=requests.exceptions.Timeout()),
+        pytest.raises(ModelDiscoveryError) as err,
+    ):
+        get_available_models(host="http://192.0.2.1:11434")
+    assert err.value.kind == "unreachable"
+
+
+def test_get_available_models_reports_a_non_ok_status() -> None:
+    """A 404 or 500 with a JSON body used to read as 'no models'."""
+    from hermia.runner import ModelDiscoveryError
+
+    resp = MagicMock(status_code=404)
+    resp.raise_for_status.side_effect = requests.exceptions.HTTPError("404 Not Found")
+    resp.json.return_value = {"error": "not found"}
+    with (
+        patch("hermia.runner.requests.get", return_value=resp),
+        pytest.raises(ModelDiscoveryError) as err,
+    ):
+        get_available_models(host="http://192.0.2.1:11434")
+    assert err.value.kind == "http_status"
+    assert "404" in str(err.value)
+
+
+@pytest.mark.parametrize(
+    "body",
+    [{}, {"models": None}, {"models": "llama3"}, ["not", "a", "dict"]],
+    ids=["missing-key", "null", "string", "list-body"],
+)
+def test_get_available_models_reports_an_unexpected_body(body: object) -> None:
+    """A response that is not {'models': [...]} is not 'zero models'."""
+    from hermia.runner import ModelDiscoveryError
+
+    resp = MagicMock(status_code=200)
+    resp.json.return_value = body
+    with (
+        patch("hermia.runner.requests.get", return_value=resp),
+        pytest.raises(ModelDiscoveryError) as err,
+    ):
+        get_available_models(host="http://192.0.2.1:11434")
+    assert err.value.kind == "bad_response"
+
+
+def test_get_available_models_reports_invalid_json() -> None:
+    from hermia.runner import ModelDiscoveryError
+
+    resp = MagicMock(status_code=200)
+    resp.json.side_effect = requests.exceptions.JSONDecodeError("Expecting value", "<html>", 0)
+    with (
+        patch("hermia.runner.requests.get", return_value=resp),
+        pytest.raises(ModelDiscoveryError) as err,
+    ):
+        get_available_models(host="http://192.0.2.1:11434")
+    assert err.value.kind == "bad_response"
+
+
+def test_get_available_models_zero_models_is_the_only_empty_list() -> None:
+    """Reached the server and it has none pulled: the one case that is genuinely []."""
+    resp = MagicMock(status_code=200)
+    resp.json.return_value = {"models": []}
+    with patch("hermia.runner.requests.get", return_value=resp):
+        assert get_available_models(host="http://192.0.2.1:11434") == []
 
 
 # ── get_model_size_gb ─────────────────────────────────────────────────────────
@@ -1099,18 +1174,27 @@ def test_ps_cache_is_thread_safe_under_concurrent_access() -> None:
             for i in range(500):
                 host = f"http://h{n % 4}:11434"
                 model = f"m{i % 8}"
-                with patch("hermia.runner.requests.get", return_value=_mock_ps_empty()):
-                    fetch_server_ps_data(host, model)
+                fetch_server_ps_data(host, model)
                 if i % 3 == 0:
                     unload_model(model)  # mutates/evicts cache concurrently
         except Exception as e:  # noqa: BLE001
             errors.append(e)
 
-    threads = [threading.Thread(target=worker, args=(n,)) for n in range(16)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
+    # ONE patch around all the threads. This used to patch inside each worker, per call:
+    # mock.patch is not thread-safe, so 16 threads restoring each other's mocks left a fake
+    # requests.get installed after the test in 4 of 5 runs (hermia-4mhr), breaking any later
+    # test that reached the network layer -- e.g. the fake-Ollama integration test.
+    # requests.post too: unload_model() POSTs to the host, and this test used to send 2,672 real
+    # requests per run to whatever HERMIA_HOST pointed at (review, 2026-10-17).
+    with (
+        patch("hermia.runner.requests.get", return_value=_mock_ps_empty()),
+        patch("hermia.runner.requests.post", return_value=MagicMock(status_code=200)),
+    ):
+        threads = [threading.Thread(target=worker, args=(n,)) for n in range(16)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
     assert errors == [], f"concurrent cache access raised: {errors[:3]}"
 
 
@@ -1475,3 +1559,280 @@ def test_detect_mode_treats_the_whole_loopback_range_as_local() -> None:
     # on DNS invites the same misattribution as an SSH tunnel on localhost.
     for host in ("http://100.68.230.118:11434", "http://my-box.local:11434"):
         assert detect_mode(host) == "fleet", host
+
+
+
+# ── hermia-4mhr review findings (2026-10-17) ─────────────────────────────────
+
+
+def test_a_bearer_token_with_a_stray_newline_is_never_printed() -> None:
+    """requests' InvalidHeader quotes the header value; the token must not reach the message.
+
+    Real call, no network: the header is rejected while the request is built.
+    """
+    from hermia.runner import ModelDiscoveryError
+
+    token = "fake-token-for-tests"  # noqa: S105 — test fixture, not a credential
+    with pytest.raises(ModelDiscoveryError) as err:
+        get_available_models(
+            host="http://127.0.0.1:9", headers={"Authorization": f"Bearer {token}\r"}
+        )
+    assert err.value.kind == "bad_request"
+    assert token not in str(err.value)
+    assert "could not make a valid request to http://127.0.0.1:9/api/tags" in str(err.value)
+    assert "InvalidHeader" in str(err.value), "the cause is kept, the token is not"
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        UnicodeEncodeError("latin-1", "fake-token\u2603", 9, 10, "ordinal not in range(256)"),
+        ValueError("Failed to parse: 'my..host', label empty or too long"),
+    ],
+    ids=["non-latin-1-header", "bad-dns-label"],
+)
+def test_a_malformed_request_is_bad_request_not_a_crash(exc: Exception) -> None:
+    """These are not RequestExceptions; they used to escape and abort the whole fleet run."""
+    from hermia.runner import ModelDiscoveryError
+
+    with (
+        patch("hermia.runner.requests.get", side_effect=exc),
+        pytest.raises(ModelDiscoveryError) as err,
+    ):
+        get_available_models(host="http://192.0.2.1:11434", headers={"Authorization": "x"})
+    assert err.value.kind == "bad_request"
+
+
+def test_a_bad_request_never_quotes_the_token() -> None:
+    """A non-requests error that quotes the header value: the token is scrubbed, the cause kept.
+
+    Replaces an assertion that could not fail (a UnicodeEncodeError's text never holds its
+    input), found by the outside review 2026-10-17."""
+    from hermia.runner import ModelDiscoveryError
+
+    tok = "Bearer fake-token-for-tests"  # pragma: allowlist secret
+    with (
+        patch("hermia.runner.requests.get", side_effect=ValueError(f"bad header value '{tok}'")),
+        pytest.raises(ModelDiscoveryError) as err,
+    ):
+        get_available_models(host="http://192.0.2.1:11434", headers={"Authorization": tok})
+    assert err.value.kind == "bad_request"
+    assert "fake-token-for-tests" not in str(err.value)
+    assert "bad header value" in str(err.value), "the cause is kept"
+
+
+def test_a_real_bad_dns_label_is_bad_request() -> None:
+    """End to end through requests/urllib3, which raise LocationParseError for 'my..host'."""
+    from hermia.runner import ModelDiscoveryError
+
+    with pytest.raises(ModelDiscoveryError) as err:
+        get_available_models(host="http://my..host:11434")
+    assert err.value.kind == "bad_request"
+
+
+@pytest.mark.parametrize("status", [401, 500])
+def test_credentials_in_the_host_url_are_never_printed(status: int) -> None:
+    """requests honours credentials in the host URL; the password must never appear."""
+    from hermia.runner import ModelDiscoveryError
+
+    url = (
+        "http://alice:NOTAPASSWORD@192.0.2.1:11434"  # pragma: allowlist secret  # trufflehog:ignore
+    )
+    resp = MagicMock(status_code=status)
+    resp.raise_for_status.side_effect = requests.exceptions.HTTPError(
+        f"{status} Client Error: Unauthorized for url: {url}/api/tags"
+    )
+    with (
+        patch("hermia.runner.requests.get", return_value=resp),
+        pytest.raises(ModelDiscoveryError) as err,
+    ):
+        get_available_models(host=url)
+    assert "NOTAPASSWORD" not in str(err.value)
+    assert "alice" not in str(err.value)
+    assert "http://***@192.0.2.1:11434/api/tags" in str(err.value)
+
+
+def test_credentials_in_an_unreachable_host_url_are_never_printed() -> None:
+    from hermia.runner import ModelDiscoveryError
+
+    url = (
+        "http://alice:NOTAPASSWORD@192.0.2.1:11434"  # pragma: allowlist secret  # trufflehog:ignore
+    )
+    with (
+        patch("hermia.runner.requests.get",
+              side_effect=requests.exceptions.ConnectionError("refused")),
+        pytest.raises(ModelDiscoveryError) as err,
+    ):
+        get_available_models(host=url)
+    assert "NOTAPASSWORD" not in str(err.value)
+
+
+def test_a_missing_models_key_is_described_as_missing() -> None:
+    """Not 'models = NoneType', which is what an explicit null looks like."""
+    from hermia.runner import ModelDiscoveryError
+
+    resp = MagicMock(status_code=200)
+    resp.json.return_value = {"data": []}
+    with (
+        patch("hermia.runner.requests.get", return_value=resp),
+        pytest.raises(ModelDiscoveryError) as err,
+    ):
+        get_available_models(host="http://192.0.2.1:11434")
+    assert 'no "models" key' in str(err.value)
+
+
+def test_redact_secrets_removes_header_values_in_every_form() -> None:
+    from hermia.runner import redact_secrets
+
+    hdrs = {"Authorization": "Bearer fake-tok-abc\r"}
+    text = "value: 'Bearer fake-tok-abc\\r' and raw fake-tok-abc and http://u:p@h:1/x"
+    out = redact_secrets(text, hdrs)
+    assert "fake-tok-abc" not in out
+    assert "u:p@" not in out and "http://***@h:1/x" in out
+
+
+
+# ── second review round (2026-10-17): scrubbing everywhere, classification ──
+
+
+@pytest.mark.parametrize(
+    "secret",
+    ["pa'ss", 'pa"ss', "pa ss", "pa/ss", "p@ssw0rd"],
+    ids=["quote", "dquote", "space", "slash", "at-sign"],
+)
+def test_url_passwords_with_awkward_characters_are_removed_whole(secret: str) -> None:
+    """A URL parser splits these at the odd character; the exact userinfo must still go."""
+    from hermia.runner import redact_secrets
+
+    url = f"http://alice:{secret}@127.0.0.1:11434"  # trufflehog:ignore
+    text = f"401 for url: {url}/api/tags and raw {url}"
+    out = redact_secrets(text, None, [url])
+    assert secret not in out and "alice" not in out, out
+    assert "http://***@127.0.0.1:11434/api/tags" in out
+
+
+def test_per_test_errors_never_carry_the_url_password() -> None:
+    """run_test's error text is printed and saved in every row; a 401 quoted the password."""
+    url = (
+        "http://alice:NOTAPASSWORD@192.0.2.1:11434"  # pragma: allowlist secret  # trufflehog:ignore
+    )
+    transport = MagicMock()
+    transport.generate.side_effect = requests.exceptions.HTTPError(
+        f"401 Client Error: Unauthorized for url: {url}/api/chat"
+    )
+    with patch("hermia.runner.fetch_server_ps_data", return_value=_PS_EMPTY):
+        result = run_test(
+            "m1", _BASE_TEST, _mock_sampler(), host=url, transport=transport
+        )
+    assert result["failure_reason"].startswith("ERROR")
+    assert "NOTAPASSWORD" not in json.dumps(result, default=str), "no field, host included"
+    assert result["host"] == "http://***@192.0.2.1:11434"
+
+
+def test_per_test_errors_never_carry_the_bearer_token() -> None:
+    token = "fake-token-for-tests"  # noqa: S105 — test fixture, not a credential
+    transport = MagicMock()
+    transport.generate.side_effect = requests.exceptions.InvalidHeader(
+        f"Invalid leading whitespace in header value: 'Bearer {token}\\r'"
+    )
+    with patch("hermia.runner.fetch_server_ps_data", return_value=_PS_EMPTY):
+        result = run_test(
+            "m1", _BASE_TEST, _mock_sampler(), host="http://192.0.2.1:11434",
+            headers={"Authorization": f"Bearer {token}\r"}, transport=transport,
+        )
+    assert token not in result["failure_reason"]
+
+
+@pytest.mark.parametrize(
+    ("exc", "kind"),
+    [
+        (requests.exceptions.ConnectionError("refused"), "unreachable"),
+        (requests.exceptions.Timeout("read timed out"), "unreachable"),
+        (requests.exceptions.TooManyRedirects("30 redirects"), "http_status"),
+        (requests.exceptions.ContentDecodingError("bad gzip"), "bad_response"),
+        (requests.exceptions.ChunkedEncodingError("IncompleteRead"), "bad_response"),
+        (requests.exceptions.InvalidURL("redirect to http://[bad"), "bad_request"),
+        (OSError("Could not find a suitable TLS CA certificate bundle"), "bad_request"),
+    ],
+    ids=["refused", "timeout", "redirect-loop", "bad-gzip", "chunked", "bad-redirect", "ca-bundle"],
+)
+def test_every_requests_outcome_has_the_right_kind(exc: Exception, kind: str) -> None:
+    """Every requests error is an OSError; specific outcomes must not land in the OSError branch."""
+    from hermia.runner import ModelDiscoveryError
+
+    with (
+        patch("hermia.runner.requests.get", side_effect=exc),
+        pytest.raises(ModelDiscoveryError) as err,
+    ):
+        get_available_models(host="http://192.0.2.1:11434")
+    assert err.value.kind == kind
+
+
+def test_a_redirect_to_an_unusable_location_keeps_its_cause() -> None:
+    """The server answered; the message must say why, not just 'check your config'."""
+    from hermia.runner import ModelDiscoveryError
+
+    with (
+        patch("hermia.runner.requests.get",
+              side_effect=requests.exceptions.InvalidURL("Invalid URL 'http://[bad': redirect")),
+        pytest.raises(ModelDiscoveryError) as err,
+    ):
+        get_available_models(host="http://192.0.2.1:11434")
+    assert "http://[bad" in str(err.value)
+
+
+@pytest.mark.parametrize(
+    "models",
+    [["llama3"], [{"size": 1}], [{"name": 7}], [None]],
+    ids=["strings", "no-name", "non-str-name", "null"],
+)
+def test_model_entries_must_be_model_objects(models: list) -> None:
+    """A list of non-objects used to crash the fleet resolver and abort every host's run."""
+    from hermia.runner import ModelDiscoveryError
+
+    resp = MagicMock(status_code=200)
+    resp.json.return_value = {"models": models}
+    with (
+        patch("hermia.runner.requests.get", return_value=resp),
+        pytest.raises(ModelDiscoveryError) as err,
+    ):
+        get_available_models(host="http://192.0.2.1:11434")
+    assert err.value.kind == "bad_response"
+
+
+
+def test_hermia_host_with_a_login_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """hermia-emsn: HERMIA_HOST is a host address like any other."""
+    from hermia.runner import get_ollama_host
+
+    login = (
+        "http://alice:NOTAPASSWORD@192.0.2.1:11434"  # pragma: allowlist secret  # trufflehog:ignore
+    )
+    monkeypatch.setenv("HERMIA_HOST", login)
+    with pytest.raises(ValueError, match="HERMIA_HOST") as err:
+        get_ollama_host()
+    assert "NOTAPASSWORD" not in str(err.value)
+
+
+def test_hermia_host_without_a_login_is_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    from hermia.runner import get_ollama_host
+
+    monkeypatch.setenv("HERMIA_HOST", "192.0.2.1:11434")
+    assert get_ollama_host() == "http://192.0.2.1:11434"
+
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("bad key 'fake-tok-abcd'", "bad key '***'"),
+        ("fake-tok-abcd rejected", "*** rejected"),
+        ("bad key fake-tok-abcd", "bad key ***"),
+    ],
+)
+def test_redact_secrets_finds_the_token_after_a_run_of_spaces(text: str, expected: str) -> None:
+    """"Bearer  tok" (an env var with a leading space): the bare token is still a secret."""
+    from hermia.runner import redact_secrets
+
+    headers = {"Authorization": "Bearer  fake-tok-abcd"}  # pragma: allowlist secret
+    assert redact_secrets(text, headers) == expected

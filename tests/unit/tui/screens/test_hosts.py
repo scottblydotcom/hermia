@@ -8,6 +8,10 @@ from hermia.tui.screens.config import FleetConfigScreen
 from hermia.tui.screens.hosts import HostsScreen
 from hermia.tui.state import Host
 
+_LOGIN_URL = (
+    "http://alice:NOTAPASSWORD@192.0.2.1:11434"  # pragma: allowlist secret  # trufflehog:ignore
+)
+
 
 class TestHostsScreen:
     def test_initial_render_shows_existing_hosts(self) -> None:
@@ -61,6 +65,30 @@ class TestHostsScreen:
                 await pilot.press("plus")
                 await pilot.pause()
                 assert isinstance(pilot.app.screen, AddHostModal)
+
+        asyncio.run(_run())
+
+    def test_add_host_refuses_a_login_in_the_address(self) -> None:
+        """hermia-emsn: the form stays open and no host is added."""
+        from textual.widgets import Input
+
+        from hermia.tui.screens.modals import AddHostModal
+
+        async def _run() -> None:
+            async with HermiaApp().run_test() as pilot:
+                pilot.app.push_screen(HostsScreen())
+                await pilot.pause()
+                await pilot.press("plus")
+                await pilot.pause()
+                modal = pilot.app.screen
+                assert isinstance(modal, AddHostModal)
+                modal.query_one("#addhost-name", Input).value = "px"
+                modal.query_one("#addhost-url", Input).value = _LOGIN_URL
+                modal.query_one("#addhost-engine", Input).focus()
+                await pilot.press("enter")
+                await pilot.pause()
+                assert isinstance(pilot.app.screen, AddHostModal), "the form must stay open"
+                assert pilot.app.config.hosts == []
 
         asyncio.run(_run())
 

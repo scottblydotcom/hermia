@@ -109,3 +109,26 @@ def test_hermia_analyze_version() -> None:
     assert r.returncode == 0, f"hermia-analyze --version exited {r.returncode}: {r.stderr}"
     combined = r.stdout + r.stderr
     assert combined.strip(), "hermia-analyze --version produced no output"
+
+
+
+def test_tui_start_refuses_a_login_in_hermia_host(monkeypatch, capsys) -> None:
+    """hermia-emsn: exit 2 with a plain message, before any UI starts; no password echoed."""
+    import sys as _sys
+
+    import pytest as _pytest
+
+    from hermia import app as app_mod
+
+    login = (
+        "http://alice:NOTAPASSWORD@192.0.2.1:11434"  # pragma: allowlist secret  # trufflehog:ignore
+    )
+    monkeypatch.setenv("HERMIA_HOST", login)
+    monkeypatch.setattr(_sys, "argv", ["hermia"])
+    monkeypatch.setattr(app_mod, "HermiaApp",
+                        lambda **kw: (_ for _ in ()).throw(AssertionError("UI must not start")))
+    with _pytest.raises(SystemExit) as exc:
+        app_mod.main()
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    assert "HERMIA_HOST" in err and "NOTAPASSWORD" not in err

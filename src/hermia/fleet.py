@@ -14,6 +14,8 @@ if TYPE_CHECKING:
 
 import yaml
 
+from hermia.host_url import reject_login_in_host
+
 # Headless fleet[] schema only — TUI hosts[] uses different keys (url/engine),
 # converted to this schema by _tui_fleet_to_entries before entries reach load_fleet_config's checks.
 _FLEET_ENTRY_KEYS = frozenset(
@@ -123,6 +125,7 @@ def load_fleet_config(path: Path) -> list[dict[str, Any]]:
             raise ValueError(f"Fleet entry [{i}] missing or invalid 'name'")
         if not isinstance(entry.get("host"), str) or not entry["host"]:
             raise ValueError(f"Fleet entry [{i}] missing or invalid 'host'")
+        reject_login_in_host(entry["host"], f"Fleet entry [{i}] '{entry['name']}'")
         transport = entry.get("transport", "ollama")
         if transport not in ("ollama", "openai-compat"):
             raise ValueError(
@@ -236,9 +239,11 @@ def _run_host_eval(
     from hermia.robustness import compute_reproducibility, score_rows
     from hermia.runner import (
         TEST_TIMEOUT,
+        ModelDiscoveryError,
         _normalize_host,
         get_available_models,
         load_tests_all,
+        redact_secrets,
         run_test,
     )
     from hermia.transport.ollama import OllamaTransport
@@ -297,7 +302,10 @@ def _run_host_eval(
             host_url, transport_type, fleet_mode=True, headers=headers
         )
     except Exception as exc:  # noqa: BLE001 — advisory-only, degrade quietly
-        sec_warnings = [f"SEC ⚠ engine-security probe failed: {exc}"]
+        sec_warnings = [
+            f"SEC ⚠ engine-security probe failed: "
+            f"{redact_secrets(str(exc), headers, [host_url])}"
+        ]
     if sec_warnings:
         with print_lock:
             for w in sec_warnings:
@@ -318,7 +326,7 @@ def _run_host_eval(
             with print_lock:
                 stderr_fn(
                     f"  ERROR: openai-compat host '{name}' model discovery failed"
-                    f" ({exc}) — skipping host"
+                    f" ({redact_secrets(str(exc), headers, [host_url])}) — skipping host"
                 )
             return False
         if not discovered:
@@ -341,11 +349,28 @@ def _run_host_eval(
         return False
     else:
         # openai-compat hosts have no /api/tags endpoint; only discover for ollama.
-        all_models = (
-            get_available_models(host=host_url, headers=headers)
-            if transport_type != "openai-compat"
-            else []
-        )
+        try:
+            all_models = (
+                get_available_models(host=host_url, headers=headers)
+                if transport_type != "openai-compat"
+                else []
+            )
+        except ModelDiscoveryError as exc:
+            # hermia-4mhr: say what actually happened, with the URL tried. "No models" here
+            # sent a user debugging a healthy server that was simply not listening on it.
+            with print_lock:
+                stderr_fn(f"  ERROR: '{name}' {exc} — skipping host")
+            return False
+        except Exception as exc:  # noqa: BLE001 — one host's failure must not end the run
+            # Anything get_available_models did not classify is a bug, but it is still THIS
+            # host's failure: skip it, loudly, rather than abort every other host's work.
+            # Only the type is printed: an unclassified message could carry a secret.
+            with print_lock:
+                stderr_fn(
+                    f"  ERROR: '{name}' model discovery failed unexpectedly"
+                    f" ({type(exc).__name__}) — skipping host"
+                )
+            return False
         models, missing = _resolve_models(transport_type, requested, all_models)
     if missing:
         with print_lock:
@@ -361,7 +386,8 @@ def _run_host_eval(
     if verbosity >= 0:
         with print_lock:
             print_fn(
-                f"{name} ({host_url}) — {len(models)} models, {len(tests)} tests"
+                f"{name} ({redact_secrets(host_url, headers, [host_url])}) — "
+                f"{len(models)} models, {len(tests)} tests"
             )
 
     sampler = MetricsSampler()

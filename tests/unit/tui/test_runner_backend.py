@@ -404,3 +404,68 @@ def test_tui_does_not_declare_a_host_on_this_machine_remote():
         "GPU and VRAM figure for the run"
     )
     assert remote["mode"] == "fleet", "a fleet host must not be sampled as if it were local"
+
+
+# hermia-4mhr review 2026-10-17 (Antigravity + Claude, both reproduced): the TUI never handed
+# the token to run_test, so its per-test error kept a token that an InvalidHeader quoted whole.
+_CR_TOKEN = "fake-tok-SECRET-123\r"  # noqa: S105  # pragma: allowlist secret
+
+
+def test_real_run_test_never_saves_the_token(monkeypatch) -> None:
+    """Real _real_run_test and transports; a CR-terminated token fails before any connection."""
+    import json
+    from unittest.mock import patch
+
+    import pytest
+
+    from hermia.tui.runner_backend import _real_run_test
+
+    monkeypatch.setenv("HERMIA_TEST_TUI_TOKEN", _CR_TOKEN)
+    ps_empty = {"vram_server_gb": None, "model_size_server_gb": None}
+    for engine in ("ollama", "openai-compat"):
+        with patch("hermia.runner.fetch_server_ps_data", return_value=ps_empty):
+            row = _real_run_test(
+                "m", {"id": "t1", "prompt": "go", "system": ""},
+                host="http://127.0.0.1:9", engine=engine, auth_env="HERMIA_TEST_TUI_TOKEN",
+            )
+        assert row["failure_reason"].startswith("ERROR"), (engine, row["failure_reason"])
+        assert "header" in row["failure_reason"], "the cause is kept"
+        if "fake-tok-SECRET-123" in json.dumps(row, default=str):
+            pytest.fail(f"{engine}: the token is in the saved row")
+
+
+def test_an_error_escaping_run_test_is_scrubbed(monkeypatch) -> None:
+    """The runner's own catch-all builds the row from the exception text: scrub it too."""
+    monkeypatch.setenv("HERMIA_TEST_TUI_TOKEN", "fake-tok-SECRET-123")
+
+    def leaky(model_name, test, *, host, engine, auth_env):  # noqa: ANN001, ANN202
+        raise RuntimeError("upstream said: Bearer fake-tok-SECRET-123 is invalid")
+
+    async def _run() -> list[dict]:
+        bus = SessionBus()
+        finished: list[dict] = []
+
+        async def listen() -> None:
+            async for ev in bus.subscribe("run.trial_finished"):
+                finished.append(ev)
+                return
+
+        task = asyncio.create_task(listen())
+        await asyncio.sleep(0)
+        host = Host(
+            name="h", url="http://127.0.0.1:9", engine="ollama",
+            auth_header_env="HERMIA_TEST_TUI_TOKEN",
+            models=[ModelChoice(name="m", selected=True)],
+        )
+        runner = TuiRunner(
+            config=FleetConfig(name="f", hosts=[host], repeat=1),
+            bus=bus, results_dir=None, run_test_fn=leaky, _tests_override=[{"id": "t1"}],
+        )
+        await runner.start()
+        await asyncio.wait_for(task, timeout=3.0)
+        return finished
+
+    finished = asyncio.run(_run())
+    text = repr(finished)
+    assert "is invalid" in text, "the cause is kept"
+    assert "fake-tok-SECRET-123" not in text
