@@ -37,6 +37,19 @@ def test_load_fleet_config_missing_name(tmp_path: Path) -> None:
         load_fleet_config(cfg)
 
 
+def test_load_fleet_config_rejects_a_login_in_the_host(tmp_path: Path) -> None:
+    """hermia-emsn: user:password@host is refused at load, and the password is not repeated."""
+    cfg = tmp_path / "fleet.yaml"
+    login = (
+        "http://alice:NOTAPASSWORD@192.0.2.1:11434"  # pragma: allowlist secret  # trufflehog:ignore
+    )
+    cfg.write_text(f"fleet:\n  - name: px\n    host: {login}\n")
+    with pytest.raises(ValueError, match="contains '@'") as err:
+        load_fleet_config(cfg)
+    assert "NOTAPASSWORD" not in str(err.value)
+    assert "auth.bearer.key_env" in str(err.value), "points to the supported way"
+
+
 def test_load_fleet_config_missing_host(tmp_path: Path) -> None:
     cfg = tmp_path / "fleet.yaml"
     cfg.write_text("fleet:\n  - name: node3\n")
@@ -725,6 +738,103 @@ def test_run_fleet_zero_models_counts_as_skipped(tmp_path: Path) -> None:
         )
 
     assert not mock_run.called
+    assert any("skipped 1" in line for line in lines)
+
+
+def test_run_fleet_survives_an_unexpected_discovery_error(tmp_path: Path) -> None:
+    """One host's unclassified failure skips that host; the other host still runs."""
+    from hermia.fleet import run_fleet
+
+    entries = [
+        {"name": "broken", "host": "http://192.0.2.1:11434"},
+        {"name": "fine", "host": "http://192.0.2.2:11434"},
+    ]
+    _tests = [{"id": "t1", "system": "s", "prompt": "p"}]
+    _run_files = (tmp_path / "out.jsonl", tmp_path / "out.csv")
+
+    def discover(host=None, headers=None):
+        if "192.0.2.1" in str(host):
+            raise KeyError("fake-detail-should-not-print")
+        return [{"name": "m1"}]
+
+    lines: list[str] = []
+    err: list[str] = []
+    with (
+        patch("hermia.runner.load_tests_all", return_value=_tests),
+        patch("hermia.runner.get_available_models", side_effect=discover),
+        patch("hermia.runner.run_test", return_value=dict(_MINIMAL_RESULT)) as mock_run,
+        patch("hermia.results.open_run", return_value=_run_files),
+        patch("hermia.results.append_result"),
+        patch("hermia.metrics.MetricsSampler", return_value=MagicMock()),
+    ):
+        run_fleet(entries, repeat=1, results_dir=tmp_path,
+                  print_fn=lines.append, stderr_fn=err.append)
+
+    joined = "\n".join(err)
+    assert "'broken' model discovery failed unexpectedly (KeyError)" in joined
+    assert "fake-detail-should-not-print" not in joined
+    assert mock_run.called, "the healthy host must still be evaluated"
+
+
+def test_run_fleet_banner_never_prints_the_url_password(tmp_path: Path) -> None:
+    """The per-host banner line printed the host URL verbatim, password included."""
+    from hermia.fleet import run_fleet
+
+    url = (
+        "http://alice:NOTAPASSWORD@192.0.2.1:11434"  # pragma: allowlist secret  # trufflehog:ignore
+    )
+    entries = [{"name": "pw", "host": url}]
+    _tests = [{"id": "t1", "system": "s", "prompt": "p"}]
+    _run_files = (tmp_path / "out.jsonl", tmp_path / "out.csv")
+    lines: list[str] = []
+    with (
+        patch("hermia.runner.load_tests_all", return_value=_tests),
+        patch("hermia.runner.get_available_models", return_value=[{"name": "m1"}]),
+        patch("hermia.runner.run_test", return_value=dict(_MINIMAL_RESULT)),
+        patch("hermia.results.open_run", return_value=_run_files),
+        patch("hermia.results.append_result"),
+        patch("hermia.metrics.MetricsSampler", return_value=MagicMock()),
+    ):
+        run_fleet(entries, repeat=1, results_dir=tmp_path,
+                  print_fn=lines.append, stderr_fn=lambda *_: None)
+    banner = [ln for ln in lines if ln.startswith("pw (")]
+    assert banner, lines
+    assert "NOTAPASSWORD" not in banner[0] and "***@192.0.2.1" in banner[0]
+
+
+def test_run_fleet_unreachable_host_says_unreachable_not_no_models(tmp_path: Path) -> None:
+    """hermia-4mhr: a refused connection must not be reported as 'no models'.
+
+    Scott's Windows box, 2026-09-12: Ollama was healthy with 23 models but bound to its LAN
+    address, so localhost was refused -- and the run said there were no models.
+    """
+    import requests
+
+    from hermia.fleet import run_fleet
+
+    entries = [{"name": "winbox", "host": "http://localhost:11434"}]
+    _tests = [{"id": "t1", "system": "s", "prompt": "p"}]
+    _run_files = (tmp_path / "out.jsonl", tmp_path / "out.csv")
+    lines: list[str] = []
+    err: list[str] = []
+    with (
+        patch("hermia.runner.load_tests_all", return_value=_tests),
+        patch("hermia.runner.requests.get",
+              side_effect=requests.exceptions.ConnectionError("Connection refused")),
+        patch("hermia.runner.run_test", return_value=dict(_MINIMAL_RESULT)) as mock_run,
+        patch("hermia.results.open_run", return_value=_run_files),
+        patch("hermia.results.append_result"),
+        patch("hermia.metrics.MetricsSampler", return_value=MagicMock()),
+    ):
+        run_fleet(
+            entries, repeat=1, results_dir=tmp_path,
+            print_fn=lines.append, stderr_fn=err.append,
+        )
+
+    assert not mock_run.called
+    joined = "\n".join(err)
+    assert "could not reach" in joined and "http://localhost:11434" in joined, joined
+    assert "no models" not in joined, "an unreachable host is not a host with no models"
     assert any("skipped 1" in line for line in lines)
 
 
@@ -1883,3 +1993,35 @@ def test_run_host_eval_rejects_invalid_yaml_timeout(
                 print_fn=lambda s: None, stderr_fn=lambda s: None, verbosity=-1,
                 test_timeout=None,
             )
+
+
+
+def test_openai_compat_discovery_error_never_prints_the_token(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A token read from a CRLF file: requests' InvalidHeader quotes it whole. Real call; it
+    fails before any connection is made. Review 2026-10-17: reverting the scrub stayed green."""
+    from hermia.fleet import run_fleet
+
+    monkeypatch.setenv("HERMIA_TEST_OC_TOKEN", "fake-tok-SECRET-123\r")  # pragma: allowlist secret
+    entries = [{
+        "name": "oc",
+        "host": "http://127.0.0.1:9",
+        "transport": "openai-compat",
+        "models": "auto",
+        "auth": {"bearer": {"key_env": "HERMIA_TEST_OC_TOKEN"}},
+    }]
+    errors: list[str] = []
+    with (
+        patch("hermia.runner.load_tests_all", return_value=[{"id": "t1", "prompt": "p"}]),
+        patch("hermia.runner.run_test") as mock_run,
+        patch("hermia.results.open_run", return_value=(tmp_path / "o.jsonl", tmp_path / "o.csv")),
+        patch("hermia.results.append_result"),
+        patch("hermia.metrics.MetricsSampler", return_value=MagicMock()),
+    ):
+        run_fleet(entries, repeat=1, results_dir=tmp_path, stderr_fn=errors.append)
+
+    printed = "\n".join(errors)
+    assert "model discovery failed" in printed, printed
+    assert "fake-tok-SECRET-123" not in printed
+    assert mock_run.call_args_list == []

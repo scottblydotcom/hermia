@@ -1,6 +1,8 @@
 """Tests for hermia.tui.runner_backend — TuiRunner + helpers."""
 import asyncio
 
+import pytest
+
 from hermia.tui.bus import SessionBus
 from hermia.tui.runner_backend import TuiRunner, _trial_wall_timeout_sec, verdict_from_result
 from hermia.tui.state import FleetConfig, Host, ModelChoice
@@ -404,3 +406,159 @@ def test_tui_does_not_declare_a_host_on_this_machine_remote():
         "GPU and VRAM figure for the run"
     )
     assert remote["mode"] == "fleet", "a fleet host must not be sampled as if it were local"
+
+
+# KNOWN LEAK, pre-existing on dev (hermia-4mhr review 2026-10-17, Antigravity + Claude both
+# reproduced): a TUI per-test error can keep a bearer token that an InvalidHeader quoted whole.
+# Two fixes were tried in PR #220 and each created a new defect (headers= sent the token on
+# Ollama-only probes to openai-compat hosts; scrubbing the whole row rewrote model output and
+# prompt hashes). The fix belongs with hermia-bw1q: give run_test the engine, an fp_cache and
+# headers= as fleet.py does. These xfail(strict) tests must pass once that lands.
+_KNOWN_LEAK = pytest.mark.xfail(
+    strict=True, reason="hermia-bw1q: TUI per-test errors can carry the bearer token"
+)
+_CR_TOKEN = "fake-tok-SECRET-123\r"  # noqa: S105  # pragma: allowlist secret
+
+
+@_KNOWN_LEAK
+def test_real_run_test_never_saves_the_token(monkeypatch) -> None:
+    """Real _real_run_test and transports; a CR-terminated token fails before any connection."""
+    import json
+    from unittest.mock import patch
+
+    import pytest
+
+    from hermia.tui.runner_backend import _real_run_test
+
+    monkeypatch.setenv("HERMIA_TEST_TUI_TOKEN", _CR_TOKEN)
+    ps_empty = {"vram_server_gb": None, "model_size_server_gb": None}
+    for engine in ("ollama", "openai-compat"):
+        with patch("hermia.runner.fetch_server_ps_data", return_value=ps_empty):
+            row = _real_run_test(
+                "m", {"id": "t1", "prompt": "go", "system": ""},
+                host="http://127.0.0.1:9", engine=engine, auth_env="HERMIA_TEST_TUI_TOKEN",
+            )
+        assert row["failure_reason"].startswith("ERROR"), (engine, row["failure_reason"])
+        assert "header" in row["failure_reason"], "the cause is kept"
+        if "fake-tok-SECRET-123" in json.dumps(row, default=str):
+            pytest.fail(f"{engine}: the token is in the saved row")
+
+
+@_KNOWN_LEAK
+def test_an_error_escaping_run_test_is_scrubbed(monkeypatch) -> None:
+    """The runner's own catch-all builds the row from the exception text: scrub it too."""
+    monkeypatch.setenv("HERMIA_TEST_TUI_TOKEN", "fake-tok-SECRET-123")
+
+    def leaky(model_name, test, *, host, engine, auth_env):  # noqa: ANN001, ANN202
+        raise RuntimeError("upstream said: Bearer fake-tok-SECRET-123 is invalid")
+
+    async def _run() -> list[dict]:
+        bus = SessionBus()
+        finished: list[dict] = []
+
+        async def listen() -> None:
+            async for ev in bus.subscribe("run.trial_finished"):
+                finished.append(ev)
+                return
+
+        task = asyncio.create_task(listen())
+        await asyncio.sleep(0)
+        host = Host(
+            name="h", url="http://127.0.0.1:9", engine="ollama",
+            auth_header_env="HERMIA_TEST_TUI_TOKEN",
+            models=[ModelChoice(name="m", selected=True)],
+        )
+        runner = TuiRunner(
+            config=FleetConfig(name="f", hosts=[host], repeat=1),
+            bus=bus, results_dir=None, run_test_fn=leaky, _tests_override=[{"id": "t1"}],
+        )
+        await runner.start()
+        await asyncio.wait_for(task, timeout=3.0)
+        return finished
+
+    finished = asyncio.run(_run())
+    text = repr(finished)
+    assert "is invalid" in text, "the cause is kept"
+    assert "fake-tok-SECRET-123" not in text
+
+
+def test_tui_never_sends_the_token_on_ollama_only_probes(monkeypatch) -> None:
+    """Guard for hermia-bw1q's fix: passing headers= to run_test alone sends the token on
+    /api/show, /api/ps and /api/version, which the TUI probes even on openai-compat hosts (PR #220,
+    outside review 2026-10-17). A local server records which requests carry it."""
+    import http.server
+    import threading
+    from unittest.mock import patch
+
+    from hermia.tui.runner_backend import _real_run_test
+
+    seen: list[tuple[str, str | None]] = []
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def _any(self) -> None:
+            seen.append((self.path, self.headers.get("Authorization")))
+            self.send_response(404)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        do_GET = do_POST = _any  # noqa: N815
+
+        def log_message(self, *a) -> None:  # noqa: ANN002
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    monkeypatch.setenv("HERMIA_TEST_TUI_TOKEN", "fake-tok-SECRET-123")
+    ps_empty = {"vram_server_gb": None, "model_size_server_gb": None}
+    try:
+        with patch("hermia.runner.fetch_server_ps_data", return_value=ps_empty):
+            _real_run_test(
+                "m", {"id": "t1", "prompt": "go", "system": ""},
+                host=f"http://127.0.0.1:{server.server_address[1]}",
+                engine="openai-compat", auth_env="HERMIA_TEST_TUI_TOKEN",
+            )
+    finally:
+        server.shutdown()
+    authed = [path for path, auth in seen if auth]
+    assert any(p.startswith("/v1/") for p in authed), f"the chat call carries the token: {seen}"
+    assert not [p for p in authed if p.startswith("/api/")], f"Ollama-only probe got it: {seen}"
+
+
+@_KNOWN_LEAK
+def test_a_host_level_failure_is_scrubbed(monkeypatch) -> None:
+    """A whole-host failure's text goes on the bus and into RunState: scrub it too."""
+    monkeypatch.setenv("HERMIA_TEST_TUI_TOKEN", "fake-tok-SECRET-123")
+
+    async def _boom(self, *a, **kw):  # noqa: ANN001, ANN002, ANN003, ANN202
+        raise RuntimeError("upstream said: Bearer fake-tok-SECRET-123 is invalid")
+
+    monkeypatch.setattr(TuiRunner, "_run_host", _boom)
+
+    async def _run() -> list[dict]:
+        bus = SessionBus()
+        finished: list[dict] = []
+
+        async def listen() -> None:
+            async for ev in bus.subscribe("run.trial_finished"):
+                finished.append(ev)
+                return
+
+        task = asyncio.create_task(listen())
+        await asyncio.sleep(0)
+        host = Host(
+            name="h", url="http://127.0.0.1:9", engine="ollama",
+            auth_header_env="HERMIA_TEST_TUI_TOKEN",
+            models=[ModelChoice(name="m", selected=True)],
+        )
+        runner = TuiRunner(
+            config=FleetConfig(name="f", hosts=[host], repeat=1),
+            bus=bus, results_dir=None, run_test_fn=_fake_run_test_fn,
+            _tests_override=[{"id": "t1"}],
+        )
+        await runner.start()
+        await asyncio.wait_for(task, timeout=3.0)
+        return finished
+
+    text = repr(asyncio.run(_run()))
+    assert "HOST_ERROR" in text and "is invalid" in text, text
+    assert "fake-tok-SECRET-123" not in text

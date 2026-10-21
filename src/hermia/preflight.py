@@ -7,6 +7,7 @@ from typing import Any
 
 import psutil
 
+from hermia.host_url import reject_login_in_host
 from hermia.metrics import get_gpu_stats
 
 VRAM_OVERHEAD_GB = 0.75  # headroom reserved for Ollama runtime
@@ -264,7 +265,9 @@ def run_preflight(
             reason=reason,
         ))
 
-    host = _normalize_host(os.environ.get("HERMIA_HOST", DEFAULT_OLLAMA_HOST))
+    raw_host = os.environ.get("HERMIA_HOST", DEFAULT_OLLAMA_HOST)
+    reject_login_in_host(raw_host, "HERMIA_HOST")
+    host = _normalize_host(raw_host)
     sec = check_ollama_security(host, fleet_mode=fleet_mode)
 
     return PreflightReport(

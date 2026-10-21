@@ -101,6 +101,17 @@ class AddHostModal(ModalScreen[Host | None]):
         if not url:
             self.query_one("#addhost-url", Input).focus()
             return
+        if "@" in url:
+            # hermia-emsn: a login in the address leaks into output and saved rows. Say why,
+            # without echoing the address (it holds the password), and keep the form open.
+            self.app.notify(
+                "Host addresses can't contain a login (user:password@host). For a bearer token, "
+                "save the fleet, set auth_header_env on this host in its file, and reload it. "
+                "Username/password logins are not supported.",
+                severity="error",
+            )
+            self.query_one("#addhost-url", Input).focus()
+            return
         self.dismiss(Host(name=name, url=url, engine=engine))
 
     def action_cancel(self) -> None:

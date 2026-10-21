@@ -29,6 +29,7 @@ from typing import Any
 import yaml
 
 from hermia import __version__
+from hermia.host_url import reject_login_in_host
 from hermia.tui.state import FleetConfig, Host, ModelChoice
 
 FLEETS_SUBDIR = "fleets"
@@ -77,6 +78,10 @@ def _headless_host(d: Any) -> Host:
         raise TypeError("Fleet entry must be a dictionary")
     if not d.get("name"):
         raise KeyError("Fleet entry missing required field: 'name'")
+    if d.get("host") is not None and not isinstance(d["host"], str):
+        raise TypeError(f"Fleet entry '{d['name']}': 'host' must be a string")
+    if d.get("host"):
+        reject_login_in_host(d["host"], f"Fleet entry '{d['name']}'")
     if d.get("identity") is not None:
         # The interactive TUI does not yet stamp machine identity (hermia-cfqv
         # TUI arm is a follow-up). Never drop it SILENTLY — warn so the operator
@@ -215,6 +220,9 @@ def _deserialize_host(d: Any) -> Host:
     for field in ("name", "url", "engine"):
         if not d.get(field):
             raise KeyError(f"Host entry missing required field: '{field}'")
+    if not isinstance(d["url"], str):
+        raise TypeError(f"Host entry '{d['name']}': 'url' must be a string")
+    reject_login_in_host(d["url"], f"Host entry '{d['name']}'")
     return Host(
         name=d["name"],
         url=d["url"],
@@ -271,6 +279,9 @@ def _deserialize_seed_host(d: Any) -> Host:
     for field in ("name", "url", "engine"):
         if not d.get(field):
             raise KeyError(f"Seed host entry missing required field: '{field}'")
+    if not isinstance(d["url"], str):
+        raise TypeError(f"Seed host entry '{d['name']}': 'url' must be a string")
+    reject_login_in_host(d["url"], f"Seed host entry '{d['name']}'")
     return Host(
         name=d["name"],
         url=d["url"],

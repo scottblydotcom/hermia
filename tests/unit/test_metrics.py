@@ -1451,3 +1451,138 @@ def test_reads_after_detection_never_wait_on_the_detection_lock(
     reader.join(5)
     assert not blocked, "a read after detection waited on the detection lock"
     assert out == {"present": True, "stats": (None, None, 8.0)}
+
+
+
+# ---------------------------------------------------------------------------
+# hermia-ly6f: an Apple GPU is reported only on positive evidence -- system_profiler lists an
+# Apple display device, or the machine is bare-metal Apple Silicon (not a VM), which always
+# has one. The name is never invented ("Apple Silicon"). Unified memory: hw.memsize, with a
+# psutil fallback that measures the SAME pool (verified equal on an M1 Pro, 2026-10-17).
+
+
+def _apple_host(
+    monkeypatch: pytest.MonkeyPatch, *, sp: str | None, vmm: str | None, brand: str | None
+) -> None:
+    """An arm64 darwin host. ``sp`` is system_profiler stdout (None: the call fails);
+    ``vmm`` is kern.hv_vmm_present and ``brand`` machdep.cpu.brand_string (None: unreadable)."""
+    monkeypatch.setattr(metrics_mod, "_detect_nvidia", lambda: (False, "", 0.0, 0.0))
+    monkeypatch.setattr(metrics_mod, "_find_amdgpu_dev", lambda: None)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(metrics_mod.platform, "machine", lambda: "arm64")
+
+    def fake_run(cmd, **kw):
+        if cmd[:2] == ["system_profiler", "SPDisplaysDataType"]:
+            if sp is None:
+                raise subprocess.TimeoutExpired(cmd, 5)
+            return subprocess.CompletedProcess(cmd, 0, stdout=sp, stderr="")
+        if cmd == ["sysctl", "-n", "hw.memsize"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=str(16 * 1024**3) + "\n", stderr="")
+        if cmd == ["sysctl", "-n", "kern.hv_vmm_present"]:
+            if vmm is None:
+                return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="unknown oid")
+            return subprocess.CompletedProcess(cmd, 0, stdout=vmm + "\n", stderr="")
+        if cmd == ["sysctl", "-n", "machdep.cpu.brand_string"]:
+            if brand is None:
+                return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="unknown oid")
+            return subprocess.CompletedProcess(cmd, 0, stdout=brand + "\n", stderr="")
+        raise FileNotFoundError(cmd[0])
+
+    monkeypatch.setattr(metrics_mod.subprocess, "run", fake_run)
+
+
+def test_bare_metal_apple_silicon_keeps_its_gpu_when_system_profiler_fails(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """A real M1 whose system_profiler times out still has its GPU, named from the chip."""
+    _apple_host(monkeypatch, sp=None, vmm="0", brand="Apple M1 Pro")
+    info = metrics_mod.detect_gpu()
+    assert (info["vendor"], info["card"], info["vram_total_gb"]) == ("apple", "Apple M1 Pro", 16.0)
+    assert compute_host_class(info) == "local:metal/m1"
+
+
+def test_vm_without_a_display_device_reports_no_gpu(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """hermia-ly6f: a macOS VM whose system_profiler lists nothing has no GPU to claim."""
+    _apple_host(monkeypatch, sp=_spdisplays(), vmm="1", brand="Apple M1 Pro")
+    info = metrics_mod.detect_gpu()
+    assert info["vendor"] == "unknown", "no evidence of a GPU: not probed, never invented"
+    assert info["vram_total_gb"] is None
+    assert metrics_mod._APPLE_SILICON is False
+
+
+def test_vm_with_failed_system_profiler_reports_no_gpu(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    _apple_host(monkeypatch, sp=None, vmm="1", brand="Apple M1 Pro")
+    assert metrics_mod.detect_gpu()["vendor"] == "unknown"
+
+
+def test_unknown_vm_status_and_failed_profiler_reports_no_gpu(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """Neither source of evidence answered: claim nothing."""
+    _apple_host(monkeypatch, sp=None, vmm=None, brand="Apple M1 Pro")
+    assert metrics_mod.detect_gpu()["vendor"] == "unknown"
+
+
+def test_vm_with_a_paravirtual_display_reports_it(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """A VM that DOES list an Apple display device has one; its listed name is used."""
+    _apple_host(
+        monkeypatch,
+        sp=_spdisplays({"sppci_model": "Apple Paravirtual device",
+                        "spdisplays_vendor": "sppci_vendor_Apple"}),
+        vmm="1", brand="Apple M2",
+    )
+    info = metrics_mod.detect_gpu()
+    assert (info["vendor"], info["card"]) == ("apple", "Apple Paravirtual device")
+
+
+@pytest.mark.parametrize("vmm, card", [("0", "Apple M1 Pro"), ("1", "")])
+def test_apple_display_without_a_model_name(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None, vmm: str, card: str
+) -> None:
+    """The listing names the vendor but not the model. On bare metal the chip's own name is
+    used (so the host class stays local:metal/m1); in a VM it could name the host's chip."""
+    _apple_host(
+        monkeypatch, sp=_spdisplays({"spdisplays_vendor": "sppci_vendor_Apple"}),
+        vmm=vmm, brand="Apple M1 Pro",
+    )
+    info = metrics_mod.detect_gpu()
+    assert (info["vendor"], info["card"]) == ("apple", card)
+
+
+def test_apple_gpu_name_is_never_invented(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """Bare metal, but no profiler and no brand string: blank name, not 'Apple Silicon'."""
+    _apple_host(monkeypatch, sp=None, vmm="0", brand=None)
+    info = metrics_mod.detect_gpu()
+    assert info["vendor"] == "apple"
+    assert info["card"] == ""
+
+
+
+def test_mac_tools_are_found_without_usr_sbin_on_path(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """cron/launchd give PATH=/usr/bin:/bin; sysctl and system_profiler live in /usr/sbin.
+
+    Review 2026-10-17: a bare-metal M1 run from cron lost its GPU (no evidence could be read).
+    """
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    seen: list[str] = []
+
+    def fake_run(cmd, **kw):
+        seen.append(kw.get("env", {}).get("PATH", ""))
+        raise FileNotFoundError(cmd[0])
+
+    monkeypatch.setattr(metrics_mod.subprocess, "run", fake_run)
+    metrics_mod._sysctl("hw.memsize")
+    metrics_mod._spdisplays_entries()
+    metrics_mod._gpu_stats_apple_silicon()  # ioreg: the live utilisation / VRAM-in-use probe
+    assert len(seen) == 3
+    assert all("/usr/sbin" in p.split(":") and "/usr/bin" in p.split(":") for p in seen)

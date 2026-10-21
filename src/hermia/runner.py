@@ -4,18 +4,20 @@ import hashlib
 import ipaddress
 import json
 import os
+import re
 import threading
 import time
 import types
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any, Literal
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import requests
 
 from hermia import __git_sha__, __version__
 from hermia.fingerprint.cache import FingerprintCache
+from hermia.host_url import reject_login_in_host
 from hermia.identity import (
     IdentityCache,
     IdentityTransport,
@@ -53,8 +55,13 @@ def _normalize_host(host: str) -> str:
 
 
 def get_ollama_host() -> str:
-    """Return the configured Ollama host URL from env var or default."""
-    return _normalize_host(os.environ.get("HERMIA_HOST", "http://localhost:11434"))
+    """Return the configured Ollama host URL from env var or default.
+
+    Raises ValueError if HERMIA_HOST carries a login (hermia-emsn).
+    """
+    host = os.environ.get("HERMIA_HOST", "http://localhost:11434")
+    reject_login_in_host(host, "HERMIA_HOST")
+    return _normalize_host(host)
 
 
 def _round_or_none(value: float | None, digits: int) -> float | None:
@@ -171,16 +178,179 @@ def compute_execution_path(
     return "partial"
 
 
+_USERINFO = re.compile(r"(?<=//)[^/@\s'\"]*@")
+_SECRET_MIN_LEN = 4
+
+
+def _userinfo(url: str) -> str:
+    """The user[:password] written into ``url``, or "". Everything between "://" and the LAST
+    "@" before the path is taken, so a password holding '/', quotes, spaces or '@' is caught
+    whole -- a URL parser would split it at the first of those."""
+    scheme_end = url.find("://")
+    at = url.rfind("@")
+    if scheme_end < 0 or at <= scheme_end:
+        return ""
+    return url[scheme_end + 3 : at]
+
+
+def redact_secrets(
+    text: str,
+    headers: Mapping[str, str] | None = None,
+    urls: Iterable[str] = (),
+) -> str:
+    """``text`` with URL credentials and the given header values removed.
+
+    Error messages from requests/urllib3 quote URLs, including any user name and password
+    written into them, and, for an invalid header, the header VALUE itself -- a bearer token
+    with a stray newline was printed whole (hermia-4mhr review). The userinfo of each URL in
+    ``urls`` is removed exactly (raw and percent-encoded, as requests re-quotes it), any other
+    "//user:pass@" is removed by pattern, and every value in ``headers`` -- with and without
+    its "Bearer " prefix, and in repr form -- becomes "***".
+    """
+    out = text
+    for url in urls:
+        info = _userinfo(url)
+        if info:
+            for form in {info, quote(info, safe=":"), quote(info, safe=":%")}:
+                out = out.replace(form + "@", "***@")
+    out = _USERINFO.sub("***@", out)
+    for value in (headers or {}).values():
+        forms = {value, value.strip(), repr(value)[1:-1]}
+        for form in list(forms):
+            parts = form.split(None, 1)  # "Bearer  tok": any run of whitespace
+            if len(parts) == 2:
+                forms.add(parts[1].strip())
+        for form in sorted(forms, key=len, reverse=True):
+            if len(form.strip()) >= _SECRET_MIN_LEN:
+                out = out.replace(form, "***")
+    return out
+
+
+class ModelDiscoveryError(Exception):
+    """The model list could not be read from a host. Never the same fact as "zero models".
+
+    hermia-4mhr: get_available_models used to return [] for every failure -- a refused
+    connection, a timeout, a 404, an HTML error page -- so "could not reach the host" read
+    exactly like "the host has no models". On 2026-09-12 that sent Scott debugging a healthy
+    Ollama (23 models, bound to its LAN address, so localhost was refused).
+
+    ``kind`` is "unreachable" (no answer: refused, DNS, timeout, TLS), "bad_request" (the
+    request could not be made: a malformed URL or header, a missing CA bundle, or a redirect
+    to an unusable location -- usually local configuration), "http_status" (an answer, not
+    OK, or a redirect loop) or "bad_response" (an answer that is not {"models": [...]}, or a
+    body that could not be read). The message names the URL tried, with any credentials and
+    header values removed (redact_secrets).
+    """
+
+    def __init__(
+        self, kind: str, url: str, detail: str, headers: Mapping[str, str] | None = None
+    ) -> None:
+        self.kind = kind
+        self.url = redact_secrets(url, headers, [url])
+        what = {
+            "unreachable": "could not reach",
+            "bad_request": "could not make a valid request to",
+            "http_status": "got an error status from",
+            "bad_response": "got an unexpected response from",
+        }[kind]
+        super().__init__(f"{what} {self.url}: {redact_secrets(detail, headers, [url])}")
+
+
+# Raised before anything is sent: the request itself is malformed (URL or header). urllib3's
+# LocationParseError (e.g. "http://my..host") and a non-Latin-1 header (UnicodeEncodeError) are
+# not RequestExceptions, so they used to escape and abort a whole fleet run (review, 2026-10-17).
+# Both are ValueErrors, as is requests' InvalidURL; ValueError covers them without importing
+# urllib3, which is not a declared dependency.
+# Usually local configuration, but a server's redirect to an unusable Location also lands
+# here, so the (scrubbed) error text is kept: it names the cause. OSError: requests raises a
+# bare OSError for a missing or unreadable CA bundle.
+_BAD_REQUEST_REQUESTS: tuple[type[BaseException], ...] = (
+    requests.exceptions.InvalidURL,
+    requests.exceptions.MissingSchema,
+    requests.exceptions.InvalidSchema,
+    requests.exceptions.URLRequired,
+    requests.exceptions.InvalidHeader,
+)
+_BAD_REQUEST_OTHER: tuple[type[BaseException], ...] = (ValueError, OSError)
+_BAD_REQUEST_HINT = "check the host address, the auth token (stray spaces, newlines, non-ASCII)"
+# The server answered, but its body could not be read: a response problem, not reachability.
+_BAD_BODY: tuple[type[BaseException], ...] = (
+    requests.exceptions.ContentDecodingError,
+    requests.exceptions.ChunkedEncodingError,
+)
+
+
 def get_available_models(
     host: str | None = None,
     headers: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
+    """The models on an Ollama host, from GET /api/tags.
+
+    Returns [] ONLY when the server answered OK with an empty model list. Every failure raises
+    ModelDiscoveryError, so a caller can never report an unreachable host as one with no
+    models (hermia-4mhr).
+    """
     _host = _normalize_host(host) if host is not None else get_ollama_host()
+    url = f"{_host}/api/tags"
+    hdrs = headers or {}
     try:
-        resp = requests.get(f"{_host}/api/tags", timeout=5, headers=headers or {})
-        return resp.json().get("models", [])  # type: ignore[no-any-return]
-    except Exception:
-        return []
+        resp = requests.get(url, timeout=5, headers=hdrs)
+    # Order matters: every requests exception is an OSError (RequestException subclasses
+    # IOError), so the specific network outcomes come first and plain OSError/ValueError last.
+    except _BAD_BODY as exc:
+        raise ModelDiscoveryError(
+            "bad_response", url, f"the body could not be read ({type(exc).__name__})", hdrs
+        ) from exc
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as exc:
+        # Refused, DNS, TLS, proxy, connect/read timeout: reachability.
+        raise ModelDiscoveryError(
+            "unreachable", url, f"{type(exc).__name__}: {exc}", hdrs
+        ) from exc
+    except requests.exceptions.TooManyRedirects as exc:
+        raise ModelDiscoveryError("http_status", url, "redirect loop", hdrs) from exc
+    except _BAD_REQUEST_REQUESTS as exc:
+        # The text is kept and scrubbed (redact_secrets removes the header value
+        # InvalidHeader quotes): it names the cause, e.g. a redirect's unusable Location.
+        raise ModelDiscoveryError(
+            "bad_request", url, f"{type(exc).__name__}: {exc} ({_BAD_REQUEST_HINT})", hdrs
+        ) from exc
+    except requests.exceptions.RequestException as exc:  # any other network-layer failure
+        raise ModelDiscoveryError(
+            "unreachable", url, f"{type(exc).__name__}: {exc}", hdrs
+        ) from exc
+    except _BAD_REQUEST_OTHER as exc:
+        # Not requests' own types: urllib3's LocationParseError ("http://my..host"), a
+        # non-Latin-1 header (UnicodeEncodeError), a missing CA bundle (OSError).
+        raise ModelDiscoveryError(
+            "bad_request", url, f"{type(exc).__name__}: {exc} ({_BAD_REQUEST_HINT})", hdrs
+        ) from exc
+    try:
+        resp.raise_for_status()
+    except requests.exceptions.HTTPError as exc:
+        raise ModelDiscoveryError("http_status", url, str(exc), hdrs) from exc
+    try:
+        data = resp.json()
+    except (ValueError, RecursionError) as exc:  # JSONDecodeError subclasses ValueError
+        raise ModelDiscoveryError("bad_response", url, "body is not JSON", hdrs) from exc
+    if not isinstance(data, dict):
+        raise ModelDiscoveryError(
+            "bad_response", url, f"expected a JSON object, got {type(data).__name__}", hdrs
+        )
+    if "models" not in data:
+        raise ModelDiscoveryError("bad_response", url, 'the response has no "models" key', hdrs)
+    models = data["models"]
+    if not isinstance(models, list):
+        raise ModelDiscoveryError(
+            "bad_response", url, f'"models" is {type(models).__name__}, not a list', hdrs
+        )
+    for i, entry in enumerate(models):
+        # Callers read entry["name"]; a non-object entry used to raise TypeError in the fleet
+        # resolver and abort every host's run (review, 2026-10-17).
+        if not isinstance(entry, dict) or not isinstance(entry.get("name"), str):
+            raise ModelDiscoveryError(
+                "bad_response", url, f'models[{i}] is not a model object with a "name"', hdrs
+            )
+    return models
 
 
 def get_model_size_gb(model_name: str, model_list: list[dict[str, Any]]) -> float:
@@ -463,9 +633,11 @@ def run_test(
             prefix = "RETRY_EXHAUSTED"
         else:
             prefix = "API_ERROR"
-        error_type = f"{prefix}: {e}"
+        error_type = redact_secrets(f"{prefix}: {e}", headers, [_host])
     except Exception as e:  # noqa: BLE001
-        error_type = f"ERROR: {e}"
+        # Scrubbed: an HTTPError quotes the URL (with any password in it) and InvalidHeader
+        # quotes the token, and this text is printed and saved in every result row.
+        error_type = redact_secrets(f"ERROR: {e}", headers, [_host])
     finally:
         if samples_local_hardware:
             sampler.stop()
@@ -645,7 +817,7 @@ def run_test(
         "peak_gpu_pct": _peak_of("gpu_pct", 1),
         "peak_vram_used_gb": _peak_of("vram_used_gb", 2),
         "mode": "local" if is_local else ("api" if is_api_mode else "fleet"),
-        "host": _host,
+        "host": redact_secrets(_host, None, [_host]),
         **ps_data,
         "execution_path": compute_execution_path(
             ps_data["vram_server_gb"], ps_data["model_size_server_gb"]

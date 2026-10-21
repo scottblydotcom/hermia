@@ -315,3 +315,56 @@ class TestHostsSeed:
         )
         with pytest.raises(KeyError, match="'url'"):
             load_hosts_seed(path=seed_path)
+
+
+
+# hermia-emsn: a login in a host address is refused wherever the menu reads one.
+_LOGIN_URL = (
+    "http://alice:NOTAPASSWORD@192.0.2.1:11434"  # pragma: allowlist secret  # trufflehog:ignore
+)
+
+
+@pytest.mark.parametrize(
+    "doc",
+    [
+        {"name": "f", "fleet": [{"name": "h", "host": _LOGIN_URL}]},
+        {"name": "f", "hosts": [{"name": "h", "url": _LOGIN_URL, "engine": "ollama"}]},
+    ],
+    ids=["headless-format", "tui-format"],
+)
+def test_load_fleet_rejects_a_login_in_a_host(tmp_path: Path, doc: dict) -> None:
+    path = tmp_path / "f.yaml"
+    path.write_text(yaml.safe_dump(doc))
+    with pytest.raises(ValueError, match="contains '@'") as err:
+        load_fleet(path)
+    assert "NOTAPASSWORD" not in str(err.value)
+
+
+def test_load_hosts_seed_rejects_a_login_in_a_host(tmp_path: Path) -> None:
+    path = tmp_path / "hosts.yaml"
+    host = {"name": "h", "url": _LOGIN_URL, "engine": "ollama"}
+    path.write_text(yaml.safe_dump({"hosts": [host]}))
+    with pytest.raises(ValueError, match="contains '@'"):
+        load_hosts_seed(path=path)
+
+
+
+def test_load_fleet_refuses_a_host_that_is_not_a_string(tmp_path: Path) -> None:
+    """A YAML list around the address skipped the login check and was saved into result rows."""
+    path = tmp_path / "f.yaml"
+    path.write_text(yaml.safe_dump({"name": "f", "fleet": [{"name": "h", "host": [_LOGIN_URL]}]}))
+    with pytest.raises(TypeError, match="'host' must be a string"):
+        load_fleet(path)
+
+
+def test_hosts_format_and_seed_refuse_a_url_that_is_not_a_string(tmp_path: Path) -> None:
+    """A YAML list around the address crashed the Hosts screen (outside review 2026-10-17)."""
+    host = {"name": "h", "url": ["http://127.0.0.1:11434"], "engine": "ollama"}
+    fleet = tmp_path / "f.yaml"
+    fleet.write_text(yaml.safe_dump({"name": "f", "hosts": [host]}))
+    with pytest.raises(TypeError, match="'url' must be a string"):
+        load_fleet(fleet)
+    seed = tmp_path / "hosts.yaml"
+    seed.write_text(yaml.safe_dump({"hosts": [host]}))
+    with pytest.raises(TypeError, match="'url' must be a string"):
+        load_hosts_seed(path=seed)
