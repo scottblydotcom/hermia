@@ -20,6 +20,12 @@ See [docs/roadmap.md](docs/roadmap.md) for the full plan.
   replacement yet (hermia-vvv6).
 
 ### Fixed
+- **`docs/GUARDS.md` is corrected** (2026-10-29). A sentence presented as quoted verbatim from
+  the Prompt Architect catalog is removed: it does not appear anywhere in that catalog's history.
+  The "no published standard" gap claim is narrowed to the absence of a structured, assessable
+  standard, and the statements that supported it are corrected. The research basis and
+  references no longer claim the sources were verified. A revised version of GUARDS is in
+  preparation.
 - **An unreachable, misconfigured or erroring Ollama host is reported with its cause, never as
   "no models"** (hermia-4mhr). The host is skipped and the rest of the fleet still runs; an odd
   host address or token no longer crashes the whole run.
