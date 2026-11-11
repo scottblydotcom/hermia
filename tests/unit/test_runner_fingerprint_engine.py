@@ -7,7 +7,13 @@ cannot succeed, carried the host's token, and missed the cache fleet.py had prim
 """
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
+import pytest
+
 from hermia.fingerprint.cache import FingerprintCache
+from hermia.fleet import load_fleet_config, run_fleet
 from hermia.metrics import MetricsSampler
 from hermia.runner import run_test
 from hermia.transport.ollama import OllamaTransport
@@ -76,3 +82,30 @@ def test_run_test_passes_the_declared_stack_into_the_fingerprint() -> None:
     assert fp["compute_backend"]["type"] == "cuda", fp["compute_backend"]
     assert fp["substrate"]["delivery"] == "bare-metal", fp["substrate"]
     assert prov["compute_backend.type"] == "declared", prov
+
+
+def test_headless_fleet_sends_no_ollama_probe_to_an_openai_compat_host(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The user's path, not a hand-primed cache: fleet YAML -> load_fleet_config -> run_fleet."""
+    monkeypatch.setenv("HERMIA_TEST_FLEET_TOKEN", TOKEN)
+    with fake_engine_server() as srv:
+        cfg = tmp_path / "fleet.yaml"
+        cfg.write_text(
+            "fleet:\n"
+            f"  - name: h\n    host: {srv.url}\n    transport: openai-compat\n"
+            "    models: [m]\n"
+            "    auth:\n      bearer:\n        key_env: HERMIA_TEST_FLEET_TOKEN\n"
+        )
+        run_fleet(
+            load_fleet_config(cfg), repeat=1, results_dir=tmp_path / "results",
+            print_fn=lambda _m: None, stderr_fn=lambda _m: None, verbosity=-1,
+        )
+    rows = [
+        json.loads(line)
+        for f in (tmp_path / "results").rglob("*.jsonl")
+        for line in f.read_text().splitlines() if line.strip()
+    ]
+    assert rows, "the fleet run wrote no rows"
+    assert not [p for p in srv.paths() if p.startswith("/api/")], srv.seen
+    assert {r["stack_fingerprint"]["runtime"]["engine"] for r in rows} == {"openai-compat"}

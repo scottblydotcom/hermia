@@ -169,9 +169,8 @@ class TuiRunner:
         self._results_dir = results_dir
         self._run_fn: RunTestFn = run_test_fn or _real_run_test
         # Injected fakes keep the (model_name, test, *, host, engine, auth_env) signature, so
-        # only the real function is handed the run's fingerprint cache and the host's stack.
+        # only the real function is handed the host's fingerprint cache and declared stack.
         self._uses_real_run_test = run_test_fn is None
-        self._fp_cache = FingerprintCache()
         self._tests_override = _tests_override
         self._trial_timeout = trial_timeout
         self._abort_requested = False
@@ -212,9 +211,6 @@ class TuiRunner:
 
     async def _run(self) -> None:
         self._run_id = _make_run_id()
-        # One per run, as fleet.py keeps one per host: each (host, model) is probed once, not
-        # once per trial.
-        self._fp_cache = FingerprintCache()
         try:
             tests = self._load_tests()
         except Exception as exc:  # noqa: BLE001
@@ -270,6 +266,10 @@ class TuiRunner:
             })
 
     async def _run_host(self, host: Host, tests: list[dict[str, Any]]) -> None:
+        # One per host for the run, as fleet.py keeps: each model is probed once, not once per
+        # trial. Per host, not per run, because the cache key carries no auth and two hosts can
+        # share a URL with different tokens.
+        fp_cache = FingerprintCache()
         for model in host.models:
             if not model.selected:
                 continue
@@ -281,7 +281,7 @@ class TuiRunner:
                 for repeat_idx in range(1, self._config.repeat + 1):
                     if self._abort_requested:
                         return
-                    await self._run_trial(host, model, test, repeat_idx)
+                    await self._run_trial(host, model, test, repeat_idx, fp_cache)
 
     async def _run_trial(
         self,
@@ -289,6 +289,7 @@ class TuiRunner:
         model: ModelChoice,
         test: dict[str, Any],
         repeat_idx: int,
+        fp_cache: FingerprintCache | None = None,
     ) -> None:
         await self._emit("run.trial_started", {
             "host_name": host.name,
@@ -302,7 +303,7 @@ class TuiRunner:
             "host": host.url, "engine": host.engine, "auth_env": host.auth_header_env,
         }
         if self._uses_real_run_test:
-            run_kwargs.update(fp_cache=self._fp_cache, declared=host.stack)
+            run_kwargs.update(fp_cache=fp_cache, declared=host.stack)
         try:
             # wait_for cancels the coroutine wrapper on timeout but cannot kill
             # the OS thread. The thread runs until _run_fn returns or its own

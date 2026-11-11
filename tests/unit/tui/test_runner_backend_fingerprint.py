@@ -103,3 +103,40 @@ def test_tui_declared_stack_reaches_the_fingerprint(
     assert fp["compute_backend"]["type"] == "cuda", fp["compute_backend"]
     assert fp["substrate"]["delivery"] == "bare-metal", fp["substrate"]
     assert prov["compute_backend.type"] == "declared", prov
+
+
+
+def test_each_host_keeps_its_own_fingerprint_cache(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The cache key carries no auth, so a cache shared across hosts would hand one host's probe
+    to another on the same URL with a different token. Each host gets its own cache, reused by
+    all of that host's trials. Spied, not raced: hosts run concurrently, so a request count
+    cannot show sharing deterministically."""
+    from hermia.tui import runner_backend
+
+    calls: list[tuple[str, int]] = []
+
+    def spy(model_name: str, test: dict[str, Any], **kw: Any) -> dict[str, Any]:
+        calls.append((kw["auth_env"] or "open", id(kw["fp_cache"])))
+        return {"model": model_name, "test_id": test["id"], "failure_reason": ""}
+
+    monkeypatch.setattr(runner_backend, "_real_run_test", spy)
+    hosts = [
+        Host(name=n, url="http://192.0.2.1:11434", engine="ollama", auth_header_env=env,
+             models=[ModelChoice(name="m", selected=True)])
+        for n, env in (("open", None), ("authed", TOKEN_ENV))
+    ]
+    runner = TuiRunner(
+        config=FleetConfig(name="f", hosts=hosts, repeat=2),
+        bus=SessionBus(), results_dir=None, _tests_override=[TEST_CASE],
+    )
+
+    async def _go() -> None:
+        await runner.start()
+        assert runner._task is not None
+        await runner._task
+
+    asyncio.run(_go())
+    per_host = {name: {c for n, c in calls if n == name} for name in ("open", TOKEN_ENV)}
+    assert len(calls) == 4, calls
+    assert all(len(ids) == 1 for ids in per_host.values()), per_host
+    assert per_host["open"] != per_host[TOKEN_ENV], "two hosts shared one fingerprint cache"

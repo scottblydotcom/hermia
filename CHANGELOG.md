@@ -28,11 +28,18 @@ See [docs/roadmap.md](docs/roadmap.md) for the full plan.
 - **An Apple GPU is reported only with evidence** (hermia-ly6f): an Apple display entry, or bare
   metal. A Mac whose probes failed no longer reports a GPU it never saw, and the probes work
   under cron, where `/usr/sbin` is not on `PATH`.
+- **The TUI no longer saves or shows a bearer token in a per-test error** (hermia-bw1q), for
+  example a token read from a file with Windows line endings.
+- **An openai-compat host is no longer sent Ollama-only requests** (`/api/version`, `/api/show`,
+  `/api/ps`) to fingerprint the model, in the TUI or headless, and its TUI rows now record the
+  engine as `openai-compat` (it was `ollama`).
+- **TUI runs fingerprint like headless runs:** each model is probed once per host instead of once
+  per trial, with the host's token (an Ollama host behind a bearer-token proxy no longer gets
+  blank fingerprint and VRAM fields), the host's declared `stack:`, and a host address typed
+  without `http://`, which previously failed every trial. A probe that gets no answer is retried
+  on the next trial rather than kept for the run.
 
 ### Known issues
-- In the TUI, a per-test error can still carry a bearer token onto the screen and into saved
-  results, for example a token read from a file with Windows line endings (hermia-bw1q). This
-  predates this release. Headless runs are not affected.
 - An openai-compat host that answers `/v1/models` with a page that is not a model list (an HTML
   sign-in page, `{}`) is still reported as "no models" (hermia-tn01).
 
