@@ -556,7 +556,7 @@ def test_a_host_level_failure_is_scrubbed(monkeypatch) -> None:
 
 
 def test_the_tui_scrub_removes_a_short_token(monkeypatch) -> None:  # noqa: ANN001
-    """The TUI's own error rows go through scrub_host_secrets; a 3-character token is still a token."""
+    """The TUI's error rows go through scrub_host_secrets; a 3-character token is a token."""
     from hermia.tui.runner_backend import scrub_host_secrets
 
     monkeypatch.setenv("HERMIA_TEST_TUI_TOKEN", "abc")
