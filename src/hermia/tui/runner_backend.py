@@ -20,7 +20,7 @@ from typing import Any
 
 from hermia.backend import resolve_stack
 from hermia.fingerprint.cache import FingerprintCache
-from hermia.runner import TEST_TIMEOUT, redact_secrets
+from hermia.runner import TEST_TIMEOUT, _normalize_host, redact_secrets
 from hermia.transport.openai_compat import MAX_5XX_RETRIES, RETRY_BACKOFF_SEC
 from hermia.tui.bus import SessionBus
 from hermia.tui.run_state import RunState
@@ -242,7 +242,7 @@ class TuiRunner:
         for host, host_result in zip(self._config.hosts, results, strict=True):
             is_exc = isinstance(host_result, BaseException)
             if is_exc and not isinstance(host_result, asyncio.CancelledError):
-                host_msg = _scrub(str(host_result), host)
+                host_msg = scrub_host_secrets(str(host_result), host)
                 await self._emit("run.trial_finished", {
                     "host_name": host.name,
                     "model_name": "",
@@ -319,7 +319,7 @@ class TuiRunner:
             result = _error_result(
                 model=model.name,
                 test=test,
-                host=host.url,
+                host=_row_host(host.url),
                 failure_reason=_timeout_msg,
                 elapsed_sec=timeout,
                 output_preview="",
@@ -328,11 +328,11 @@ class TuiRunner:
         except Exception as exc:  # noqa: BLE001
             # Scrubbed: this row is built from the exception text, which can quote the token
             # (requests' InvalidHeader does). Only this text, never the rest of a row.
-            msg = _scrub(str(exc), host)
+            msg = scrub_host_secrets(str(exc), host)
             result = _error_result(
                 model=model.name,
                 test=test,
-                host=host.url,
+                host=_row_host(host.url),
                 failure_reason=f"ERROR: {msg}",
                 elapsed_sec=0.0,
                 # output_preview stays truncated for the row; raw_response
@@ -428,9 +428,17 @@ def _auth_headers(auth_env: str | None) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 
-def _scrub(text: str, host: Host) -> str:
-    """``text`` with this host's token and any URL login removed (error text only)."""
+def scrub_host_secrets(text: str, host: Host) -> str:
+    """``text`` with this host's token and any URL login removed. For error text only: model
+    output and prompts are never rewritten (PR #220 did, and broke regrade prompt hashes)."""
     return redact_secrets(text, _auth_headers(host.auth_header_env), [host.url])
+
+
+def _row_host(url: str) -> str:
+    """The ``host`` value run_test writes for this URL, so an error row names a host exactly as
+    a result row does: normalized (a scheme-less host now works) and with any login removed."""
+    normalized = _normalize_host(url)
+    return redact_secrets(normalized, None, [normalized])
 
 
 def _real_run_test(

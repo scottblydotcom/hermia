@@ -140,3 +140,29 @@ def test_each_host_keeps_its_own_fingerprint_cache(monkeypatch: pytest.MonkeyPat
     assert len(calls) == 4, calls
     assert all(len(ids) == 1 for ids in per_host.values()), per_host
     assert per_host["open"] != per_host[TOKEN_ENV], "two hosts shared one fingerprint cache"
+
+
+def test_an_error_row_names_the_host_the_way_a_result_row_does(tmp_path: Path) -> None:
+    """A scheme-less host (it works since this PR) was saved as "127.0.0.1:9" on a failed trial
+    and "http://127.0.0.1:9" on a successful one, splitting one host in two in one run file."""
+
+    def boom(model_name: str, test: dict[str, Any], **_kw: Any) -> dict[str, Any]:
+        raise RuntimeError("upstream exploded")
+
+    host = _host("127.0.0.1:9", "ollama", auth=False)
+    runner = TuiRunner(
+        config=FleetConfig(name="f", hosts=[host], repeat=1),
+        bus=SessionBus(), results_dir=tmp_path, run_test_fn=boom, _tests_override=[TEST_CASE],
+    )
+
+    async def _go() -> None:
+        await runner.start()
+        assert runner._task is not None
+        await runner._task
+
+    asyncio.run(_go())
+    rows = [
+        json.loads(line)
+        for f in tmp_path.glob("eval_*.jsonl") for line in f.read_text().splitlines()
+    ]
+    assert [r["host"] for r in rows] == ["http://127.0.0.1:9"], rows

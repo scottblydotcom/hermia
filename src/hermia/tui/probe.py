@@ -33,6 +33,7 @@ import asyncio
 from typing import Protocol
 
 from hermia.tui.bus import SessionBus
+from hermia.tui.runner_backend import scrub_host_secrets
 from hermia.tui.state import Host, ModelChoice
 
 DEFAULT_PROBE_TIMEOUT_SECONDS = 8.0
@@ -79,7 +80,10 @@ async def probe_host(
     except PermissionError as exc:
         await bus.publish(
             "probe.failed",
-            {"host_name": host.name, "reason": "auth", "error": str(exc), "retryable": True},
+            {
+                "host_name": host.name, "reason": "auth",
+                "error": scrub_host_secrets(str(exc), host), "retryable": True,
+            },
         )
     except (OSError, ConnectionError) as exc:
         # Expected network failures: refused, DNS, network unreachable, etc.
@@ -87,7 +91,10 @@ async def probe_host(
         # before the exception reaches here so the auth path above fires.
         await bus.publish(
             "probe.failed",
-            {"host_name": host.name, "reason": "offline", "error": str(exc), "retryable": True},
+            {
+                "host_name": host.name, "reason": "offline",
+                "error": scrub_host_secrets(str(exc), host), "retryable": True,
+            },
         )
     except Exception as exc:
         # Unexpected error (programmer bug, missing field, transport returning
@@ -98,7 +105,9 @@ async def probe_host(
             {
                 "host_name": host.name,
                 "reason": "unexpected",
-                "error": f"{type(exc).__name__}: {exc}",
+                # Scrubbed: urllib's "Invalid header value" quotes a CR-terminated token
+                # whole (hermia-bw1q).
+                "error": scrub_host_secrets(f"{type(exc).__name__}: {exc}", host),
                 "retryable": False,
             },
         )

@@ -556,12 +556,12 @@ def test_a_host_level_failure_is_scrubbed(monkeypatch) -> None:
 
 
 def test_the_tui_scrub_removes_a_short_token(monkeypatch) -> None:  # noqa: ANN001
-    """The TUI's own error rows go through _scrub; a 3-character token is still a token."""
-    from hermia.tui.runner_backend import _scrub
+    """The TUI's own error rows go through scrub_host_secrets; a 3-character token is still a token."""
+    from hermia.tui.runner_backend import scrub_host_secrets
 
     monkeypatch.setenv("HERMIA_TEST_TUI_TOKEN", "abc")
     host = Host(
         name="h", url="http://127.0.0.1:9", engine="ollama",
         auth_header_env="HERMIA_TEST_TUI_TOKEN", models=[],
     )
-    assert _scrub("invalid API key abc", host) == "invalid API key ***"
+    assert scrub_host_secrets("invalid API key abc", host) == "invalid API key ***"
