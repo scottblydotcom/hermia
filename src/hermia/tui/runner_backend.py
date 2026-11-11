@@ -19,7 +19,8 @@ from pathlib import Path
 from typing import Any
 
 from hermia.backend import resolve_stack
-from hermia.runner import TEST_TIMEOUT
+from hermia.fingerprint.cache import FingerprintCache
+from hermia.runner import TEST_TIMEOUT, redact_secrets
 from hermia.transport.openai_compat import MAX_5XX_RETRIES, RETRY_BACKOFF_SEC
 from hermia.tui.bus import SessionBus
 from hermia.tui.run_state import RunState
@@ -167,6 +168,10 @@ class TuiRunner:
         self._run_state = run_state
         self._results_dir = results_dir
         self._run_fn: RunTestFn = run_test_fn or _real_run_test
+        # Injected fakes keep the (model_name, test, *, host, engine, auth_env) signature, so
+        # only the real function is handed the run's fingerprint cache and the host's stack.
+        self._uses_real_run_test = run_test_fn is None
+        self._fp_cache = FingerprintCache()
         self._tests_override = _tests_override
         self._trial_timeout = trial_timeout
         self._abort_requested = False
@@ -207,6 +212,9 @@ class TuiRunner:
 
     async def _run(self) -> None:
         self._run_id = _make_run_id()
+        # One per run, as fleet.py keeps one per host: each (host, model) is probed once, not
+        # once per trial.
+        self._fp_cache = FingerprintCache()
         try:
             tests = self._load_tests()
         except Exception as exc:  # noqa: BLE001
@@ -238,6 +246,7 @@ class TuiRunner:
         for host, host_result in zip(self._config.hosts, results, strict=True):
             is_exc = isinstance(host_result, BaseException)
             if is_exc and not isinstance(host_result, asyncio.CancelledError):
+                host_msg = _scrub(str(host_result), host)
                 await self._emit("run.trial_finished", {
                     "host_name": host.name,
                     "model_name": "",
@@ -245,11 +254,11 @@ class TuiRunner:
                     "repeat_idx": 0,
                     "verdict": "error",
                     "elapsed_sec": 0.0,
-                    "failure_reason": f"HOST_ERROR: {host_result}",
-                    "output_preview": str(host_result)[:120],
+                    "failure_reason": f"HOST_ERROR: {host_msg}",
+                    "output_preview": host_msg[:120],
                     # The detail screen is the only place a host failure can be
                     # read in full; the 120-char preview above is for the row.
-                    "raw_response": f"HOST_ERROR: {host_result}",
+                    "raw_response": f"HOST_ERROR: {host_msg}",
                 })
 
         if self._abort_requested:
@@ -289,6 +298,11 @@ class TuiRunner:
         })
 
         timeout = _trial_wall_timeout_sec(test, self._trial_timeout)
+        run_kwargs: dict[str, Any] = {
+            "host": host.url, "engine": host.engine, "auth_env": host.auth_header_env,
+        }
+        if self._uses_real_run_test:
+            run_kwargs.update(fp_cache=self._fp_cache, declared=host.stack)
         try:
             # wait_for cancels the coroutine wrapper on timeout but cannot kill
             # the OS thread. The thread runs until _run_fn returns or its own
@@ -296,14 +310,7 @@ class TuiRunner:
             # per attempt per turn, including openai-compat's 5xx retries), so
             # zombie threads are bounded by this trial's own worst-case budget.
             result: dict[str, Any] = await asyncio.wait_for(
-                asyncio.to_thread(
-                    self._run_fn,
-                    model.name,
-                    test,
-                    host=host.url,
-                    engine=host.engine,
-                    auth_env=host.auth_header_env,
-                ),
+                asyncio.to_thread(self._run_fn, model.name, test, **run_kwargs),
                 timeout=timeout,
             )
         except TimeoutError:
@@ -318,17 +325,20 @@ class TuiRunner:
                 raw_response=_timeout_msg,
             )
         except Exception as exc:  # noqa: BLE001
+            # Scrubbed: this row is built from the exception text, which can quote the token
+            # (requests' InvalidHeader does). Only this text, never the rest of a row.
+            msg = _scrub(str(exc), host)
             result = _error_result(
                 model=model.name,
                 test=test,
                 host=host.url,
-                failure_reason=f"ERROR: {exc}",
+                failure_reason=f"ERROR: {msg}",
                 elapsed_sec=0.0,
                 # output_preview stays truncated for the row; raw_response
                 # keeps the whole message so the detail screen can show a full
                 # traceback-bearing error instead of its first 120 characters.
-                output_preview=str(exc)[:120],
-                raw_response=f"ERROR: {exc}",
+                output_preview=msg[:120],
+                raw_response=f"ERROR: {msg}",
             )
 
         self._n_completed += 1
@@ -409,6 +419,19 @@ def _make_run_id() -> str:
     return f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-{secrets.token_hex(3)}"
 
 
+def _auth_headers(auth_env: str | None) -> dict[str, str]:
+    """The Authorization header a host's auth_header_env names, or {} when it names none."""
+    import os
+
+    token = os.environ.get(auth_env, "") if auth_env else ""
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
+def _scrub(text: str, host: Host) -> str:
+    """``text`` with this host's token and any URL login removed (error text only)."""
+    return redact_secrets(text, _auth_headers(host.auth_header_env), [host.url])
+
+
 def _real_run_test(
     model_name: str,
     test: dict[str, Any],
@@ -416,20 +439,23 @@ def _real_run_test(
     host: str,
     engine: str,
     auth_env: str | None,
+    fp_cache: FingerprintCache | None = None,
+    declared: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Production run_test bridge — called from asyncio.to_thread."""
-    import os
+    """Production run_test bridge — called from asyncio.to_thread.
 
+    Mirrors fleet.py: run_test gets the headers (so it scrubs its own error text and Ollama's
+    probes carry the token), the run's fingerprint cache, and the host's declared stack.
+    """
     from hermia.metrics import MetricsSampler
-    from hermia.runner import run_test
+    from hermia.runner import _normalize_host, run_test
     from hermia.transport.ollama import OllamaTransport
     from hermia.transport.openai_compat import OpenAICompatTransport
 
-    headers: dict[str, str] = {}
-    if auth_env:
-        token = os.environ.get(auth_env, "")
-        if token:
-            headers["Authorization"] = f"Bearer {token}"
+    # run_test normalizes the host for itself, but the transport is built here: a scheme-less
+    # host the TUI probe showed as [ok] failed every trial with "No scheme supplied".
+    host = _normalize_host(host)
+    headers = _auth_headers(auth_env)
 
     transport = (
         OpenAICompatTransport(host, headers)
@@ -457,5 +483,6 @@ def _real_run_test(
     # consult it needs its own change.
     return run_test(
         model_name, test, sampler,
-        host=host, transport=transport,
+        host=host, headers=headers or None, transport=transport,
+        fp_cache=fp_cache, declared=declared,
     )
