@@ -66,7 +66,7 @@ def test_run_test_still_probes_an_ollama_transport_with_its_token() -> None:
     assert shows == [("POST", "/api/show", f"Bearer {TOKEN}")], srv.seen
     fp = row["stack_fingerprint"]
     assert fp["runtime"]["engine"] == "ollama", fp["runtime"]
-    assert fp["model"]["digest"] == "sha256:abc", fp["model"]
+    assert fp["model"]["architecture"] == "llama", fp["model"]
     assert row["failure_reason"] == "", row["failure_reason"]
 
 

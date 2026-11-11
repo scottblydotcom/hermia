@@ -553,3 +553,15 @@ def test_a_host_level_failure_is_scrubbed(monkeypatch) -> None:
     text = repr(asyncio.run(_run()))
     assert "HOST_ERROR" in text and "is invalid" in text, text
     assert "fake-tok-SECRET-123" not in text
+
+
+def test_the_tui_scrub_removes_a_short_token(monkeypatch) -> None:  # noqa: ANN001
+    """The TUI's own error rows go through _scrub; a 3-character token is still a token."""
+    from hermia.tui.runner_backend import _scrub
+
+    monkeypatch.setenv("HERMIA_TEST_TUI_TOKEN", "abc")
+    host = Host(
+        name="h", url="http://127.0.0.1:9", engine="ollama",
+        auth_header_env="HERMIA_TEST_TUI_TOKEN", models=[],
+    )
+    assert _scrub("invalid API key abc", host) == "invalid API key ***"

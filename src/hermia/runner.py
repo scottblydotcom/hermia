@@ -179,7 +179,6 @@ def compute_execution_path(
 
 
 _USERINFO = re.compile(r"(?<=//)[^/@\s'\"]*@")
-_SECRET_MIN_LEN = 4
 
 
 def _userinfo(url: str) -> str:
@@ -221,7 +220,10 @@ def redact_secrets(
             if len(parts) == 2:
                 forms.add(parts[1].strip())
         for form in sorted(forms, key=len, reverse=True):
-            if len(form.strip()) >= _SECRET_MIN_LEN:
+            # Any non-empty value, however short: a credential in an error message is a bug
+            # (AGENTS.md rule 11). A 1-3 character token can mangle the surrounding text; that is
+            # the lesser harm. Empty is skipped: replacing "" would insert "***" everywhere.
+            if form.strip():
                 out = out.replace(form, "***")
     return out
 

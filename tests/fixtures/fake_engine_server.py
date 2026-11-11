@@ -18,16 +18,21 @@ from typing import Any
 # succeeded" from "the trial reached the server and failed".
 ANSWER = '{"action": "search_documentation", "params": {}}'
 
+# Shapes follow a real Ollama (0.40.6, checked 2026-11-11): /api/show has NO "digest" key; only
+# /api/tags and /api/ps carry one. An earlier version of this fixture put a digest in /api/show,
+# so a cache rule keyed on it passed here and never cached a real probe (PR #222 review).
 _ROUTES: dict[tuple[str, str], dict[str, Any]] = {
-    ("GET", "/api/version"): {"version": "0.30.0"},
-    ("GET", "/api/tags"): {"models": [{"name": "m"}]},
+    ("GET", "/api/version"): {"version": "0.40.6"},
+    ("GET", "/api/tags"): {"models": [{"name": "m", "digest": "sha256:abc"}]},
     ("POST", "/api/show"): {
-        "digest": "sha256:abc",
         "model_info": {"general.architecture": "llama"},
         "details": {"parameter_size": "8B", "quantization_level": "Q4_K_M"},
     },
     ("GET", "/api/ps"): {
-        "models": [{"name": "m", "size": 4 * 1024**3, "size_vram": 4 * 1024**3}],
+        "models": [{
+            "name": "m", "digest": "sha256:abc",
+            "size": 4 * 1024**3, "size_vram": 4 * 1024**3,
+        }],
     },
     ("POST", "/api/chat"): {
         "message": {"role": "assistant", "content": ANSWER},
