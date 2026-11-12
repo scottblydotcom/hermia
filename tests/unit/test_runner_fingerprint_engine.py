@@ -109,3 +109,31 @@ def test_headless_fleet_sends_no_ollama_probe_to_an_openai_compat_host(
     assert rows, "the fleet run wrote no rows"
     assert not [p for p in srv.paths() if p.startswith("/api/")], srv.seen
     assert {r["stack_fingerprint"]["runtime"]["engine"] for r in rows} == {"openai-compat"}
+
+
+def test_headless_rows_keep_a_fingerprint_the_trial_retried(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """fleet.py probes before its test loop. When that probe fails it is no longer cached, so the
+    first trial retries it; the rows must carry the retried fingerprint, not the failed one
+    (CodeRabbit, PR #222)."""
+    with fake_engine_server(fail_show=1) as srv:
+        cfg = tmp_path / "fleet.yaml"
+        cfg.write_text(
+            "fleet:\n"
+            f"  - name: h\n    host: {srv.url}\n    transport: ollama\n    models: [m]\n"
+        )
+        run_fleet(
+            load_fleet_config(cfg), repeat=1, results_dir=tmp_path / "results",
+            print_fn=lambda _m: None, stderr_fn=lambda _m: None, verbosity=-1,
+        )
+    rows = [
+        json.loads(line)
+        for f in (tmp_path / "results").rglob("*.jsonl")
+        for line in f.read_text().splitlines() if line.strip()
+    ]
+    assert rows, "the fleet run wrote no rows"
+    shows = [s for s in srv.seen if s[1] == "/api/show"]
+    assert len(shows) == 2, f"one failed prime, one retry, then cached: {shows}"
+    arch = {r["stack_fingerprint"]["model"]["architecture"] for r in rows}
+    assert arch == {"llama"}, f"rows kept the failed probe: {arch}"

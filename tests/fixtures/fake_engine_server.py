@@ -56,9 +56,14 @@ class FakeEngineServer:
 
 
 @contextmanager
-def fake_engine_server() -> Iterator[FakeEngineServer]:
-    """Yield a running server; ``seen`` holds (method, path, Authorization or None)."""
+def fake_engine_server(*, fail_show: int = 0) -> Iterator[FakeEngineServer]:
+    """Yield a running server; ``seen`` holds (method, path, Authorization or None).
+
+    ``fail_show``: answer the first N POST /api/show with 500, as a host does while it is briefly
+    unavailable, so a test can tell a retried probe from a cached failure.
+    """
     seen: list[tuple[str, str, str | None]] = []
+    show_failures_left = [fail_show]
 
     class Handler(BaseHTTPRequestHandler):
         def _answer(self) -> None:
@@ -67,8 +72,12 @@ def fake_engine_server() -> Iterator[FakeEngineServer]:
                 self.rfile.read(length)
             seen.append((self.command, self.path, self.headers.get("Authorization")))
             body = _ROUTES.get((self.command, self.path))
+            status = 200 if body is not None else 404
+            if (self.command, self.path) == ("POST", "/api/show") and show_failures_left[0] > 0:
+                show_failures_left[0] -= 1
+                body, status = {"error": "temporarily unavailable"}, 500
             payload = json.dumps(body).encode() if body is not None else b""
-            self.send_response(200 if body is not None else 404)
+            self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()

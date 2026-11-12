@@ -395,7 +395,11 @@ def _run_host_eval(
     for model_entry in models:
         model = model_entry["name"]
         declared = entry.get("stack")
-        fingerprint, provenance = fp_cache.get_or_probe(
+        # Warm the cache before the loop; each row keeps what run_test's own lookup returns.
+        # Rows used to be stamped with this pre-loop result, so once a probe that got no answer
+        # stopped being cached (hermia-bw1q), a successful retry in the first trial was thrown
+        # away and every row kept the failed probe.
+        fp_cache.get_or_probe(
             host_url, model, declared, headers=headers, engine=transport_type,
         )
         for test in tests:
@@ -404,7 +408,7 @@ def _run_host_eval(
                 result = run_test(
                     model, test, sampler,
                     host=host_url, headers=headers, transport=host_transport,
-                    locality="remote", fp_cache=fp_cache,
+                    locality="remote", fp_cache=fp_cache, declared=declared,
                     test_timeout=effective_timeout,
                     identity_transport=_identity_transport,
                     identity_salt=_identity_salt,
@@ -420,8 +424,6 @@ def _run_host_eval(
                 result.update(resolve_stack(
                     entry, result.get("orchestration_version"),
                 ))
-                result["stack_fingerprint"] = fingerprint
-                result["_provenance"] = provenance
                 run_results.append(result)
 
             # Compute robustness + reproducibility aggregates across all repeat
