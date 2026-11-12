@@ -144,3 +144,42 @@ def test_engine_in_cache_key_prevents_cross_engine_collision() -> None:
         cache.get_or_probe("http://h:11434", "m1", declared=None,
                            engine_version="0.6.2", engine="openai-compat")
     assert mock_probe.call_count == 2
+
+
+def test_an_ollama_probe_that_never_reached_the_model_is_not_cached() -> None:
+    """hermia-bw1q review: the TUI now keeps one cache per host for a whole run. A probe that
+    failed (host briefly down, /api/show refused) must not stamp every later trial with nulls;
+    the next lookup retries it, which is what the TUI did before it cached at all."""
+    cache = FingerprintCache()
+    empty = ({"fingerprint_schema_version": 1, "model": {"digest": None}}, {"model.digest": None})
+    with patch.object(cache, "_do_probe", side_effect=[empty, (_dummy_fp(), _dummy_prov())]) as p:
+        first, _ = cache.get_or_probe("http://host:11434", "m1", declared=None)
+        second, _ = cache.get_or_probe("http://host:11434", "m1", declared=None)
+        third, _ = cache.get_or_probe("http://host:11434", "m1", declared=None)
+    assert first["model"]["digest"] is None
+    assert second["model"]["digest"] == "sha256:abc"
+    assert third is second, "a probe that did reach the model is cached"
+    assert p.call_count == 2
+
+
+def test_a_declared_engine_null_fingerprint_is_still_cached() -> None:
+    """The null fingerprint for a non-Ollama engine is the complete answer, not a failure."""
+    cache = FingerprintCache()
+    cache.get_or_probe("http://host:8000", "m1", declared=None, engine="openai-compat")
+    with patch.object(cache, "_do_probe") as p:
+        cache.get_or_probe("http://host:8000", "m1", declared=None, engine="openai-compat")
+    p.assert_not_called()
+
+
+def test_a_real_ollama_probe_without_a_digest_is_cached() -> None:
+    """Real Ollama's /api/show carries no digest (0.40.6), so "got an answer" cannot mean "has a
+    digest": that rule never cached a real probe (PR #222 review). Any model field will do."""
+    cache = FingerprintCache()
+    answered = (
+        {"fingerprint_schema_version": 1, "model": {"digest": None, "architecture": "llama"}},
+        {"model.digest": None, "model.architecture": "api"},
+    )
+    with patch.object(cache, "_do_probe", return_value=answered) as p:
+        cache.get_or_probe("http://host:11434", "m1", declared=None)
+        cache.get_or_probe("http://host:11434", "m1", declared=None)
+    assert p.call_count == 1

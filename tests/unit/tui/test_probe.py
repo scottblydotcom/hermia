@@ -159,3 +159,37 @@ class TestProbeFailures:
                 assert host.models == []
 
         asyncio.run(_run())
+
+
+class TestProbeNeverPublishesTheToken:
+    """hermia-bw1q (PR #222 verification): a token with a stray CR (a file with Windows line
+    endings) makes urllib raise ValueError("Invalid header value b'Bearer tok\\r'"), and the
+    probe put that text on the bus. Every probe.failed error string is scrubbed."""
+
+    def test_each_failure_branch_is_scrubbed(self, monkeypatch) -> None:  # noqa: ANN001
+        import pytest
+
+        token = "fake-tok-SECRET-123"  # noqa: S105  # pragma: allowlist secret
+        monkeypatch.setenv("HERMIA_TEST_PROBE_TOKEN", token)
+        failures = [
+            PermissionError(f"401 for Bearer {token}"),
+            OSError(f"refused, header was Bearer {token}"),
+            ValueError(f"Invalid header value b'Bearer {token}\\r'"),
+        ]
+        for exc in failures:
+            async def _run(exc: Exception = exc) -> list[tuple[str, dict]]:
+                bus = SessionBus()
+                async with _probe_readers(bus) as events:
+                    host = Host(
+                        name="h1", url="http://h1:11434", engine="ollama",
+                        auth_header_env="HERMIA_TEST_PROBE_TOKEN",
+                    )
+                    await probe_host(host, transport=FakeTransport(fail_with=exc), bus=bus)
+                    await asyncio.sleep(0.05)
+                    return list(events)
+
+            failed = [ev for t, ev in asyncio.run(_run()) if t == "probe.failed"]
+            assert len(failed) == 1, (exc, failed)
+            if token in repr(failed):
+                pytest.fail(f"{type(exc).__name__}: the token is on the bus: {failed}")
+            assert "***" in failed[0]["error"], failed

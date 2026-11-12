@@ -35,7 +35,13 @@ class FingerprintCache:
         if key in self._store:
             return self._store[key]
         result = self._do_probe(host, model, declared, engine_version, headers, engine)
-        self._store[key] = result
+        # An Ollama probe whose model fields are all empty never got an answer from /api/show
+        # (host briefly down, auth refused). Caching it would stamp every later trial of the run
+        # with nulls, so the next lookup retries instead (hermia-bw1q review). Not "has a digest":
+        # real Ollama's /api/show carries none, and that test never cached a real probe.
+        model_fields = result[0].get("model") or {}
+        if engine_key != "ollama" or any(v is not None for v in model_fields.values()):
+            self._store[key] = result
         return result
 
     def _do_probe(

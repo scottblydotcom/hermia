@@ -1836,3 +1836,12 @@ def test_redact_secrets_finds_the_token_after_a_run_of_spaces(text: str, expecte
 
     headers = {"Authorization": "Bearer  fake-tok-abcd"}  # pragma: allowlist secret
     assert redact_secrets(text, headers) == expected
+
+
+def test_redact_secrets_removes_a_short_token() -> None:
+    """AGENTS.md rule 11: a credential in an error message is a bug, however short it is. Values
+    under 4 characters used to be skipped (PR #222 review)."""
+    from hermia.runner import redact_secrets
+
+    headers = {"Authorization": "Bearer abc"}  # pragma: allowlist secret
+    assert redact_secrets("invalid API key abc", headers) == "invalid API key ***"

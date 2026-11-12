@@ -1,0 +1,139 @@
+"""run_test's fingerprint probe must match the transport that ran the test (hermia-bw1q).
+
+run_test asked the FingerprintCache for an engine-less fingerprint, which takes the Ollama path:
+GET /api/version, POST /api/show, GET /api/ps. Over an OpenAI-compatible transport those requests
+cannot succeed, carried the host's token, and missed the cache fleet.py had primed under
+"openai-compat", so they ran on every (host, model).
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from hermia.fingerprint.cache import FingerprintCache
+from hermia.fleet import load_fleet_config, run_fleet
+from hermia.metrics import MetricsSampler
+from hermia.runner import run_test
+from hermia.transport.ollama import OllamaTransport
+from hermia.transport.openai_compat import OpenAICompatTransport
+from tests.fixtures.fake_engine_server import fake_engine_server
+
+TOKEN = "fake-tok-SECRET-123"  # noqa: S105  # pragma: allowlist secret
+HEADERS = {"Authorization": f"Bearer {TOKEN}"}
+TEST_CASE = {"id": "tool-calling-basic", "prompt": "go", "system": ""}
+
+
+def test_run_test_sends_no_ollama_probe_over_an_openai_compat_transport() -> None:
+    with fake_engine_server() as srv:
+        row = run_test(
+            "m", TEST_CASE, MetricsSampler(), host=srv.url, headers=HEADERS,
+            transport=OpenAICompatTransport(srv.url, HEADERS), locality="remote",
+        )
+    assert not [p for p in srv.paths() if p.startswith("/api/")], srv.seen
+    assert "/v1/chat/completions" in srv.paths(), srv.seen
+    fp, prov = row["stack_fingerprint"], row["_provenance"]
+    assert fp["runtime"]["engine"] == "openai-compat", fp["runtime"]
+    assert prov["runtime.engine"] == "declared", prov
+
+
+def test_run_test_hits_a_cache_primed_the_way_fleet_primes_it() -> None:
+    """fleet.py primes with engine=transport_type; run_test's own lookup must land on that key."""
+    with fake_engine_server() as srv:
+        cache = FingerprintCache()
+        primed = cache.get_or_probe(
+            srv.url, "m", {"compute_backend": {"type": "cuda"}},
+            headers=HEADERS, engine="openai-compat",
+        )
+        row = run_test(
+            "m", TEST_CASE, MetricsSampler(), host=srv.url, headers=HEADERS,
+            transport=OpenAICompatTransport(srv.url, HEADERS), locality="remote",
+            fp_cache=cache,
+        )
+    assert list(cache._store) == [(srv.url, "m", "openai-compat")], list(cache._store)
+    assert row["stack_fingerprint"] == primed[0], row["stack_fingerprint"]
+    assert not [p for p in srv.paths() if p.startswith("/api/")], srv.seen
+
+
+def test_run_test_still_probes_an_ollama_transport_with_its_token() -> None:
+    with fake_engine_server() as srv:
+        row = run_test(
+            "m", TEST_CASE, MetricsSampler(), host=srv.url, headers=HEADERS,
+            transport=OllamaTransport(srv.url, HEADERS), locality="remote",
+        )
+    shows = [s for s in srv.seen if s[1] == "/api/show"]
+    assert shows == [("POST", "/api/show", f"Bearer {TOKEN}")], srv.seen
+    fp = row["stack_fingerprint"]
+    assert fp["runtime"]["engine"] == "ollama", fp["runtime"]
+    assert fp["model"]["architecture"] == "llama", fp["model"]
+    assert row["failure_reason"] == "", row["failure_reason"]
+
+
+def test_run_test_passes_the_declared_stack_into_the_fingerprint() -> None:
+    declared = {"compute_backend": {"type": "cuda"}, "substrate": {"delivery": "bare-metal"}}
+    with fake_engine_server() as srv:
+        row = run_test(
+            "m", TEST_CASE, MetricsSampler(), host=srv.url, headers=HEADERS,
+            transport=OllamaTransport(srv.url, HEADERS), locality="remote",
+            declared=declared,
+        )
+    fp, prov = row["stack_fingerprint"], row["_provenance"]
+    assert fp["compute_backend"]["type"] == "cuda", fp["compute_backend"]
+    assert fp["substrate"]["delivery"] == "bare-metal", fp["substrate"]
+    assert prov["compute_backend.type"] == "declared", prov
+
+
+def test_headless_fleet_sends_no_ollama_probe_to_an_openai_compat_host(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The user's path, not a hand-primed cache: fleet YAML -> load_fleet_config -> run_fleet."""
+    monkeypatch.setenv("HERMIA_TEST_FLEET_TOKEN", TOKEN)
+    with fake_engine_server() as srv:
+        cfg = tmp_path / "fleet.yaml"
+        cfg.write_text(
+            "fleet:\n"
+            f"  - name: h\n    host: {srv.url}\n    transport: openai-compat\n"
+            "    models: [m]\n"
+            "    auth:\n      bearer:\n        key_env: HERMIA_TEST_FLEET_TOKEN\n"
+        )
+        run_fleet(
+            load_fleet_config(cfg), repeat=1, results_dir=tmp_path / "results",
+            print_fn=lambda _m: None, stderr_fn=lambda _m: None, verbosity=-1,
+        )
+    rows = [
+        json.loads(line)
+        for f in (tmp_path / "results").rglob("*.jsonl")
+        for line in f.read_text().splitlines() if line.strip()
+    ]
+    assert rows, "the fleet run wrote no rows"
+    assert not [p for p in srv.paths() if p.startswith("/api/")], srv.seen
+    assert {r["stack_fingerprint"]["runtime"]["engine"] for r in rows} == {"openai-compat"}
+
+
+def test_headless_rows_keep_a_fingerprint_the_trial_retried(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """fleet.py probes before its test loop. When that probe fails it is no longer cached, so the
+    first trial retries it; the rows must carry the retried fingerprint, not the failed one
+    (CodeRabbit, PR #222)."""
+    with fake_engine_server(fail_show=1) as srv:
+        cfg = tmp_path / "fleet.yaml"
+        cfg.write_text(
+            "fleet:\n"
+            f"  - name: h\n    host: {srv.url}\n    transport: ollama\n    models: [m]\n"
+        )
+        run_fleet(
+            load_fleet_config(cfg), repeat=1, results_dir=tmp_path / "results",
+            print_fn=lambda _m: None, stderr_fn=lambda _m: None, verbosity=-1,
+        )
+    rows = [
+        json.loads(line)
+        for f in (tmp_path / "results").rglob("*.jsonl")
+        for line in f.read_text().splitlines() if line.strip()
+    ]
+    assert rows, "the fleet run wrote no rows"
+    shows = [s for s in srv.seen if s[1] == "/api/show"]
+    assert len(shows) == 2, f"one failed prime, one retry, then cached: {shows}"
+    arch = {r["stack_fingerprint"]["model"]["architecture"] for r in rows}
+    assert arch == {"llama"}, f"rows kept the failed probe: {arch}"
