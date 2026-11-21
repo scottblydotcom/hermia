@@ -1590,12 +1590,16 @@ def test_run_host_eval_stamps_fingerprint_and_provenance(
     captured_rows: list[dict] = []
 
     def fake_run_test(model, test, sampler, host=None, headers=None, transport=None, **kw):
+        # As the real run_test does: the row's fingerprint is whatever the shared cache returns
+        # (fleet no longer stamps its own pre-loop result over it, hermia-bw1q).
+        fp, prov = kw["fp_cache"].get_or_probe(host, model, kw.get("declared"))
         return {
             "model": model, "test_id": test["id"], "failure_reason": "",
             "elapsed_sec": 0.1, "tokens_per_sec": 1.0,
             "mode": "fleet",
             "peak_cpu_pct": None, "peak_ram_used_gb": None,
             "peak_gpu_pct": None, "peak_vram_used_gb": None,
+            "stack_fingerprint": fp, "_provenance": prov,
         }
 
     def fake_append(result, jsonl_path, csv_path):
@@ -1639,8 +1643,9 @@ def test_run_host_eval_stamps_fingerprint_and_provenance(
     assert row["_provenance"]["model.digest"] == "api"
     # Auth headers built by the fleet must be forwarded to the probe.
     assert seen_headers and seen_headers[0] is not None
-    # Default fleet entry (no transport key) → engine dispatched as "ollama".
-    assert seen_engines == ["ollama"]
+    # Default fleet entry (no transport key) → engine dispatched as "ollama". [0] is fleet's own
+    # pre-loop probe; the fake run_test's lookup follows it.
+    assert seen_engines[0] == "ollama"
 
 
 def test_run_host_eval_shares_one_cache_across_run_test_calls(

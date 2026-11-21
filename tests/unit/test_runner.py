@@ -1836,3 +1836,48 @@ def test_redact_secrets_finds_the_token_after_a_run_of_spaces(text: str, expecte
 
     headers = {"Authorization": "Bearer  fake-tok-abcd"}  # pragma: allowlist secret
     assert redact_secrets(text, headers) == expected
+
+
+def test_redact_secrets_removes_a_short_token() -> None:
+    """AGENTS.md rule 11: a credential in an error message is a bug, however short it is. Values
+    under 4 characters used to be skipped (PR #222 review)."""
+    from hermia.runner import redact_secrets
+
+    headers = {"Authorization": "Bearer abc"}  # pragma: allowlist secret
+    assert redact_secrets("invalid API key abc", headers) == "invalid API key ***"
+
+
+def test_redact_secrets_handles_a_token_latin1_cannot_encode() -> None:
+    """The bytes form is skipped for a value latin-1 cannot encode (http.client cannot send it
+    either, and its error quotes no value); the other forms still scrub it (PR #222 review)."""
+    from hermia.runner import redact_secrets
+
+    headers = {"Authorization": "Bearer tok—SECRET"}  # pragma: allowlist secret
+    assert redact_secrets("refused tok—SECRET", headers) == "refused ***"
+
+
+@pytest.mark.parametrize(
+    ("token", "error", "expected"),
+    [
+        (
+            "TRY",
+            TransportError("after 3 attempts: HTTP 503 TRY", kind="openai-compat-retry-exhausted"),
+            "RETRY_EXHAUSTED: after 3 attempts: HTTP 503 ***",
+        ),
+        ("ERR", RuntimeError("boom ERR"), "ERROR: boom ***"),
+    ],
+)
+def test_a_short_token_never_rewrites_the_failure_prefix(
+    token: str, error: Exception, expected: str,
+) -> None:
+    """Only the exception text is scrubbed, never hermia's own prefix: analyze.py drops infra
+    noise on 'RETRY_EXHAUSTED%', and regrade.py and anonymize.py classify on the prefix. A token
+    that occurs in a prefix used to rewrite it (Antigravity, PR #222)."""
+    transport = MagicMock()
+    transport.generate.side_effect = error
+    headers = {"Authorization": f"Bearer {token}"}  # pragma: allowlist secret
+    with patch("hermia.runner.fetch_server_ps_data", return_value=_PS_EMPTY):
+        result = run_test(
+            "qwen2.5:32b", _BASE_TEST, _mock_sampler(), transport=transport, headers=headers,
+        )
+    assert result["failure_reason"] == expected

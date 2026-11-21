@@ -1,8 +1,6 @@
 """Tests for hermia.tui.runner_backend — TuiRunner + helpers."""
 import asyncio
 
-import pytest
-
 from hermia.tui.bus import SessionBus
 from hermia.tui.runner_backend import TuiRunner, _trial_wall_timeout_sec, verdict_from_result
 from hermia.tui.state import FleetConfig, Host, ModelChoice
@@ -408,19 +406,14 @@ def test_tui_does_not_declare_a_host_on_this_machine_remote():
     assert remote["mode"] == "fleet", "a fleet host must not be sampled as if it were local"
 
 
-# KNOWN LEAK, pre-existing on dev (hermia-4mhr review 2026-10-17, Antigravity + Claude both
-# reproduced): a TUI per-test error can keep a bearer token that an InvalidHeader quoted whole.
-# Two fixes were tried in PR #220 and each created a new defect (headers= sent the token on
-# Ollama-only probes to openai-compat hosts; scrubbing the whole row rewrote model output and
-# prompt hashes). The fix belongs with hermia-bw1q: give run_test the engine, an fp_cache and
-# headers= as fleet.py does. These xfail(strict) tests must pass once that lands.
-_KNOWN_LEAK = pytest.mark.xfail(
-    strict=True, reason="hermia-bw1q: TUI per-test errors can carry the bearer token"
-)
+# hermia-bw1q: a TUI per-test error could keep a bearer token that an InvalidHeader quoted whole.
+# These were strict xfails until the TUI gave run_test its headers (so run_test scrubs its own
+# error text) and scrubbed the two error rows it builds itself. Two earlier fixes were reverted
+# in PR #220: headers= alone sent the token on Ollama-only probes to openai-compat hosts, and
+# scrubbing the whole row rewrote model output and prompt hashes.
 _CR_TOKEN = "fake-tok-SECRET-123\r"  # noqa: S105  # pragma: allowlist secret
 
 
-@_KNOWN_LEAK
 def test_real_run_test_never_saves_the_token(monkeypatch) -> None:
     """Real _real_run_test and transports; a CR-terminated token fails before any connection."""
     import json
@@ -444,7 +437,6 @@ def test_real_run_test_never_saves_the_token(monkeypatch) -> None:
             pytest.fail(f"{engine}: the token is in the saved row")
 
 
-@_KNOWN_LEAK
 def test_an_error_escaping_run_test_is_scrubbed(monkeypatch) -> None:
     """The runner's own catch-all builds the row from the exception text: scrub it too."""
     monkeypatch.setenv("HERMIA_TEST_TUI_TOKEN", "fake-tok-SECRET-123")
@@ -524,7 +516,6 @@ def test_tui_never_sends_the_token_on_ollama_only_probes(monkeypatch) -> None:
     assert not [p for p in authed if p.startswith("/api/")], f"Ollama-only probe got it: {seen}"
 
 
-@_KNOWN_LEAK
 def test_a_host_level_failure_is_scrubbed(monkeypatch) -> None:
     """A whole-host failure's text goes on the bus and into RunState: scrub it too."""
     monkeypatch.setenv("HERMIA_TEST_TUI_TOKEN", "fake-tok-SECRET-123")
@@ -562,3 +553,15 @@ def test_a_host_level_failure_is_scrubbed(monkeypatch) -> None:
     text = repr(asyncio.run(_run()))
     assert "HOST_ERROR" in text and "is invalid" in text, text
     assert "fake-tok-SECRET-123" not in text
+
+
+def test_the_tui_scrub_removes_a_short_token(monkeypatch) -> None:  # noqa: ANN001
+    """The TUI's error rows go through scrub_host_secrets; a 3-character token is a token."""
+    from hermia.tui.runner_backend import scrub_host_secrets
+
+    monkeypatch.setenv("HERMIA_TEST_TUI_TOKEN", "abc")
+    host = Host(
+        name="h", url="http://127.0.0.1:9", engine="ollama",
+        auth_header_env="HERMIA_TEST_TUI_TOKEN", models=[],
+    )
+    assert scrub_host_secrets("invalid API key abc", host) == "invalid API key ***"

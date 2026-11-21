@@ -179,7 +179,6 @@ def compute_execution_path(
 
 
 _USERINFO = re.compile(r"(?<=//)[^/@\s'\"]*@")
-_SECRET_MIN_LEN = 4
 
 
 def _userinfo(url: str) -> str:
@@ -216,12 +215,22 @@ def redact_secrets(
     out = _USERINFO.sub("***@", out)
     for value in (headers or {}).values():
         forms = {value, value.strip(), repr(value)[1:-1]}
+        # urllib (http.client) quotes a refused header as BYTES, so a non-ASCII character prints
+        # as \xHH, which none of the str forms contain (PR #222 review). A value latin-1 cannot
+        # encode makes http.client fail without quoting it, so there is no such form to add.
+        try:
+            forms.add(repr(value.encode("latin-1"))[2:-1])
+        except UnicodeEncodeError:
+            pass
         for form in list(forms):
             parts = form.split(None, 1)  # "Bearer  tok": any run of whitespace
             if len(parts) == 2:
                 forms.add(parts[1].strip())
         for form in sorted(forms, key=len, reverse=True):
-            if len(form.strip()) >= _SECRET_MIN_LEN:
+            # Any non-empty value, however short: a credential in an error message is a bug
+            # (AGENTS.md rule 11). A 1-3 character token can mangle the surrounding text; that is
+            # the lesser harm. Empty is skipped: replacing "" would insert "***" everywhere.
+            if form.strip():
                 out = out.replace(form, "***")
     return out
 
@@ -570,6 +579,7 @@ def run_test(
     *,
     locality: Literal["local", "remote"] | None = None,
     fp_cache: FingerprintCache | None = None,
+    declared: dict[str, Any] | None = None,
     test_timeout: int | None = None,
     identity_transport: IdentityTransport | None = None,
     identity_salt: SaltInfo | None = None,
@@ -633,11 +643,13 @@ def run_test(
             prefix = "RETRY_EXHAUSTED"
         else:
             prefix = "API_ERROR"
-        error_type = redact_secrets(f"{prefix}: {e}", headers, [_host])
+        # Only the exception text is scrubbed: a short token found inside the prefix would
+        # rewrite it, and analyze, regrade and anonymize classify rows on it (PR #222 review).
+        error_type = f"{prefix}: {redact_secrets(str(e), headers, [_host])}"
     except Exception as e:  # noqa: BLE001
         # Scrubbed: an HTTPError quotes the URL (with any password in it) and InvalidHeader
         # quotes the token, and this text is printed and saved in every result row.
-        error_type = redact_secrets(f"ERROR: {e}", headers, [_host])
+        error_type = f"ERROR: {redact_secrets(str(e), headers, [_host])}"
     finally:
         if samples_local_hardware:
             sampler.stop()
@@ -778,9 +790,14 @@ def run_test(
         if not is_api_mode else _empty_ps
     )
     _cache = fp_cache or FingerprintCache()
+    # The probe engine comes from the transport that ran the test. Only Ollama serves
+    # /api/version, /api/show and /api/ps; an engine-less lookup probed them on OpenAI-compatible
+    # hosts, with the host's token, and missed the entry fleet.py primes under
+    # engine=transport_type (hermia-bw1q).
     _fp, _prov = _cache.get_or_probe(
-        _host, model, declared=None, engine_version=orchestration_version,
+        _host, model, declared=declared, engine_version=orchestration_version,
         headers=req_headers or None,
+        engine="openai-compat" if is_api_mode else "ollama",
     )
     _identity_stamp = build_identity_stamp(
         transport=identity_transport or IdentityTransport(kind="api"),
