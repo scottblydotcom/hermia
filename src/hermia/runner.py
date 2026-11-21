@@ -215,6 +215,13 @@ def redact_secrets(
     out = _USERINFO.sub("***@", out)
     for value in (headers or {}).values():
         forms = {value, value.strip(), repr(value)[1:-1]}
+        # urllib (http.client) quotes a refused header as BYTES, so a non-ASCII character prints
+        # as \xHH, which none of the str forms contain (PR #222 review). A value latin-1 cannot
+        # encode makes http.client fail without quoting it, so there is no such form to add.
+        try:
+            forms.add(repr(value.encode("latin-1"))[2:-1])
+        except UnicodeEncodeError:
+            pass
         for form in list(forms):
             parts = form.split(None, 1)  # "Bearer  tok": any run of whitespace
             if len(parts) == 2:
@@ -636,11 +643,13 @@ def run_test(
             prefix = "RETRY_EXHAUSTED"
         else:
             prefix = "API_ERROR"
-        error_type = redact_secrets(f"{prefix}: {e}", headers, [_host])
+        # Only the exception text is scrubbed: a short token found inside the prefix would
+        # rewrite it, and analyze, regrade and anonymize classify rows on it (PR #222 review).
+        error_type = f"{prefix}: {redact_secrets(str(e), headers, [_host])}"
     except Exception as e:  # noqa: BLE001
         # Scrubbed: an HTTPError quotes the URL (with any password in it) and InvalidHeader
         # quotes the token, and this text is printed and saved in every result row.
-        error_type = redact_secrets(f"ERROR: {e}", headers, [_host])
+        error_type = f"ERROR: {redact_secrets(str(e), headers, [_host])}"
     finally:
         if samples_local_hardware:
             sampler.stop()

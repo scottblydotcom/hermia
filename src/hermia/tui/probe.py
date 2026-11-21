@@ -107,7 +107,7 @@ async def probe_host(
                 "reason": "unexpected",
                 # Scrubbed: urllib's "Invalid header value" quotes a CR-terminated token
                 # whole (hermia-bw1q).
-                "error": scrub_host_secrets(f"{type(exc).__name__}: {exc}", host),
+                "error": f"{type(exc).__name__}: {scrub_host_secrets(str(exc), host)}",
                 "retryable": False,
             },
         )

@@ -36,6 +36,17 @@ class Host:
     stack: dict[str, Any] | None = None
     models: list[ModelChoice] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        # auth_header_env NAMES an environment variable. Checked here, not in each loader, so no
+        # file, modal or caller can build a Host whose token lookup raises: a number from YAML
+        # raised TypeError inside the run's error scrubbing, and the run never finished
+        # (PR #222 review). The message names the type only, never the value.
+        if self.auth_header_env is not None and not isinstance(self.auth_header_env, str):
+            raise TypeError(
+                f"Host {self.name!r}: 'auth_header_env' must be the name of an environment "
+                f"variable (a string), not {type(self.auth_header_env).__name__}"
+            )
+
 
 @dataclass
 class FleetConfig:

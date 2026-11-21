@@ -30,6 +30,8 @@ See [docs/roadmap.md](docs/roadmap.md) for the full plan.
   under cron, where `/usr/sbin` is not on `PATH`.
 - **The TUI no longer saves or shows a bearer token in a per-test error** (hermia-bw1q), for
   example a token read from a file with Windows line endings.
+- **A TUI fleet or seed file whose `auth_header_env` is not a string is refused when it loads**,
+  instead of loading and leaving the run unable to finish.
 - **An openai-compat host is no longer sent Ollama-only requests** (`/api/version`, `/api/show`,
   `/api/ps`) to fingerprint the model, in the TUI or headless, and its TUI rows now record the
   engine as `openai-compat` (it was `ollama`).

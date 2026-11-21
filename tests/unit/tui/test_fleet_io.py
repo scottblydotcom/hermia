@@ -368,3 +368,34 @@ def test_hosts_format_and_seed_refuse_a_url_that_is_not_a_string(tmp_path: Path)
     seed.write_text(yaml.safe_dump({"hosts": [host]}))
     with pytest.raises(TypeError, match="'url' must be a string"):
         load_hosts_seed(path=seed)
+
+
+@pytest.mark.parametrize(
+    "doc",
+    [
+        {"name": "f", "hosts": [
+            {"name": "h", "url": "http://h:11434", "engine": "ollama", "auth_header_env": 123},
+        ]},
+        {"fleet": [
+            {"name": "h", "host": "http://h:11434", "auth": {"bearer": {"key_env": ["TOK"]}}},
+        ]},
+    ],
+    ids=["hosts-file", "fleet-file"],
+)
+def test_a_non_string_token_variable_is_refused_at_load(tmp_path: Path, doc: dict) -> None:
+    """auth_header_env names an environment variable. A number or list loaded silently, then
+    raised TypeError inside the TUI's error scrubbing, so the run never finished and Escape stayed
+    locked (Antigravity, PR #222). Refused where the file is read, like a non-string url."""
+    fleet = tmp_path / "f.yaml"
+    fleet.write_text(yaml.safe_dump(doc))
+    with pytest.raises(TypeError, match="auth_header_env"):
+        load_fleet(fleet)
+
+
+def test_a_non_string_token_variable_is_refused_in_a_seed_file(tmp_path: Path) -> None:
+    seed = tmp_path / "hosts.yaml"
+    seed.write_text(yaml.safe_dump({"hosts": [
+        {"name": "h", "url": "http://h:11434", "engine": "ollama", "auth_header_env": True},
+    ]}))
+    with pytest.raises(TypeError, match="auth_header_env"):
+        load_hosts_seed(path=seed)

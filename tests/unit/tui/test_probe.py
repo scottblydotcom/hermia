@@ -193,3 +193,27 @@ class TestProbeNeverPublishesTheToken:
             if token in repr(failed):
                 pytest.fail(f"{type(exc).__name__}: the token is on the bus: {failed}")
             assert "***" in failed[0]["error"], failed
+
+    def test_the_real_urllib_error_for_a_bad_token_is_scrubbed(self, monkeypatch) -> None:  # noqa: ANN001
+        """The real transport, not a hand-written error: urllib quotes the header as BYTES, so a
+        non-ASCII character prints as \\xHH and the str forms of the token did not match it
+        (Antigravity, PR #222). The CR makes urllib refuse the header before any connection."""
+        from hermia.tui.transport_adapter import transport_for
+
+        monkeypatch.setenv("HERMIA_TEST_PROBE_TOKEN", "tok-é-SECRET\r")
+        host = Host(
+            name="h1", url="http://127.0.0.1:9", engine="ollama",
+            auth_header_env="HERMIA_TEST_PROBE_TOKEN",
+        )
+
+        async def _run() -> list[tuple[str, dict]]:
+            bus = SessionBus()
+            async with _probe_readers(bus) as events:
+                await probe_host(host, transport=transport_for(host), bus=bus)
+                await asyncio.sleep(0.05)
+                return list(events)
+
+        failed = [ev for t, ev in asyncio.run(_run()) if t == "probe.failed"]
+        assert len(failed) == 1, failed
+        assert "Invalid header value" in failed[0]["error"], failed
+        assert "SECRET" not in repr(failed), failed
