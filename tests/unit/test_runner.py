@@ -1847,6 +1847,15 @@ def test_redact_secrets_removes_a_short_token() -> None:
     assert redact_secrets("invalid API key abc", headers) == "invalid API key ***"
 
 
+def test_redact_secrets_handles_a_token_latin1_cannot_encode() -> None:
+    """The bytes form is skipped for a value latin-1 cannot encode (http.client cannot send it
+    either, and its error quotes no value); the other forms still scrub it (PR #222 review)."""
+    from hermia.runner import redact_secrets
+
+    headers = {"Authorization": "Bearer tok—SECRET"}  # pragma: allowlist secret
+    assert redact_secrets("refused tok—SECRET", headers) == "refused ***"
+
+
 @pytest.mark.parametrize(
     ("token", "error", "expected"),
     [

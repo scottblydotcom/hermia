@@ -217,3 +217,24 @@ class TestProbeNeverPublishesTheToken:
         assert len(failed) == 1, failed
         assert "Invalid header value" in failed[0]["error"], failed
         assert "SECRET" not in repr(failed), failed
+
+    def test_a_short_token_never_rewrites_the_error_type(self, monkeypatch) -> None:  # noqa: ANN001
+        """Only the exception text is scrubbed: a token found in "ValueError" rewrote the name the
+        operator reads first (Antigravity, PR #222)."""
+        monkeypatch.setenv("HERMIA_TEST_PROBE_TOKEN", "Val")
+        host = Host(
+            name="h1", url="http://h1:11434", engine="ollama",
+            auth_header_env="HERMIA_TEST_PROBE_TOKEN",
+        )
+
+        async def _run() -> list[tuple[str, dict]]:
+            bus = SessionBus()
+            async with _probe_readers(bus) as events:
+                await probe_host(
+                    host, transport=FakeTransport(fail_with=ValueError("bad Val here")), bus=bus,
+                )
+                await asyncio.sleep(0.05)
+                return list(events)
+
+        failed = [ev for t, ev in asyncio.run(_run()) if t == "probe.failed"]
+        assert [ev["error"] for ev in failed] == ["ValueError: bad *** here"], failed
