@@ -33,8 +33,8 @@ the 0.2.2 grader, so the published split (81.3% / 6.1% / 12.6%) stands.
   standard, and the statements that supported it are corrected. The research basis and
   references no longer claim the sources were verified. A revised version of GUARDS is in
   preparation.
-- **An unreachable, misconfigured or erroring Ollama host is reported with its cause, never as
-  "no models"** (hermia-4mhr). The host is skipped and the rest of the fleet still runs; an odd
+- **In headless runs (`hermia --fleet`), an unreachable, misconfigured or erroring Ollama host is
+  reported with its cause, never as "no models"** (hermia-4mhr). The host is skipped and the rest of the fleet still runs; an odd
   host address or token no longer crashes the whole run.
 - **A bearer token or URL password is no longer printed or saved** in discovery errors, the host
   banner, or headless (`hermia --fleet`) per-test errors.
@@ -50,7 +50,7 @@ the 0.2.2 grader, so the published split (81.3% / 6.1% / 12.6%) stands.
   engine as `openai-compat` (it was `ollama`).
 - **TUI runs fingerprint like headless runs:** each model is probed once per host instead of once
   per trial, with the host's token (an Ollama host behind a bearer-token proxy no longer gets
-  blank fingerprint and VRAM fields), the host's declared `stack:`, and a host address typed
+  blank fingerprint and VRAM fields) and a host address typed
   without `http://`, which previously failed every trial. A probe that gets no answer is retried
   on the next trial rather than kept for the run.
 - **A Linux AMD card is named by its model, not its device node** (`card0`; hermia-gq0g). The
@@ -64,6 +64,8 @@ the 0.2.2 grader, so the published split (81.3% / 6.1% / 12.6%) stands.
 ### Known issues
 - An openai-compat host that answers `/v1/models` with a page that is not a model list (an HTML
   sign-in page, `{}`) is still reported as "no models" (hermia-tn01).
+- In the TUI, an Ollama host that answers `/api/tags` with something other than a model list
+  (`{}`) is still shown as reachable with no models, and a failed probe shows no cause.
 
 ---
 
