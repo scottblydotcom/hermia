@@ -175,25 +175,23 @@ def test_compute_host_class_apple_m4() -> None:
     assert compute_host_class(gpu) == "local:metal/m4"
 
 
-def test_compute_host_class_amd_rdna3() -> None:
-    gpu = {"vendor": "amd", "card": "AMD Radeon RX 7800 XT"}
-    assert compute_host_class(gpu) == "local:rocm/rdna3"
-
-
-def test_compute_host_class_amd_rdna2() -> None:
-    gpu = {"vendor": "amd", "card": "AMD Radeon RX 6800 XT"}
-    assert compute_host_class(gpu) == "local:rocm/rdna2"
-
-
-def test_compute_host_class_amd_mi_instinct() -> None:
-    gpu = {"vendor": "amd", "card": "MI250X"}
-    assert compute_host_class(gpu) == "local:rocm/instinct"
-
-
-def test_compute_host_class_amd_vulkan() -> None:
-    # RX 5700 doesn't match any RDNA2/RDNA3 or MI pattern — falls back to vulkan
-    gpu = {"vendor": "amd", "card": "AMD Radeon RX 5700"}
-    assert compute_host_class(gpu) == "local:vulkan/amd"
+@pytest.mark.parametrize(
+    "card",
+    [
+        "AMD Radeon RX 7800 XT",
+        "AMD Radeon RX 6800 XT",
+        "MI250X",
+        "AMD Radeon RX 5700",
+        # Review cases that the removed name rules mislabelled (hermia-gq0g / hermia-68jm):
+        "Tonga PRO GL [FirePro W7100 / Barco MXRT-7600]",
+        "Vega 20 [Radeon Pro VII/Radeon Instinct MI50]",
+        "Navi 21 [Radeon RX 6950 XT]",
+        "",
+    ],
+)
+def test_compute_host_class_every_linux_amd_card_is_generic(card: str) -> None:
+    """Scott 2026-10-17: no generation claimed from marketing names (redesign: hermia-68jm)."""
+    assert compute_host_class({"vendor": "amd", "card": card}) == "local:vulkan/amd"
 
 
 def test_compute_host_class_intel_igpu() -> None:

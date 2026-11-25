@@ -11,6 +11,64 @@ See [docs/roadmap.md](docs/roadmap.md) for the full plan.
 
 ---
 
+## [0.2.3] — 2026-11 (secrets kept out of errors; hosts and GPUs reported honestly)
+
+A reliability and secret-handling release. No grading change: the security grader is byte-for-byte
+the 0.2.2 grader, so the published split (81.3% / 6.1% / 12.6%) stands.
+
+### Changed
+- **A host address with a login in it (`user:password@host`) is refused** wherever a host
+  enters hermia: fleet files, TUI fleet and seed files, the Add Host form, `HERMIA_HOST`. Such
+  an address leaked the password into error messages, the run banner and every saved result
+  row (hermia-emsn). hermia authenticates only with a bearer token: `auth.bearer.key_env` in a
+  `fleet:` file, `auth_header_env` in a `hosts:` file. **A username/password (Basic auth)
+  proxy, such as nginx in front of Ollama, can no longer be reached.** That worked only because
+  the HTTP library turned the login into Basic auth; it was never documented, and there is no
+  replacement yet (hermia-vvv6).
+
+### Fixed
+- **`docs/GUARDS.md` is corrected** (2026-10-29). A sentence presented as quoted verbatim from
+  the Prompt Architect catalog is removed: it does not appear anywhere in that catalog's history.
+  The "no published standard" gap claim is narrowed to the absence of a structured, assessable
+  standard, and the statements that supported it are corrected. The research basis and
+  references no longer claim the sources were verified. A revised version of GUARDS is in
+  preparation.
+- **In headless runs (`hermia --fleet`), an unreachable, misconfigured or erroring Ollama host is
+  reported with its cause, never as "no models"** (hermia-4mhr). The host is skipped and the rest of the fleet still runs; an odd
+  host address or token no longer crashes the whole run.
+- **A bearer token or URL password is no longer printed or saved** in discovery errors, the host
+  banner, or headless (`hermia --fleet`) per-test errors.
+- **An Apple GPU is reported only with evidence** (hermia-ly6f): an Apple display entry, or bare
+  metal. A Mac whose probes failed no longer reports a GPU it never saw, and the probes work
+  under cron, where `/usr/sbin` is not on `PATH`.
+- **The TUI no longer saves or shows a bearer token in a per-test error** (hermia-bw1q), for
+  example a token read from a file with Windows line endings.
+- **A TUI fleet or seed file whose `auth_header_env` is not a string is refused when it loads**,
+  instead of loading and leaving the run unable to finish.
+- **An openai-compat host is no longer sent Ollama-only requests** (`/api/version`, `/api/show`,
+  `/api/ps`) to fingerprint the model, in the TUI or headless, and its TUI rows now record the
+  engine as `openai-compat` (it was `ollama`).
+- **TUI runs fingerprint like headless runs:** each model is probed once per host instead of once
+  per trial, with the host's token (an Ollama host behind a bearer-token proxy no longer gets
+  blank fingerprint and VRAM fields) and a host address typed
+  without `http://`, which previously failed every trial. A probe that gets no answer is retried
+  on the next trial rather than kept for the run.
+- **A Linux AMD card is named by its model, not its device node** (`card0`; hermia-gq0g). The
+  name comes from the driver's `product_name`, then `lspci`; it is left blank when neither
+  answers. The host class stays `local:vulkan/amd` for every Linux AMD card, as before.
+- **A Mac's discrete AMD or NVIDIA card is no longer hidden behind its Intel integrated GPU**
+  (hermia-mont). Its VRAM is reported when macOS states it (never host RAM), and the model-fit
+  check flags a model larger than the card's total VRAM when VRAM in use cannot be measured.
+  Not verified on real AMD Linux or Intel Mac hardware.
+
+### Known issues
+- An openai-compat host that answers `/v1/models` with a page that is not a model list (an HTML
+  sign-in page, `{}`) is still reported as "no models" (hermia-tn01).
+- In the TUI, an Ollama host that answers `/api/tags` with something other than a model list
+  (`{}`) is still shown as reachable with no models, and a failed probe shows no cause.
+
+---
+
 ## [0.2.2] — 2026-10 (two awareness-veto fixes)
 
 A small grading-correctness release. Two of the ways a refusal word could hide a compromise

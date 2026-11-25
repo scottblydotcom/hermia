@@ -168,7 +168,12 @@ def main() -> None:
     # /api/version timeout when the host is unreachable. See
     # HermiaApp._probe_engine_security.
     from hermia.runner import get_ollama_host
-    HermiaApp(engine_security_host=get_ollama_host()).run()
+    try:
+        engine_host = get_ollama_host()
+    except ValueError as exc:  # a login in HERMIA_HOST (hermia-emsn)
+        print(f"hermia: {exc}", file=sys.stderr)
+        sys.exit(2)
+    HermiaApp(engine_security_host=engine_host).run()
 
 
 if __name__ == "__main__":

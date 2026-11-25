@@ -74,8 +74,16 @@ reviews:
       instructions: |
         Tests use stdlib `asyncio.run()` inside sync wrappers (NOT
         pytest-asyncio — not in pyproject deps; adding requires explicit
-        approval per AGENTS.md rule 3). Use `FakeTransport` from
-        tests/fixtures/fake_transport.py for any test driving probe / runner.
+        approval per AGENTS.md rule 3). `FakeTransport`
+        (tests/fixtures/fake_transport.py) is the async probe fake
+        (`list_models` / `send`): prefer it for tests that drive
+        tui/probe.py with a scripted outcome. Do NOT ask for it in: tests of
+        the synchronous runner (`run_test` calls `transport.generate`; a
+        `MagicMock` transport is the convention there); TuiRunner tests
+        (TuiRunner takes a run function, not a transport); or seam tests
+        that deliberately use a real transport, or the recording server in
+        tests/fixtures/fake_engine_server.py, to check what a real library
+        or host actually does.
         Textual screens require an App event loop to compose — there is no
         direct instantiation path that produces a queryable DOM. Screen
         composition tests (Footer presence, widget layout) MUST use

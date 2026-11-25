@@ -318,3 +318,46 @@ def test_preflight_survives_a_host_where_vram_was_never_measured(tmp_path: Path)
         f"an unmeasured VRAM must not produce a VRAM-based reason: {check.reason!r}"
     )
     assert report.vram_total_gb is None, "the report must carry the absence, not a zero"
+
+
+
+def test_known_total_with_unmeasured_use_cannot_fit_now_what_exceeds_the_total(
+    tmp_path: Path,
+) -> None:
+    """A Mac discrete card reports its total VRAM but not its use (hermia-mont).
+
+    A 12 GB model on an 8 GB card cannot fit the VRAM available right now; before, an
+    unmeasured "in use" made fits_current_vram True while fits_total_vram was False.
+    """
+    with patch("hermia.preflight.get_gpu_stats", return_value=(None, None, 8.0)), \
+         _mock_ram(available_gb=64.0), _mock_disk():
+        report = run_preflight(
+            selected_models=["big:12b"],
+            model_list=[{"name": "big:12b", "size": 12 * 1024**3}],
+            results_dir=tmp_path,
+        )
+    check = report.models[0]
+    assert check.fits_total_vram is False
+    assert check.fits_current_vram is False
+    assert check.skip is False, "it still fits in RAM; the CPU fallback is a warning, not a skip"
+    # CodeRabbit on #219: the warning must name the model and the real reason, not claim
+    # that VRAM could not be measured (the total was).
+    assert report.warnings == [
+        "WARN big:12b (12.0 GB): 12.0 GB exceeds total VRAM (8.0 GB) — "
+        "CPU fallback possible but will be very slow"
+    ]
+
+
+def test_fleet_mode_warning_for_a_model_over_total_vram_still_names_it(tmp_path: Path) -> None:
+    """Fleet mode leaves the reason empty; the warning keeps the model and a capacity reason."""
+    with patch("hermia.preflight.get_gpu_stats", return_value=(None, None, 8.0)), \
+         _mock_ram(available_gb=64.0), _mock_disk():
+        report = run_preflight(
+            selected_models=["big:12b"],
+            model_list=[{"name": "big:12b", "size": 12 * 1024**3}],
+            results_dir=tmp_path,
+            fleet_mode=True,
+        )
+    assert report.warnings == [
+        "WARN big:12b (12.0 GB): exceeds total VRAM; VRAM in use could not be measured"
+    ]

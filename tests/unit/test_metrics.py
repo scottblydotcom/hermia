@@ -100,6 +100,8 @@ def clean_gpu_globals():
         "_APPLE_SILICON": False,
         "_APPLE_VRAM_TOTAL_GB": 0.0,
         "_INTEL_IGPU": False,
+        "_MAC_DISCRETE": False,
+        "_MAC_VRAM_TOTAL_GB": None,
         # The detection latch, added with ensure_gpu_detected(). Omitting it left detection
         # marked done while the six values above were reset, so ensure_gpu_detected() would
         # not re-run and every later test saw a machine with no GPU. Exactly the pollution
@@ -145,7 +147,11 @@ def test_detect_gpu_finds_amdgpu_card(clean_gpu_globals):
 
     assert info["found"] is True
     assert info["vendor"] == "amd"
-    assert info["card"] == "card2"
+    # hermia-gq0g: this used to assert "card2" -- the DRM node name, i.e. it pinned the bug.
+    # The card is identified by its device path; with no product_name and no lspci here, its
+    # model name is unknown, which is blank, never the node name.
+    assert info["card"] == ""
+    assert info["dev_path"] == dev
     assert abs(info["vram_total_gb"] - 8.0) < 0.01
     assert metrics_mod._AMD_DEV == dev
 
@@ -179,6 +185,9 @@ def test_detect_gpu_picks_highest_vram_when_multiple_amdgpu(clean_gpu_globals):
         "/sys/class/drm/card1/device/mem_info_vram_total": str(8 * 1024**3),
         "/sys/class/drm/card2/device/uevent": "DRIVER=amdgpu\n",
         "/sys/class/drm/card2/device/mem_info_vram_total": str(16 * 1024**3),
+        # Named explicitly: the default below ("0") would otherwise be read AS the product name.
+        "/sys/class/drm/card1/device/product_name": "AMD Radeon RX 6600\n",
+        "/sys/class/drm/card2/device/product_name": "AMD Radeon RX 6800 XT\n",
     }
 
     def fake_open(path, *a, **kw):
@@ -194,7 +203,9 @@ def test_detect_gpu_picks_highest_vram_when_multiple_amdgpu(clean_gpu_globals):
     ):
         info = detect_gpu()
 
-    assert info["card"] == "card2"
+    # Selection is by device path, and the name is the SELECTED card's model (hermia-gq0g).
+    assert info["dev_path"] == "/sys/class/drm/card2/device"
+    assert info["card"] == "AMD Radeon RX 6800 XT"
     assert abs(info["vram_total_gb"] - 16.0) < 0.01
 
 
@@ -435,6 +446,7 @@ def test_get_gpu_stats_falls_back_to_sysfs_when_rocm_returns_zeros():
         patch.object(metrics_mod, "_NVIDIA_FOUND", False),
         patch.object(metrics_mod, "_APPLE_SILICON", False),
         patch.object(metrics_mod, "_INTEL_IGPU", False),
+        patch.object(metrics_mod, "_MAC_DISCRETE", False),
         patch.object(metrics_mod, "_AMD_DEV", dev),
         patch("subprocess.run", return_value=mock_result),
         patch("hermia.metrics.glob.glob", return_value=[f"{dev}/uevent"]),
@@ -466,6 +478,7 @@ def test_get_gpu_stats_falls_back_to_sysfs_when_rocm_missing():
         patch.object(metrics_mod, "_NVIDIA_FOUND", False),
         patch.object(metrics_mod, "_APPLE_SILICON", False),
         patch.object(metrics_mod, "_INTEL_IGPU", False),
+        patch.object(metrics_mod, "_MAC_DISCRETE", False),
         patch.object(metrics_mod, "_AMD_DEV", dev),
         patch("subprocess.run", side_effect=FileNotFoundError),
         patch("hermia.metrics.glob.glob", return_value=[f"{dev}/uevent"]),
@@ -785,6 +798,7 @@ def test_get_gpu_stats_cpu_only_reports_unmeasured():
         patch.object(metrics_mod, "_NVIDIA_FOUND", False),
         patch.object(metrics_mod, "_APPLE_SILICON", False),
         patch.object(metrics_mod, "_INTEL_IGPU", False),
+        patch.object(metrics_mod, "_MAC_DISCRETE", False),
         patch.object(metrics_mod, "_AMD_DEV", None),
     ):
         gpu_pct, vram_used, vram_total = get_gpu_stats()
@@ -882,6 +896,7 @@ def _no_gpu_anywhere(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(metrics_mod, "_detect_apple_silicon", lambda: (False, "", 0.0))
     monkeypatch.setattr(metrics_mod, "_find_amdgpu_dev", lambda: None)
     monkeypatch.setattr(metrics_mod, "_detect_intel_igpu", lambda: (False, ""))
+    monkeypatch.setattr(metrics_mod, "_detect_mac_discrete", lambda: None)
 
 
 def test_unprobed_platform_reports_unknown_not_none(
@@ -929,7 +944,7 @@ def test_genuinely_gpu_less_posix_host_still_reports_none_vendor(
     assert info["vram_total_gb"] is None, "absent VRAM is still not a measurement of zero"
 
 
-def test_intel_mac_with_discrete_amd_gpu_is_unknown_not_none(
+def test_mac_where_every_probe_is_empty_is_unknown_not_none(
     monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
 ) -> None:
     """macOS has no /sys/class/drm either, so the AMD probe is as blind there as on Windows.
@@ -946,6 +961,9 @@ def test_intel_mac_with_discrete_amd_gpu_is_unknown_not_none(
     display whose model contains "Intel", and it is checked BEFORE this fallback -- so such a
     machine exits at vendor='intel' and never reaches the code under test. That shadowing is
     a real, separate defect (hermia-mont) and this test must not be read as covering it.
+    hermia-mont is now fixed and covered by test_intel_mac_with_discrete_amd_reports_the_amd_card;
+    this test was renamed from ..._intel_mac_with_discrete_amd_gpu_is_unknown_not_none, whose
+    name claimed the opposite of the current behaviour.
     """
     _no_gpu_anywhere(monkeypatch)
     monkeypatch.setattr(sys, "platform", "darwin")
@@ -1020,3 +1038,551 @@ def test_amd_enumeration_survives_a_garbage_vram_file(
     assert metrics_mod._find_amdgpu_dev() == str(dev), (
         "a card with an unreadable VRAM value still exists and must still be enumerated"
     )
+
+
+# ---------------------------------------------------------------------------
+# hermia-gq0g: the AMD card name was the DRM node ("card0"), never the model, so every AMD
+# GPU fell through to local:vulkan/amd. hermia-mont: on an Intel Mac with a discrete AMD card
+# the iGPU matched first, hiding the card and publishing host RAM as its memory.
+# Tests drafted by the local fleet, rewritten in-window. NOT verified on real AMD or Intel-Mac
+# hardware (none reachable); the fixtures follow the documented sysfs / lspci -mm /
+# system_profiler formats.
+
+import subprocess  # noqa: E402
+
+from hermia.submit import compute_host_class, compute_unified_memory_gb  # noqa: E402
+
+
+def _run_returning(stdout: str, expect: list[str] | None = None):
+    def fake_run(cmd, **kw):
+        if expect is not None:
+            assert cmd == expect
+        return subprocess.CompletedProcess(cmd, 0, stdout=stdout, stderr="")
+
+    return fake_run
+
+
+def _spdisplays(*entries: dict) -> str:
+    return json.dumps({"SPDisplaysDataType": list(entries)})
+
+
+def test_amd_card_name_reads_product_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The driver's own product_name wins when it is present."""
+    (tmp_path / "product_name").write_text("AMD Radeon RX 7800 XT\n")
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert metrics_mod._amd_card_name(str(tmp_path)) == "AMD Radeon RX 7800 XT"
+
+
+def test_amd_card_name_falls_back_to_lspci(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """No product_name: the device name comes from lspci -mm for the card's PCI slot."""
+    (tmp_path / "uevent").write_text("DRIVER=amdgpu\nPCI_SLOT_NAME=0000:03:00.0\n")
+    out = (
+        '03:00.0 "VGA compatible controller" "Advanced Micro Devices, Inc. [AMD/ATI]" '
+        '"Navi 32 [Radeon RX 7700 XT / 7800 XT]" -rc8 "Sapphire Technology Limited" '
+        '"Device 2426"\n'
+    )
+    monkeypatch.setattr(
+        metrics_mod.subprocess, "run",
+        _run_returning(out, ["lspci", "-mm", "-s", "0000:03:00.0"]),
+    )
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert metrics_mod._amd_card_name(str(tmp_path)) == "Navi 32 [Radeon RX 7700 XT / 7800 XT]"
+
+
+def test_amd_card_name_unknown_is_blank_not_drm_node(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With no name source the answer is blank: never the DRM node name the bug published.
+
+    The device path is the REAL sysfs shape, so the old extraction
+    (dev.split("/sys/class/drm/")[-1].split("/")[0]) would yield "card0" here. A tmp_path
+    could not catch that regression: the old code yields "" for it (review, test-truth).
+    """
+    dev = "/sys/class/drm/card0/device"
+    files = {f"{dev}/uevent": "DRIVER=amdgpu\nPCI_SLOT_NAME=0000:03:00.0\n"}
+
+    def fake_open(path, *a, **kw):
+        if path not in files:
+            raise FileNotFoundError(path)
+        return mock_open(read_data=files[path])()
+
+    def no_lspci(cmd, **kw):
+        raise FileNotFoundError("lspci")
+
+    monkeypatch.setattr("builtins.open", fake_open)
+    monkeypatch.setattr(metrics_mod.subprocess, "run", no_lspci)
+    assert metrics_mod._amd_card_name(dev) == ""
+
+
+def test_amd_card_name_survives_a_non_utf8_product_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A FRU string with a stray non-UTF-8 byte falls through instead of crashing detection."""
+    (tmp_path / "product_name").write_bytes(b"AMD Instinct MI\xff\n")
+
+    def no_lspci(cmd, **kw):
+        raise FileNotFoundError("lspci")
+
+    monkeypatch.setattr(metrics_mod.subprocess, "run", no_lspci)
+    assert metrics_mod._amd_card_name(str(tmp_path)) == ""
+
+
+def test_detect_gpu_amd_branch_uses_model_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """detect_gpu() reports the model name, never the DRM node (hermia-gq0g)."""
+    _no_gpu_anywhere(monkeypatch)
+    (tmp_path / "product_name").write_text("AMD Radeon RX 6800 XT\n")
+    (tmp_path / "mem_info_vram_total").write_text("17163091968")
+    monkeypatch.setattr(metrics_mod, "_find_amdgpu_dev", lambda: str(tmp_path))
+    monkeypatch.setattr(sys, "platform", "linux")
+    info = metrics_mod.detect_gpu()
+    assert info["vendor"] == "amd"
+    assert info["card"] == "AMD Radeon RX 6800 XT"
+    assert compute_host_class(info) == "local:vulkan/amd", "generic by decision (hermia-68jm)"
+
+
+_REAL_MAC_DISCRETE = metrics_mod.__dict__.get("_detect_mac_discrete")
+_REAL_INTEL_IGPU = metrics_mod._detect_intel_igpu
+
+
+def _mac_with(monkeypatch: pytest.MonkeyPatch, *entries: dict) -> None:
+    """A darwin host whose system_profiler lists exactly ``entries``; real mac probes kept."""
+    _no_gpu_anywhere(monkeypatch)
+    monkeypatch.setattr(metrics_mod, "_detect_mac_discrete", _REAL_MAC_DISCRETE)
+    monkeypatch.setattr(metrics_mod, "_detect_intel_igpu", _REAL_INTEL_IGPU)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(
+        metrics_mod.subprocess, "run",
+        _run_returning(_spdisplays(*entries), ["system_profiler", "SPDisplaysDataType", "-json"]),
+    )
+
+
+def test_intel_mac_with_discrete_amd_reports_the_amd_card(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """hermia-mont: the 2019 16-inch MacBook Pro shape. The discrete card wins over the iGPU."""
+    _mac_with(
+        monkeypatch,
+        {"sppci_model": "Intel UHD Graphics 630", "spdisplays_vram_shared": "1536 MB"},
+        {"sppci_model": "AMD Radeon Pro 5500M", "spdisplays_vendor": "sppci_vendor_amd",
+         "spdisplays_vram": "8 GB"},
+    )
+    info = metrics_mod.detect_gpu()
+    assert info["vendor"] == "amd"
+    assert info["card"] == "AMD Radeon Pro 5500M"
+    assert info["vram_total_gb"] == 8.0
+    assert compute_host_class(info) == "local:other", "macOS drives AMD through Metal, not Vulkan"
+    assert compute_unified_memory_gb(info) == 8.0
+
+
+def test_mac_amd_with_unreadable_vram_is_not_host_ram(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """A found card whose VRAM is unreadable is NOT MEASURED, never host RAM."""
+    _mac_with(
+        monkeypatch,
+        {"sppci_model": "Intel UHD Graphics 630"},
+        {"sppci_model": "AMD Radeon Pro 5300M", "spdisplays_vendor": "sppci_vendor_amd"},
+    )
+    info = metrics_mod.detect_gpu()
+    assert info["vendor"] == "amd"
+    assert info["vram_total_gb"] is None
+    assert compute_unified_memory_gb(info) is None
+
+
+def test_mac_pro_with_only_amd_is_amd_not_unknown(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """A Xeon Mac Pro has no iGPU at all; its card used to land at vendor='unknown'."""
+    _mac_with(monkeypatch, {"sppci_model": "AMD Radeon Pro W5700X", "spdisplays_vram": "16 GB"})
+    info = metrics_mod.detect_gpu()
+    assert info["vendor"] == "amd"
+    assert info["vram_total_gb"] == 16.0
+
+
+def test_intel_only_mac_is_still_intel(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """No discrete card: unchanged, the iGPU is reported."""
+    _mac_with(monkeypatch, {"sppci_model": "Intel Iris Plus Graphics"})
+    assert metrics_mod.detect_gpu()["vendor"] == "intel"
+
+
+def test_mac_discrete_parses_megabytes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """system_profiler reports some cards in MB."""
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(
+        metrics_mod.subprocess, "run",
+        _run_returning(_spdisplays({"sppci_model": "AMD Radeon Pro 555X",
+                                    "spdisplays_vram": "4096 MB"})),
+    )
+    assert metrics_mod._detect_mac_discrete() == ("amd", "AMD Radeon Pro 555X", 4.0)
+
+
+def test_mac_discrete_is_none_off_darwin(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The macOS probe never runs elsewhere."""
+    monkeypatch.setattr(sys, "platform", "linux")
+
+    def must_not_run(cmd, **kw):
+        raise AssertionError("system_profiler must not run off darwin")
+
+    monkeypatch.setattr(metrics_mod.subprocess, "run", must_not_run)
+    assert metrics_mod._detect_mac_discrete() is None
+
+
+
+def test_amd_card_name_ignores_a_failed_lspci(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """lspci exiting non-zero is no name, not its stdout."""
+    (tmp_path / "uevent").write_text("DRIVER=amdgpu\nPCI_SLOT_NAME=0000:03:00.0\n")
+
+    def failing(cmd, **kw):
+        return subprocess.CompletedProcess(cmd, 1, stdout='a "b" "c" "d"\n', stderr="")
+
+    monkeypatch.setattr(metrics_mod.subprocess, "run", failing)
+    assert metrics_mod._amd_card_name(str(tmp_path)) == ""
+
+
+def test_mac_with_discrete_nvidia_reports_nvidia_and_a_gpu(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """An older Intel Mac's NVIDIA card is found, and gpu_present() agrees there is a GPU."""
+    _mac_with(
+        monkeypatch,
+        {"sppci_model": "Intel Iris Pro"},
+        {"sppci_model": "NVIDIA GeForce GT 750M", "spdisplays_vram": "2 GB"},
+    )
+    info = metrics_mod.detect_gpu()
+    assert (info["vendor"], info["vram_total_gb"]) == ("nvidia", 2.0)
+    monkeypatch.setattr(metrics_mod, "_GPU_DETECTED", True)
+    assert metrics_mod.gpu_present() is True
+
+
+
+def test_mac_prefers_the_largest_discrete_card(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """Internal 5500M, a bigger eGPU, a smaller eGPU: the largest stated VRAM wins.
+
+    The largest is in the MIDDLE, so neither "first discrete wins" nor "last wins" passes.
+    """
+    _mac_with(
+        monkeypatch,
+        {"sppci_model": "Intel UHD Graphics 630"},
+        {"sppci_model": "AMD Radeon Pro 5500M", "spdisplays_vram": "8 GB"},
+        {"sppci_model": "AMD Radeon RX 6800 XT", "spdisplays_vram": "16 GB"},
+        {"sppci_model": "Radeon RX 580", "spdisplays_vram": "4 GB"},
+    )
+    info = metrics_mod.detect_gpu()
+    assert (info["card"], info["vram_total_gb"]) == ("AMD Radeon RX 6800 XT", 16.0)
+
+
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"sppci_model": "Radeon Pro 560X", "spdisplays_vram": "4 GB"},  # name only: 'radeon'
+        {"sppci_model": "FirePro", "spdisplays_vendor": "ATI (0x1002)", "spdisplays_vram": "4 GB"},
+    ],
+)
+def test_mac_amd_recognised_by_radeon_or_pci_id(
+    entry: dict, monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """Apple names some AMD cards without 'AMD' ('Radeon Pro 560X'); older text gives the PCI ID."""
+    _mac_with(monkeypatch, {"sppci_model": "Intel UHD Graphics 630"}, entry)
+    assert metrics_mod.detect_gpu()["vendor"] == "amd"
+
+
+def test_mac_framebuffer_sized_vram_is_not_measured(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """A card with no macOS driver reports only its boot framebuffer: not its memory."""
+    _mac_with(
+        monkeypatch,
+        {"sppci_model": "AMD Radeon RX 7900 XTX", "spdisplays_vram": "7 MB"},
+    )
+    info = metrics_mod.detect_gpu()
+    assert info["vendor"] == "amd"
+    assert info["vram_total_gb"] is None
+    assert compute_unified_memory_gb(info) is None
+
+
+def test_mac_nvidia_card_is_not_labelled_cuda(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """macOS cannot run CUDA: a Mac's NVIDIA card is local:other, like its AMD card."""
+    _mac_with(monkeypatch, {"sppci_model": "NVIDIA GeForce GTX 1080", "spdisplays_vram": "8 GB"})
+    info = metrics_mod.detect_gpu()
+    assert info["vendor"] == "nvidia"
+    assert compute_host_class(info) == "local:other"
+
+
+def test_mac_probes_share_one_system_profiler_answer(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """A cold first call that times out must not let a second call bring back iGPU + host RAM."""
+    _no_gpu_anywhere(monkeypatch)
+    monkeypatch.setattr(metrics_mod, "_detect_mac_discrete", _REAL_MAC_DISCRETE)
+    monkeypatch.setattr(metrics_mod, "_detect_intel_igpu", _REAL_INTEL_IGPU)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    calls = []
+    good = _spdisplays(
+        {"sppci_model": "Intel UHD Graphics 630"},
+        {"sppci_model": "AMD Radeon Pro 5500M", "spdisplays_vram": "8 GB"},
+    )
+
+    def first_times_out(cmd, **kw):
+        calls.append(cmd)
+        if len(calls) == 1:
+            raise subprocess.TimeoutExpired(cmd, 5)
+        return subprocess.CompletedProcess(cmd, 0, stdout=good, stderr="")
+
+    monkeypatch.setattr(metrics_mod.subprocess, "run", first_times_out)
+    info = metrics_mod.detect_gpu()
+    assert len(calls) == 1, "one system_profiler call per detection pass"
+    assert info["vendor"] == "unknown", "an unread profiler is NOT an Intel-only Mac"
+    assert compute_unified_memory_gb(info) is None
+
+
+def test_detection_passes_do_not_overlap(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """CodeRabbit on #219: a second thread's pass must not start inside the first one.
+
+    Pass A blocks inside system_profiler; pass B (another thread) must not reach
+    system_profiler until A has finished, so B can never reset A's shared answer mid-pass.
+    """
+    import threading as _threading
+
+    _no_gpu_anywhere(monkeypatch)
+    monkeypatch.setattr(metrics_mod, "_detect_mac_discrete", _REAL_MAC_DISCRETE)
+    monkeypatch.setattr(metrics_mod, "_detect_intel_igpu", _REAL_INTEL_IGPU)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    entered = _threading.Event()
+    release = _threading.Event()
+    calls: list[str] = []
+    good = _spdisplays({"sppci_model": "AMD Radeon Pro 5500M", "spdisplays_vram": "8 GB"})
+
+    def blocking_run(cmd, **kw):
+        calls.append(_threading.current_thread().name)
+        if len(calls) == 1:
+            entered.set()
+            assert release.wait(5), "test deadlocked"
+        return subprocess.CompletedProcess(cmd, 0, stdout=good, stderr="")
+
+    monkeypatch.setattr(metrics_mod.subprocess, "run", blocking_run)
+    results: dict[str, dict] = {}
+    a = _threading.Thread(target=lambda: results.update(A=metrics_mod.detect_gpu()), name="A")
+    b = _threading.Thread(target=lambda: results.update(B=metrics_mod.detect_gpu()), name="B")
+    a.start()
+    assert entered.wait(5)
+    b.start()
+    b.join(0.3)
+    assert calls == ["A"], "pass B started while pass A was still inside system_profiler"
+    release.set()
+    a.join(5)
+    b.join(5)
+    assert results["A"]["vendor"] == results["B"]["vendor"] == "amd"
+
+
+
+def test_mac_discrete_card_reports_its_vram_total_in_live_stats(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """Scott 2026-10-17: a detected Mac card's VRAM is reported, not dropped by the sampler.
+
+    Capacity was measured at detection; utilisation and VRAM in use have no macOS probe and
+    stay None (not measured), never 0.0.
+    """
+    _mac_with(
+        monkeypatch,
+        {"sppci_model": "Intel UHD Graphics 630"},
+        {"sppci_model": "AMD Radeon Pro 5500M", "spdisplays_vram": "8 GB"},
+    )
+    metrics_mod.ensure_gpu_detected()
+    assert metrics_mod.get_gpu_stats() == (None, None, 8.0)
+    assert metrics_mod.get_system_metrics()["vram_total_gb"] == 8.0
+
+
+def test_mac_discrete_card_with_unstated_vram_reports_none(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """No stated VRAM: the live total is not measured either -- never host RAM, never 0.0."""
+    _mac_with(monkeypatch, {"sppci_model": "AMD Radeon Pro 5300M"})
+    metrics_mod.ensure_gpu_detected()
+    assert metrics_mod.get_gpu_stats() == (None, None, None)
+
+
+def test_reads_after_detection_never_wait_on_the_detection_lock(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """Review 2026-10-17, finding 2: once detected, reads must not block on the lock.
+
+    Another thread holds the detection lock for the whole test; gpu_present() and
+    get_gpu_stats() must still return. This PINS a property that already held before the
+    lock existed (the once-only check returns before taking it); on the previous commit the
+    test fails only on its VRAM assertion. It guards against a future change making reads
+    take the lock. It says nothing about the FIRST detection pass, which every caller still
+    waits for (about 0.7 s on an M1 Pro, longer if a probe tool hangs to its timeout).
+    """
+    import threading as _threading
+
+    _mac_with(monkeypatch, {"sppci_model": "AMD Radeon Pro 5500M", "spdisplays_vram": "8 GB"})
+    metrics_mod.ensure_gpu_detected()
+    held, release = _threading.Event(), _threading.Event()
+
+    def hold() -> None:
+        with metrics_mod._DETECT_LOCK:
+            held.set()
+            release.wait(5)
+
+    holder = _threading.Thread(target=hold)
+    holder.start()
+    assert held.wait(5)
+    out: dict[str, object] = {}
+    reader = _threading.Thread(
+        target=lambda: out.update(present=metrics_mod.gpu_present(),
+                                  stats=metrics_mod.get_gpu_stats())
+    )
+    reader.start()
+    reader.join(1)
+    blocked = reader.is_alive()
+    release.set()
+    holder.join(5)
+    reader.join(5)
+    assert not blocked, "a read after detection waited on the detection lock"
+    assert out == {"present": True, "stats": (None, None, 8.0)}
+
+
+
+# ---------------------------------------------------------------------------
+# hermia-ly6f: an Apple GPU is reported only on positive evidence -- system_profiler lists an
+# Apple display device, or the machine is bare-metal Apple Silicon (not a VM), which always
+# has one. The name is never invented ("Apple Silicon"). Unified memory: hw.memsize, with a
+# psutil fallback that measures the SAME pool (verified equal on an M1 Pro, 2026-10-17).
+
+
+def _apple_host(
+    monkeypatch: pytest.MonkeyPatch, *, sp: str | None, vmm: str | None, brand: str | None
+) -> None:
+    """An arm64 darwin host. ``sp`` is system_profiler stdout (None: the call fails);
+    ``vmm`` is kern.hv_vmm_present and ``brand`` machdep.cpu.brand_string (None: unreadable)."""
+    monkeypatch.setattr(metrics_mod, "_detect_nvidia", lambda: (False, "", 0.0, 0.0))
+    monkeypatch.setattr(metrics_mod, "_find_amdgpu_dev", lambda: None)
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr(metrics_mod.platform, "machine", lambda: "arm64")
+
+    def fake_run(cmd, **kw):
+        if cmd[:2] == ["system_profiler", "SPDisplaysDataType"]:
+            if sp is None:
+                raise subprocess.TimeoutExpired(cmd, 5)
+            return subprocess.CompletedProcess(cmd, 0, stdout=sp, stderr="")
+        if cmd == ["sysctl", "-n", "hw.memsize"]:
+            return subprocess.CompletedProcess(cmd, 0, stdout=str(16 * 1024**3) + "\n", stderr="")
+        if cmd == ["sysctl", "-n", "kern.hv_vmm_present"]:
+            if vmm is None:
+                return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="unknown oid")
+            return subprocess.CompletedProcess(cmd, 0, stdout=vmm + "\n", stderr="")
+        if cmd == ["sysctl", "-n", "machdep.cpu.brand_string"]:
+            if brand is None:
+                return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="unknown oid")
+            return subprocess.CompletedProcess(cmd, 0, stdout=brand + "\n", stderr="")
+        raise FileNotFoundError(cmd[0])
+
+    monkeypatch.setattr(metrics_mod.subprocess, "run", fake_run)
+
+
+def test_bare_metal_apple_silicon_keeps_its_gpu_when_system_profiler_fails(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """A real M1 whose system_profiler times out still has its GPU, named from the chip."""
+    _apple_host(monkeypatch, sp=None, vmm="0", brand="Apple M1 Pro")
+    info = metrics_mod.detect_gpu()
+    assert (info["vendor"], info["card"], info["vram_total_gb"]) == ("apple", "Apple M1 Pro", 16.0)
+    assert compute_host_class(info) == "local:metal/m1"
+
+
+def test_vm_without_a_display_device_reports_no_gpu(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """hermia-ly6f: a macOS VM whose system_profiler lists nothing has no GPU to claim."""
+    _apple_host(monkeypatch, sp=_spdisplays(), vmm="1", brand="Apple M1 Pro")
+    info = metrics_mod.detect_gpu()
+    assert info["vendor"] == "unknown", "no evidence of a GPU: not probed, never invented"
+    assert info["vram_total_gb"] is None
+    assert metrics_mod._APPLE_SILICON is False
+
+
+def test_vm_with_failed_system_profiler_reports_no_gpu(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    _apple_host(monkeypatch, sp=None, vmm="1", brand="Apple M1 Pro")
+    assert metrics_mod.detect_gpu()["vendor"] == "unknown"
+
+
+def test_unknown_vm_status_and_failed_profiler_reports_no_gpu(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """Neither source of evidence answered: claim nothing."""
+    _apple_host(monkeypatch, sp=None, vmm=None, brand="Apple M1 Pro")
+    assert metrics_mod.detect_gpu()["vendor"] == "unknown"
+
+
+def test_vm_with_a_paravirtual_display_reports_it(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """A VM that DOES list an Apple display device has one; its listed name is used."""
+    _apple_host(
+        monkeypatch,
+        sp=_spdisplays({"sppci_model": "Apple Paravirtual device",
+                        "spdisplays_vendor": "sppci_vendor_Apple"}),
+        vmm="1", brand="Apple M2",
+    )
+    info = metrics_mod.detect_gpu()
+    assert (info["vendor"], info["card"]) == ("apple", "Apple Paravirtual device")
+
+
+@pytest.mark.parametrize("vmm, card", [("0", "Apple M1 Pro"), ("1", "")])
+def test_apple_display_without_a_model_name(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None, vmm: str, card: str
+) -> None:
+    """The listing names the vendor but not the model. On bare metal the chip's own name is
+    used (so the host class stays local:metal/m1); in a VM it could name the host's chip."""
+    _apple_host(
+        monkeypatch, sp=_spdisplays({"spdisplays_vendor": "sppci_vendor_Apple"}),
+        vmm=vmm, brand="Apple M1 Pro",
+    )
+    info = metrics_mod.detect_gpu()
+    assert (info["vendor"], info["card"]) == ("apple", card)
+
+
+def test_apple_gpu_name_is_never_invented(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """Bare metal, but no profiler and no brand string: blank name, not 'Apple Silicon'."""
+    _apple_host(monkeypatch, sp=None, vmm="0", brand=None)
+    info = metrics_mod.detect_gpu()
+    assert info["vendor"] == "apple"
+    assert info["card"] == ""
+
+
+
+def test_mac_tools_are_found_without_usr_sbin_on_path(
+    monkeypatch: pytest.MonkeyPatch, clean_gpu_globals: None
+) -> None:
+    """cron/launchd give PATH=/usr/bin:/bin; sysctl and system_profiler live in /usr/sbin.
+
+    Review 2026-10-17: a bare-metal M1 run from cron lost its GPU (no evidence could be read).
+    """
+    monkeypatch.setenv("PATH", "/usr/bin:/bin")
+    seen: list[str] = []
+
+    def fake_run(cmd, **kw):
+        seen.append(kw.get("env", {}).get("PATH", ""))
+        raise FileNotFoundError(cmd[0])
+
+    monkeypatch.setattr(metrics_mod.subprocess, "run", fake_run)
+    metrics_mod._sysctl("hw.memsize")
+    metrics_mod._spdisplays_entries()
+    metrics_mod._gpu_stats_apple_silicon()  # ioreg: the live utilisation / VRAM-in-use probe
+    assert len(seen) == 3
+    assert all("/usr/sbin" in p.split(":") and "/usr/bin" in p.split(":") for p in seen)

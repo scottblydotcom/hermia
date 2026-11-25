@@ -8,7 +8,9 @@
 # analysis — every joblib.load / numpy allow_pickle=True fires regardless of data
 # source. Suppress a reviewed, trusted call with `# nosemgrep: <rule-id>` + reason.
 # Not covered: a bare local/attr named `_pickle` or `np` (name collision), a reduce
-# tuple built in a variable then returned, and `np.load(**opts)` kwargs unpacking.
+# tuple built in a variable then returned, `np.load(**opts)` kwargs unpacking, and
+# dynamic dispatch/import (getattr, __import__, importlib) — a static-pattern limit
+# shared with Bandit; dynamic sinks are a runtime concern, not a SAST one.
 rules:
   - id: untrusted-deser-load-unflagged-by-bandit
     message: >-
