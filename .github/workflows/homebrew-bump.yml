@@ -4,10 +4,18 @@ name: Bump Homebrew Formula
 # trigger) and opens a PR against scottblydotcom/homebrew-tap updating the
 # hermia formula's url/sha256 to the just-published release.
 #
-# Requires a repo secret HOMEBREW_TAP_TOKEN: a fine-grained PAT scoped to
-# scottblydotcom/homebrew-tap only, with Contents: read/write (to push the branch)
-# AND Pull requests: read/write (to open the PR). The default GITHUB_TOKEN cannot
-# push to a different repository.
+# Authenticates as a GitHub App installed on scottblydotcom/homebrew-tap ONLY, with
+# Contents: read/write (push the branch) and Pull requests: read/write (open the PR).
+# Each run mints a one-hour token for that single repository, so there is no
+# long-lived token to expire (the PAT this replaced lapsed and failed the v0.2.3 bump).
+# The default GITHUB_TOKEN cannot push to a different repository.
+#
+# Requires, in this repo's Settings -> Secrets and variables -> Actions:
+#   variable HOMEBREW_APP_CLIENT_ID    the App's Client ID
+#   secret   HOMEBREW_APP_PRIVATE_KEY  a private key generated for the App (.pem contents)
+#
+# Commits, the push and the PR are all made as the App's bot user, so the three
+# identities agree.
 #
 # Only bumps the main package resource (url + sha256). Transitive
 # dependency resources (textual, rich, etc.) are not re-pinned here — if
@@ -28,9 +36,10 @@ jobs:
     steps:
       - name: Determine version from tag
         id: version
+        env:
+          TAG: ${{ github.event.workflow_run.head_branch }}
         run: |
           set -euo pipefail
-          TAG="${{ github.event.workflow_run.head_branch }}"
           if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Unexpected tag format: $TAG" >&2
             exit 1
@@ -69,11 +78,22 @@ jobs:
           echo "Gave up waiting for hermia ${VERSION} sdist on PyPI" >&2
           exit 1
 
+      - name: Mint a token for homebrew-tap
+        id: app-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510  # v3.3.0
+        with:
+          client-id: ${{ vars.HOMEBREW_APP_CLIENT_ID }}
+          private-key: ${{ secrets.HOMEBREW_APP_PRIVATE_KEY }}
+          owner: scottblydotcom
+          repositories: homebrew-tap
+          permission-contents: write
+          permission-pull-requests: write
+
       - name: Checkout homebrew-tap
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           repository: scottblydotcom/homebrew-tap
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
           persist-credentials: true
 
       - name: Update formula
@@ -92,8 +112,14 @@ jobs:
           text = open(path).read()
 
           head, sep, rest = text.partition("\n  resource ")
-          head = re.sub(r'url ".*"\n', f'url "{url}"\n', head, count=1)
-          head = re.sub(r'sha256 ".*"\n', f'sha256 "{sha256}"\n', head, count=1)
+          # Fail loudly if the formula's shape changed: a pattern that matches nothing
+          # would otherwise leave the file untouched, and the next step would report
+          # "already at this release" and go green with Homebrew stuck (hermia-3joa).
+          head, n_url = re.subn(r'url ".*"\n', f'url "{url}"\n', head, count=1)
+          head, n_sha = re.subn(r'sha256 ".*"\n', f'sha256 "{sha256}"\n', head, count=1)
+          if n_url != 1 or n_sha != 1:
+              sys.exit(f"{path}: expected one url and one sha256 line before the first "
+                       f"resource; matched url={n_url} sha256={n_sha}")
 
           open(path, "w").write(head + sep + rest)
           EOF
@@ -115,19 +141,30 @@ jobs:
       - name: Open PR
         if: steps.changed.outputs.changed == 'true'
         env:
-          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          git config user.name "hermia-release-bot"
-          git config user.email "actions@users.noreply.github.com"
+          # Commit as the App's bot user, the same identity that pushes and opens the PR.
+          BOT="${APP_SLUG}[bot]"
+          BOT_ID="$(gh api "/users/${BOT}" --jq .id)"
+          git config user.name "$BOT"
+          git config user.email "${BOT_ID}+${BOT}@users.noreply.github.com"
           BRANCH="bump-hermia-${VERSION}"
           git checkout -b "$BRANCH"
           git add Formula/hermia.rb
           git commit -m "hermia ${VERSION}"
-          git push origin "$BRANCH"
-          gh pr create \
-            --title "hermia ${VERSION}" \
-            --body "Automated bump to hermia ${VERSION}, triggered by scottblydotcom/hermia's release workflow." \
-            --base main \
-            --head "$BRANCH"
+          # The branch is this workflow's own. A re-run after a failed PR step finds it
+          # already pushed; overwrite it rather than fail on a non-fast-forward.
+          git push --force origin "$BRANCH"
+          if gh pr view "$BRANCH" -R scottblydotcom/homebrew-tap --json state --jq .state \
+              | grep -qx OPEN; then
+            echo "PR for ${BRANCH} already open; branch updated."
+          else
+            gh pr create -R scottblydotcom/homebrew-tap \
+              --title "hermia ${VERSION}" \
+              --body "Automated bump to hermia ${VERSION}, triggered by scottblydotcom/hermia's release workflow." \
+              --base main \
+              --head "$BRANCH"
+          fi
