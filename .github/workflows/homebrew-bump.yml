@@ -25,10 +25,18 @@ on:
   workflow_run:
     workflows: ["Publish to PyPI"]
     types: [completed]
+  # Manual run for a release already on PyPI: to test the App, or to retry a failed bump.
+  # (A workflow_run trigger always uses the default branch's copy of this file, so a
+  # re-run of an old run would replay the old workflow.)
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag already on PyPI, e.g. v0.2.3"
+        required: true
 
 jobs:
   bump-formula:
-    if: github.event.workflow_run.conclusion == 'success'
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -37,7 +45,7 @@ jobs:
       - name: Determine version from tag
         id: version
         env:
-          TAG: ${{ github.event.workflow_run.head_branch }}
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.version || github.event.workflow_run.head_branch }}
         run: |
           set -euo pipefail
           if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
